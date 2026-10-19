@@ -23,6 +23,27 @@ public sealed record AuditEvidence(string Id, string Sha256, string Summary, Dat
 
 public sealed record AuditControlResult(string ControlId, string State, string Summary, string Confidence);
 
+public sealed record SecurityScoreComponent(
+    string Id,
+    string Description,
+    decimal Value,
+    decimal Weight,
+    bool InfluencesScore);
+
+public sealed record SecurityScore(
+    Guid ProjectId,
+    string AlgorithmVersion,
+    decimal? Score,
+    string Confidence,
+    decimal CoveragePercentage,
+    int AuditsConsidered,
+    int AuditsBlockedByPolicy,
+    int ControlsEvaluated,
+    int ControlsPassed,
+    string Formula,
+    IReadOnlyList<SecurityScoreComponent> Components,
+    IReadOnlyList<string> Limitations);
+
 public sealed class Audit
 {
     public Audit(

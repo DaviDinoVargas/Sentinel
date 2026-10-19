@@ -67,4 +67,12 @@ public sealed class ProjectsController : ControllerBase
             return BadRequest(new ProblemDetails { Title = "Solicitação inválida", Detail = exception.Message, Status = StatusCodes.Status400BadRequest });
         }
     }
+
+    [HttpGet("{projectId:guid}/security-score")]
+    [ProducesResponseType(typeof(SecurityScore), StatusCodes.Status200OK)]
+    public ActionResult<SecurityScore> GetSecurityScore(Guid projectId)
+    {
+        var score = _auditService.GetSecurityScore(projectId);
+        return score is null ? NotFound() : Ok(score);
+    }
 }

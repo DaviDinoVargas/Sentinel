@@ -10,6 +10,7 @@ public interface ISentinelStore
     IReadOnlyList<AuthorizedScope> GetScopes(Guid projectId);
     Audit SaveAudit(Audit audit);
     Audit? FindAudit(Guid auditId);
+    IReadOnlyList<Audit> GetAudits(Guid projectId);
 }
 
 // P0 fallback used only while PostgreSQL is unavailable. It is intentionally explicit so it is not mistaken for production persistence.
@@ -58,4 +59,9 @@ public sealed class DevelopmentInMemorySentinelStore : ISentinelStore
     }
 
     public Audit? FindAudit(Guid auditId) => _audits.GetValueOrDefault(auditId);
+
+    public IReadOnlyList<Audit> GetAudits(Guid projectId) => _audits.Values
+        .Where(audit => audit.ProjectId == projectId)
+        .OrderBy(audit => audit.CreatedAtUtc)
+        .ToArray();
 }

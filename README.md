@@ -34,11 +34,20 @@ dotnet test .\tests\Sentinel.IntegrationTests\Sentinel.IntegrationTests.csproj -
 
 A suíte valida o fluxo autorizado com persistência, o bloqueio fail-closed de alvo fora do escopo e a disponibilidade do banco. Ela não executa testes contra alvos externos.
 
+## Security Score do P0
+
+`GET /api/v1/projects/{projectId}/security-score` retorna um indicador agregado, com versão do algoritmo, fórmula, componentes, cobertura, confiança e limitações.
+
+Nesta fase, o único controle (`SIM-001`) é demonstrativo e não testa o alvo. Por isso, quando houver controles avaliados, a fórmula aplica um teto de **20/100** à taxa de controles aprovados e informa a confiança `DemonstrationOnly`. Se não houver controles avaliados, a nota é `null` e a confiança é `NotAssessed`.
+
+O indicador não é uma certificação nem garantia de ausência de vulnerabilidades. Auditorias bloqueadas pela política são exibidas separadamente e não contam como avaliação de segurança do alvo.
+
 ## Endpoints disponíveis
 
 - `POST /api/v1/projects`
 - `POST /api/v1/projects/{projectId}/scopes`
 - `POST /api/v1/projects/{projectId}/audits`
+- `GET /api/v1/projects/{projectId}/security-score`
 - `GET /api/v1/audits/{auditId}`
 - `GET /api/v1/audits/{auditId}/report`
 - `GET /api/v1/health`

@@ -44,6 +44,17 @@ public sealed class AuditApiTests : IClassFixture<SentinelApiFactory>
         Assert.Equal(AuditState.Completed, report.State);
         Assert.Single(report.Evidence);
         Assert.Matches("^[a-f0-9]{64}$", report.Evidence[0].Sha256);
+
+        var scoreResponse = await _client.GetAsync($"/api/v1/projects/{project.Id}/security-score");
+        Assert.Equal(HttpStatusCode.OK, scoreResponse.StatusCode);
+        var score = await ReadRequiredAsync<SecurityScore>(scoreResponse);
+        Assert.Equal("P0-1.0", score.AlgorithmVersion);
+        Assert.Equal(20m, score.Score);
+        Assert.Equal("DemonstrationOnly", score.Confidence);
+        Assert.Equal(100m, score.CoveragePercentage);
+        Assert.Equal(1, score.ControlsEvaluated);
+        Assert.Equal(1, score.ControlsPassed);
+        Assert.Contains("mínimo", score.Formula);
     }
 
     [Fact]
@@ -63,6 +74,14 @@ public sealed class AuditApiTests : IClassFixture<SentinelApiFactory>
         var persistedAudit = await _client.GetAsync($"/api/v1/audits/{audit.Id}");
         Assert.Equal(HttpStatusCode.OK, persistedAudit.StatusCode);
         Assert.Equal(AuditState.Blocked, (await ReadRequiredAsync<Audit>(persistedAudit)).State);
+
+        var scoreResponse = await _client.GetAsync($"/api/v1/projects/{project.Id}/security-score");
+        Assert.Equal(HttpStatusCode.OK, scoreResponse.StatusCode);
+        var score = await ReadRequiredAsync<SecurityScore>(scoreResponse);
+        Assert.Null(score.Score);
+        Assert.Equal("NotAssessed", score.Confidence);
+        Assert.Equal(1, score.AuditsBlockedByPolicy);
+        Assert.Equal(0m, score.CoveragePercentage);
     }
 
     [Fact]

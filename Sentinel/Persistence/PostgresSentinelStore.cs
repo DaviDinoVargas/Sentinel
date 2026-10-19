@@ -117,6 +117,19 @@ public sealed class PostgresSentinelStore : ISentinelStore
         return row is null ? null : ToAudit(row);
     }
 
+    public IReadOnlyList<Audit> GetAudits(Guid projectId)
+    {
+        using var db = _dbContextFactory.CreateDbContext();
+        return db.Audits.AsNoTracking()
+            .Where(audit => audit.ProjectId == projectId)
+            .Include(audit => audit.Controls)
+            .Include(audit => audit.Evidence)
+            .OrderBy(audit => audit.CreatedAtUtc)
+            .AsEnumerable()
+            .Select(ToAudit)
+            .ToArray();
+    }
+
     private static SentinelProject ToProject(ProjectRow row) =>
         new(row.Id, row.Name, row.Description, row.CreatedAtUtc);
 

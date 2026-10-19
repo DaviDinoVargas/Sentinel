@@ -126,6 +126,80 @@ public sealed class AuditService
 
     public Audit? FindAudit(Guid auditId) => _store.FindAudit(auditId);
 
+    public SecurityScore? GetSecurityScore(Guid projectId)
+    {
+        if (_store.FindProject(projectId) is null)
+        {
+            return null;
+        }
+
+        var audits = _store.GetAudits(projectId);
+        var controls = audits.SelectMany(audit => audit.Controls).ToArray();
+        var evaluatedControls = controls.Where(control =>
+            string.Equals(control.State, "Passed", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(control.State, "Failed", StringComparison.OrdinalIgnoreCase)).ToArray();
+        var passedControls = evaluatedControls.Count(control =>
+            string.Equals(control.State, "Passed", StringComparison.OrdinalIgnoreCase));
+        var auditsWithControls = audits.Count(audit => audit.Controls.Count > 0);
+        var coverage = audits.Count == 0
+            ? 0m
+            : decimal.Round((decimal)auditsWithControls / audits.Count * 100m, 2);
+        var rawScore = evaluatedControls.Length == 0
+            ? (decimal?)null
+            : decimal.Round((decimal)passedControls / evaluatedControls.Length * 100m, 2);
+        var demonstrationOnly = evaluatedControls.Length > 0 && evaluatedControls.All(control =>
+            string.Equals(control.Confidence, "DemonstrationOnly", StringComparison.OrdinalIgnoreCase));
+        var score = rawScore is null
+            ? null
+            : demonstrationOnly ? Math.Min(rawScore.Value, 20m) : rawScore;
+        var blockedAudits = audits.Count(audit => audit.State == AuditState.Blocked);
+        var limitations = new List<string>
+        {
+            "O P0 executa somente o controle simulado SIM-001 e não realiza chamadas ou testes contra o alvo.",
+            "O score não é certificação nem garantia de ausência de vulnerabilidades."
+        };
+
+        if (evaluatedControls.Length == 0)
+        {
+            limitations.Add("Não há controles com resultado aprovado ou reprovado para calcular uma pontuação.");
+        }
+
+        if (blockedAudits > 0)
+        {
+            limitations.Add("Auditorias bloqueadas pela política não avaliam a segurança do alvo e reduzem a cobertura observada.");
+        }
+
+        return new SecurityScore(
+            projectId,
+            "P0-1.0",
+            score,
+            evaluatedControls.Length == 0 ? "NotAssessed" : demonstrationOnly ? "DemonstrationOnly" : "Observed",
+            coverage,
+            audits.Count,
+            blockedAudits,
+            evaluatedControls.Length,
+            passedControls,
+            demonstrationOnly
+                ? "score = mínimo(taxa de controles aprovados × 100, 20)"
+                : "score = taxa de controles aprovados × 100",
+            new[]
+            {
+                new SecurityScoreComponent(
+                    "pass-rate",
+                    "Taxa de controles avaliados com estado Passed.",
+                    rawScore ?? 0m,
+                    1m,
+                    true),
+                new SecurityScoreComponent(
+                    "p0-demonstration-cap",
+                    "Teto aplicado porque todos os controles avaliados são apenas demonstrativos no P0.",
+                    demonstrationOnly ? 20m : 100m,
+                    0m,
+                    demonstrationOnly)
+            },
+            limitations);
+    }
+
     public AuditReport? GetReport(Guid auditId)
     {
         var audit = FindAudit(auditId);
