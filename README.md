@@ -4,10 +4,12 @@ API da plataforma Sentinel. Fluxo:
 
 `projeto → escopo autorizado → auditoria (fila) → worker executa controles reais contra o alvo → evidência → relatório`
 
-A auditoria nasce no estado `Queued` e é processada de forma assíncrona por um `AuditWorker` (um ou mais, mesmo em mais de uma instância da API), que reavalia a política de escopo no momento da execução — fail-closed mesmo sob redelivery. Hoje o worker executa dois controles por auditoria:
+A auditoria nasce no estado `Queued` e é processada de forma assíncrona por um `AuditWorker` (um ou mais, mesmo em mais de uma instância da API — comprovado sem duplicação em `WorkerDuplicationTests`), que reavalia a política de escopo no momento da execução — fail-closed mesmo sob redelivery. Hoje o worker executa quatro controles por auditoria, todos passivos (uma única requisição HTTP, sem payload, sem tentar explorar nada):
 
 - `SIM-001`: fixture determinística do pipeline; não faz nenhuma chamada contra o alvo. Usada só para validar fila/worker (ADR-0011).
-- `WEB-CFG-01` (`Controls-Catalog.md`, grupo D): controle **real e passivo**. Faz uma única requisição HTTP `GET` contra o alvo autorizado e verifica a presença de `Strict-Transport-Security`, `X-Content-Type-Options` e `Content-Security-Policy`. Não envia payload nem tenta explorar nada.
+- `WEB-CFG-01` (`Controls-Catalog.md`, grupo D): **real**. Verifica a presença de `Strict-Transport-Security`, `X-Content-Type-Options` e `Content-Security-Policy` na resposta.
+- `WEB-CFG-02`: **real**. Envia a requisição com um cabeçalho `Origin` propositalmente estranho e verifica se o alvo reflete essa origem em `Access-Control-Allow-Origin` (pior ainda se combinado com `Access-Control-Allow-Credentials: true`).
+- `WEB-CFG-09`: **real**. Verifica se a resposta expõe cabeçalhos de fingerprinting de tecnologia (`Server`, `X-Powered-By`, `X-AspNet-Version`, `X-AspNetMvc-Version`).
 
 Fora da ação `simulated` (controles passivos de baixo risco), qualquer alvo fora de um escopo autorizado e válido é bloqueado antes de qualquer execução.
 
@@ -38,14 +40,14 @@ A tabela `audit_jobs` guarda o job de cada auditoria. `PostgresSentinelStore.Lea
 
 ## Testes de integração
 
-Os testes usam um banco PostgreSQL isolado chamado `sentinel_test` e um servidor HTTP de laboratório em loopback (`LabTargetServer`, apenas no projeto de testes) como alvo real do controle `WEB-CFG-01`. Com o banco local disponível, execute:
+Os testes usam um banco PostgreSQL isolado chamado `sentinel_test` e um servidor HTTP de laboratório em loopback (`LabTargetServer`, apenas no projeto de testes) como alvo real dos controles HTTP. Com o banco local disponível, execute:
 
 ```powershell
 $env:SENTINEL_POSTGRES_PASSWORD = "<senha local do PostgreSQL>"
 dotnet test .\tests\Sentinel.IntegrationTests\Sentinel.IntegrationTests.csproj -c Integration
 ```
 
-A suíte valida: o fluxo autorizado com persistência e execução real do controle `WEB-CFG-01` (caso aprovado e caso reprovado por cabeçalhos ausentes), o bloqueio fail-closed de alvo fora do escopo, e a disponibilidade do banco. Ela não executa testes contra alvos externos — só contra o servidor de laboratório do próprio processo de teste.
+A suíte valida: o fluxo autorizado com persistência e execução real dos quatro controles; o caso reprovado de `WEB-CFG-01` (cabeçalhos ausentes) e de `WEB-CFG-02` (CORS permissivo refletindo a origem com credenciais); o bloqueio fail-closed de alvo fora do escopo; a disponibilidade do banco; e que duas instâncias de API/worker não duplicam a execução de auditorias concorrentes (`WorkerDuplicationTests`). Ela não executa testes contra alvos externos — só contra o servidor de laboratório do próprio processo de teste.
 
 ## Security Score do P0
 

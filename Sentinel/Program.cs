@@ -37,8 +37,12 @@ builder.Services.AddSingleton<ScopePolicyEngine>();
 builder.Services.AddSingleton<AuditService>();
 
 builder.Services.AddHttpClient(nameof(HttpSecurityHeadersPlugin));
+builder.Services.AddHttpClient(nameof(CorsReflectionPlugin));
+builder.Services.AddHttpClient(nameof(TechFingerprintHeadersPlugin));
 builder.Services.AddSingleton<IAuditPlugin, Sim001FixturePlugin>();
 builder.Services.AddSingleton<IAuditPlugin, HttpSecurityHeadersPlugin>();
+builder.Services.AddSingleton<IAuditPlugin, CorsReflectionPlugin>();
+builder.Services.AddSingleton<IAuditPlugin, TechFingerprintHeadersPlugin>();
 builder.Services.Configure<AuditWorkerOptions>(builder.Configuration.GetSection("AuditWorker"));
 builder.Services.AddHostedService<AuditWorker>();
 

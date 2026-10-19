@@ -52,9 +52,23 @@ public sealed class LabTargetServer : IDisposable
             context.Response.Headers.Add("Content-Security-Policy", "default-src 'self'");
         }
 
+        if (path.Contains("cors-vulneravel", StringComparison.OrdinalIgnoreCase))
+        {
+            // Reflete qualquer Origin e libera credenciais: combinação clássica e
+            // perigosa que o controle WEB-CFG-02 precisa detectar (caso reprovado real).
+            var requestedOrigin = context.Request.Headers["Origin"];
+            if (!string.IsNullOrEmpty(requestedOrigin))
+            {
+                context.Response.Headers.Add("Access-Control-Allow-Origin", requestedOrigin);
+                context.Response.Headers.Add("Access-Control-Allow-Credentials", "true");
+            }
+        }
+
         // Qualquer outro caminho (ex.: /area-vulneravel) não recebe cabeçalhos de
         // segurança, propositalmente, para que o controle WEB-CFG-01 tenha um caso real
         // que o reprova (Finding-Model.md: toda verificação precisa poder falhar).
+        // O HttpListener já envia "Server: Microsoft-HTTPAPI/2.0" por padrão em todas as
+        // respostas, o que também dá um caso real reprovado para o WEB-CFG-09.
         context.Response.StatusCode = 200;
         context.Response.Close();
     }

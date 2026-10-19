@@ -89,9 +89,9 @@ public sealed class WorkerDuplicationTests : IAsyncLifetime
         Assert.Equal(auditCount, completed.Count);
         Assert.All(completed, audit => Assert.Equal(AuditState.Completed, audit.State));
         // O ponto central do teste: se as duas instâncias tivessem processado a mesma
-        // auditoria, cada uma teria 4 controles (2 plugins x 2 execuções) em vez de 2.
-        Assert.All(completed, audit => Assert.Equal(2, audit.Controls.Count));
-        Assert.All(completed, audit => Assert.Equal(2, audit.Evidence.Count));
+        // auditoria, cada uma teria 8 controles (4 plugins x 2 execuções) em vez de 4.
+        Assert.All(completed, audit => Assert.Equal(4, audit.Controls.Count));
+        Assert.All(completed, audit => Assert.Equal(4, audit.Evidence.Count));
     }
 
     private static async Task<T> ReadRequiredAsync<T>(HttpResponseMessage response)
