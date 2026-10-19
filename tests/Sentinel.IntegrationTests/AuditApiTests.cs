@@ -54,12 +54,12 @@ public sealed class AuditApiTests : IClassFixture<SentinelApiFactory>
         // estado até o worker concluir (ou falhar, o que reprovaria o teste abaixo).
         var audit = await PollAuditUntilCompletedAsync(queuedAudit.Id);
         Assert.Equal(AuditState.Completed, audit.State);
-        // SIM-001 (fixture) + WEB-CFG-01 (cabeçalhos) + WEB-CFG-02 (CORS) + WEB-CFG-09
-        // (fingerprinting). O HttpListener de teste sempre envia "Server:
-        // Microsoft-HTTPAPI/2.0", então WEB-CFG-09 reprova mesmo em /area-segura — é um
-        // caso real, não simulado.
-        Assert.Equal(4, audit.Controls.Count);
-        Assert.Equal(4, audit.Evidence.Count);
+        // SIM-001 (fixture) + WEB-CFG-01 (cabeçalhos) + WEB-CFG-02 (CORS) + WEB-CFG-04
+        // (erro/stack trace) + WEB-CFG-09 (fingerprinting). O HttpListener de teste
+        // sempre envia "Server: Microsoft-HTTPAPI/2.0", então WEB-CFG-09 reprova mesmo em
+        // /area-segura — é um caso real, não simulado.
+        Assert.Equal(5, audit.Controls.Count);
+        Assert.Equal(5, audit.Evidence.Count);
 
         var fixtureControl = Assert.Single(audit.Controls, control => control.ControlId == "SIM-001");
         Assert.Equal("Passed", fixtureControl.State);
@@ -73,6 +73,11 @@ public sealed class AuditApiTests : IClassFixture<SentinelApiFactory>
         var corsControl = Assert.Single(audit.Controls, control => control.ControlId == "WEB-CFG-02");
         Assert.Equal("Passed", corsControl.State);
 
+        // /area-segura responde HTTP 200, não 5xx: WEB-CFG-04 não tem erro para avaliar.
+        var errorControl = Assert.Single(audit.Controls, control => control.ControlId == "WEB-CFG-04");
+        Assert.Equal("Inconclusive", errorControl.State);
+        Assert.Equal("NotAssessed", errorControl.Confidence);
+
         var fingerprintControl = Assert.Single(audit.Controls, control => control.ControlId == "WEB-CFG-09");
         Assert.Equal("Failed", fingerprintControl.State);
         Assert.Contains("Server", fingerprintControl.Summary);
@@ -81,7 +86,7 @@ public sealed class AuditApiTests : IClassFixture<SentinelApiFactory>
         Assert.Equal(HttpStatusCode.OK, reportResponse.StatusCode);
         var report = await ReadRequiredAsync<AuditReport>(reportResponse);
         Assert.Equal(AuditState.Completed, report.State);
-        Assert.Equal(4, report.Evidence.Count);
+        Assert.Equal(5, report.Evidence.Count);
         Assert.All(report.Evidence, evidence => Assert.Matches("^[a-f0-9]{64}$", evidence.Sha256));
 
         var scoreResponse = await _client.GetAsync($"/api/v1/projects/{project.Id}/security-score");
@@ -146,6 +151,55 @@ public sealed class AuditApiTests : IClassFixture<SentinelApiFactory>
         Assert.Equal("High", corsControl.Severity);
         Assert.Equal("Reproduced", corsControl.Confidence);
         Assert.Contains("Allow-Credentials", corsControl.Summary);
+    }
+
+    [Fact]
+    public async Task Alvo_com_erro_500_e_stack_trace_e_reprovado_pelo_controle_real()
+    {
+        var project = await CreateProjectAsync();
+        var targetBaseUrl = $"{_factory.LabTarget.BaseUri}aplicacao/";
+        var scopeResponse = await _client.PostAsJsonAsync(
+            $"/api/v1/projects/{project.Id}/scopes",
+            new CreateScopeRequest(targetBaseUrl, "teste", DateTimeOffset.UtcNow.AddHours(1)));
+        Assert.Equal(HttpStatusCode.Created, scopeResponse.StatusCode);
+
+        var auditResponse = await _client.PostAsJsonAsync(
+            $"/api/v1/projects/{project.Id}/audits",
+            new RequestAuditRequest($"{targetBaseUrl}erro-com-stacktrace", "simulated"));
+        Assert.Equal(HttpStatusCode.Accepted, auditResponse.StatusCode);
+        var queuedAudit = await ReadRequiredAsync<Audit>(auditResponse);
+
+        var audit = await PollAuditUntilCompletedAsync(queuedAudit.Id);
+        Assert.Equal(AuditState.Completed, audit.State);
+
+        var errorControl = Assert.Single(audit.Controls, control => control.ControlId == "WEB-CFG-04");
+        Assert.Equal("Failed", errorControl.State);
+        Assert.Equal("High", errorControl.Severity);
+        Assert.Equal("Reproduced", errorControl.Confidence);
+    }
+
+    [Fact]
+    public async Task Alvo_com_erro_500_sem_stack_trace_e_aprovado_pelo_controle_real()
+    {
+        var project = await CreateProjectAsync();
+        var targetBaseUrl = $"{_factory.LabTarget.BaseUri}aplicacao/";
+        var scopeResponse = await _client.PostAsJsonAsync(
+            $"/api/v1/projects/{project.Id}/scopes",
+            new CreateScopeRequest(targetBaseUrl, "teste", DateTimeOffset.UtcNow.AddHours(1)));
+        Assert.Equal(HttpStatusCode.Created, scopeResponse.StatusCode);
+
+        var auditResponse = await _client.PostAsJsonAsync(
+            $"/api/v1/projects/{project.Id}/audits",
+            new RequestAuditRequest($"{targetBaseUrl}erro-sem-stacktrace", "simulated"));
+        Assert.Equal(HttpStatusCode.Accepted, auditResponse.StatusCode);
+        var queuedAudit = await ReadRequiredAsync<Audit>(auditResponse);
+
+        var audit = await PollAuditUntilCompletedAsync(queuedAudit.Id);
+        Assert.Equal(AuditState.Completed, audit.State);
+
+        var errorControl = Assert.Single(audit.Controls, control => control.ControlId == "WEB-CFG-04");
+        Assert.Equal("Passed", errorControl.State);
+        Assert.Equal("Reproduced", errorControl.Confidence);
     }
 
     [Fact]

@@ -267,3 +267,78 @@ public sealed class TechFingerprintHeadersPlugin : IAuditPlugin
     private static string? GetHeaderValue(HttpResponseMessage response, string header) =>
         response.Headers.TryGetValues(header, out var values) ? values.FirstOrDefault() : null;
 }
+
+// WEB-CFG-04 (Controls-Catalog.md, grupo D): verificação passiva real de vazamento de
+// detalhes internos em erros. Reusa a mesma requisição GET já autorizada; só é avaliável
+// quando o próprio alvo responde com um erro de servidor (HTTP 5xx) para essa URL — nesse
+// caso, a verificação inspeciona o corpo (até um limite) por marcadores de stack trace.
+// Quando o alvo não retorna 5xx, o controle fica Inconclusive: não há evidência para
+// avaliar (Finding-Model.md: nunca tratar "não observei erro" como aprovação).
+public sealed class ErrorDisclosurePlugin : IAuditPlugin
+{
+    private const int MaxBodyCharsInspected = 8_000;
+
+    private static readonly string[] StackTraceMarkers =
+    {
+        "   at System.",
+        "   at Microsoft.",
+        ".cs:line ",
+        "StackTrace",
+        "InnerException",
+    };
+
+    private readonly IHttpClientFactory _httpClientFactory;
+
+    public ErrorDisclosurePlugin(IHttpClientFactory httpClientFactory) => _httpClientFactory = httpClientFactory;
+
+    public string ControlId => "WEB-CFG-04";
+    public string PluginId => "sentinel.http.error-disclosure";
+    public string PluginVersion => "1.0.0";
+
+    public async Task<PluginOutcome> ExecuteAsync(PluginExecutionContext context, DateTimeOffset nowUtc, CancellationToken cancellationToken)
+    {
+        var client = _httpClientFactory.CreateClient(nameof(ErrorDisclosurePlugin));
+        client.Timeout = TimeSpan.FromSeconds(10);
+
+        HttpResponseMessage response;
+        string body;
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, context.TargetUri);
+            response = await client.SendAsync(request, HttpCompletionOption.ResponseContentRead, cancellationToken);
+            var fullBody = await response.Content.ReadAsStringAsync(cancellationToken);
+            body = fullBody.Length > MaxBodyCharsInspected ? fullBody[..MaxBodyCharsInspected] : fullBody;
+        }
+        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException)
+        {
+            var inconclusiveSummary = $"Falha ao contatar o alvo autorizado: {exception.GetType().Name}.";
+            var inconclusiveEvidence = PluginEvidence.Build(ControlId, context, nowUtc, "request-failed", inconclusiveSummary);
+            var inconclusiveControl = new AuditControlResult(ControlId, "Inconclusive", inconclusiveSummary, "NotAssessed", "Info", PluginId, PluginVersion);
+            return new PluginOutcome(inconclusiveControl, inconclusiveEvidence);
+        }
+
+        using (response)
+        {
+            var statusCode = (int)response.StatusCode;
+            if (statusCode < 500)
+            {
+                var summary = $"O alvo respondeu HTTP {statusCode} (não é um erro de servidor); não há uma página de erro para avaliar vazamento de detalhes internos nesta execução.";
+                var evidence = PluginEvidence.Build(ControlId, context, nowUtc, $"status={statusCode};not-a-server-error", summary);
+                var control = new AuditControlResult(ControlId, "Inconclusive", summary, "NotAssessed", "Info", PluginId, PluginVersion);
+                return new PluginOutcome(control, evidence);
+            }
+
+            var foundMarkers = StackTraceMarkers.Where(marker => body.Contains(marker, StringComparison.Ordinal)).ToArray();
+            var state = foundMarkers.Length == 0 ? "Passed" : "Failed";
+            var severity = foundMarkers.Length == 0 ? "Info" : "High";
+            var summaryText = foundMarkers.Length == 0
+                ? $"O alvo respondeu HTTP {statusCode} sem marcadores de stack trace no corpo (até {MaxBodyCharsInspected} caracteres inspecionados)."
+                : $"O alvo respondeu HTTP {statusCode} com marcadores de stack trace no corpo, expondo detalhes internos de implementação.";
+
+            var evidenceSummary = $"status={statusCode};stack-trace-markers={(foundMarkers.Length == 0 ? "absent" : "present")}";
+            var controlEvidence = PluginEvidence.Build(ControlId, context, nowUtc, evidenceSummary, summaryText);
+            var controlResult = new AuditControlResult(ControlId, state, summaryText, "Reproduced", severity, PluginId, PluginVersion);
+            return new PluginOutcome(controlResult, controlEvidence);
+        }
+    }
+}

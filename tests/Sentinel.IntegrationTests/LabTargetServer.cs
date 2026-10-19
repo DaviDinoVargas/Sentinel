@@ -64,12 +64,38 @@ public sealed class LabTargetServer : IDisposable
             }
         }
 
+        if (path.Contains("erro-com-stacktrace", StringComparison.OrdinalIgnoreCase))
+        {
+            // Simula um erro 500 que vaza stack trace — caso reprovado real para o
+            // WEB-CFG-04 (Finding-Model.md: toda verificação precisa poder falhar).
+            context.Response.StatusCode = 500;
+            WriteBody(context, "System.InvalidOperationException: operação inválida\n   at Sentinel.Lab.Fake.Run()\n   at Sentinel.Lab.Fake.Handle() in C:\\lab\\Fake.cs:line 42");
+            return;
+        }
+
+        if (path.Contains("erro-sem-stacktrace", StringComparison.OrdinalIgnoreCase))
+        {
+            // Erro 500 genérico, sem detalhes internos: caso aprovado real para o
+            // WEB-CFG-04.
+            context.Response.StatusCode = 500;
+            WriteBody(context, "Ocorreu um erro interno. Tente novamente mais tarde.");
+            return;
+        }
+
         // Qualquer outro caminho (ex.: /area-vulneravel) não recebe cabeçalhos de
         // segurança, propositalmente, para que o controle WEB-CFG-01 tenha um caso real
         // que o reprova (Finding-Model.md: toda verificação precisa poder falhar).
         // O HttpListener já envia "Server: Microsoft-HTTPAPI/2.0" por padrão em todas as
         // respostas, o que também dá um caso real reprovado para o WEB-CFG-09.
         context.Response.StatusCode = 200;
+        context.Response.Close();
+    }
+
+    private static void WriteBody(HttpListenerContext context, string body)
+    {
+        var bytes = System.Text.Encoding.UTF8.GetBytes(body);
+        context.Response.ContentLength64 = bytes.Length;
+        context.Response.OutputStream.Write(bytes, 0, bytes.Length);
         context.Response.Close();
     }
 
