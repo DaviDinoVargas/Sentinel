@@ -19,6 +19,10 @@ dotnet run --project .\Sentinel\Sentinel.csproj
 
 Em desenvolvimento, a documentação OpenAPI fica disponível em `http://localhost:5161/swagger`.
 
+## Interface web
+
+O módulo Angular do P0 fica em `Sentinel.Web`. Consulte [Sentinel.Web/README.md](Sentinel.Web/README.md) para instalar as dependências, iniciar a interface em `http://localhost:4200` e executar suas verificações.
+
 ## Persistência local
 
 O Sentinel usa PostgreSQL. A senha não é armazenada no repositório: defina-a apenas na variável de ambiente `SENTINEL_POSTGRES_PASSWORD` antes de iniciar a aplicação. As migrações são aplicadas na inicialização.
