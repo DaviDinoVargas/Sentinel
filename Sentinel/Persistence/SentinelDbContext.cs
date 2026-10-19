@@ -13,7 +13,7 @@ public sealed class SentinelDbContext : DbContext
     public DbSet<AuditRow> Audits => Set<AuditRow>();
     public DbSet<AuditControlRow> AuditControls => Set<AuditControlRow>();
     public DbSet<AuditEvidenceRow> AuditEvidence => Set<AuditEvidenceRow>();
-    public DbSet<AuditJobRow> AuditJobs => Set<AuditJobRow>();
+    public DbSet<AuditOutboxRow> AuditOutbox => Set<AuditOutboxRow>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -92,25 +92,16 @@ public sealed class SentinelDbContext : DbContext
                 .OnDelete(DeleteBehavior.Cascade);
         });
 
-        modelBuilder.Entity<AuditJobRow>(entity =>
+        modelBuilder.Entity<AuditOutboxRow>(entity =>
         {
-            entity.ToTable("audit_jobs");
-            entity.HasKey(job => job.AuditId);
-            // Nomes de coluna em snake_case explícitos: o arrendamento (LeaseNextJob) usa
-            // SQL bruto (FOR UPDATE SKIP LOCKED) e precisa que os nomes sejam estáveis e
-            // conhecidos, em vez de depender da convenção padrão (PascalCase) do EF Core.
-            entity.Property(job => job.AuditId).HasColumnName("audit_id");
-            entity.Property(job => job.ProjectId).HasColumnName("project_id");
-            entity.Property(job => job.ScopeId).HasColumnName("scope_id");
-            entity.Property(job => job.TargetUrl).HasColumnName("target_url").HasMaxLength(2_048).IsRequired();
-            entity.Property(job => job.Action).HasColumnName("action").HasMaxLength(100).IsRequired();
-            entity.Property(job => job.Status).HasColumnName("status").HasMaxLength(50).IsRequired();
-            entity.Property(job => job.LeaseOwner).HasColumnName("lease_owner").HasMaxLength(200);
-            entity.Property(job => job.LeaseExpiresAtUtc).HasColumnName("lease_expires_at_utc");
-            entity.Property(job => job.Attempts).HasColumnName("attempts");
-            entity.Property(job => job.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
-            entity.Property(job => job.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
-            entity.HasIndex(job => new { job.Status, job.LeaseExpiresAtUtc });
+            entity.ToTable("audit_outbox");
+            entity.HasKey(message => message.Id);
+            entity.Property(message => message.PayloadJson).HasColumnName("payload_json").IsRequired();
+            entity.Property(message => message.Status).HasColumnName("status").HasMaxLength(50).IsRequired();
+            entity.Property(message => message.Attempts).HasColumnName("attempts");
+            entity.Property(message => message.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
+            entity.Property(message => message.DispatchedAtUtc).HasColumnName("dispatched_at_utc");
+            entity.HasIndex(message => new { message.Status, message.CreatedAtUtc });
         });
     }
 }
@@ -167,19 +158,14 @@ public sealed class AuditControlRow
     public AuditRow Audit { get; set; } = null!;
 }
 
-public sealed class AuditJobRow
+public sealed class AuditOutboxRow
 {
-    public Guid AuditId { get; set; }
-    public Guid ProjectId { get; set; }
-    public Guid ScopeId { get; set; }
-    public string TargetUrl { get; set; } = string.Empty;
-    public string Action { get; set; } = string.Empty;
-    public string Status { get; set; } = "Queued";
-    public string? LeaseOwner { get; set; }
-    public DateTimeOffset? LeaseExpiresAtUtc { get; set; }
+    public Guid Id { get; set; }
+    public string PayloadJson { get; set; } = string.Empty;
+    public string Status { get; set; } = "Pending";
     public int Attempts { get; set; }
     public DateTimeOffset CreatedAtUtc { get; set; }
-    public DateTimeOffset UpdatedAtUtc { get; set; }
+    public DateTimeOffset? DispatchedAtUtc { get; set; }
 }
 
 public sealed class AuditEvidenceRow

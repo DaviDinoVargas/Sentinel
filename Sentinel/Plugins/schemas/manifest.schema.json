@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sentinel.dev/schemas/plugin-manifest.schema.json",
+  "title": "Sentinel PluginManifest",
+  "type": "object",
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {
+    "apiVersion": { "const": "sentinel.dev/v1" },
+    "kind": { "const": "PluginManifest" },
+    "metadata": {
+      "type": "object",
+      "required": ["id", "version", "name"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+        "name": { "type": "string", "minLength": 1 }
+      }
+    },
+    "spec": {
+      "type": "object",
+      "required": ["type", "contractVersion", "mode", "controls", "capabilities", "resources", "permissions", "execution", "riskClass"],
+      "properties": {
+        "type": {
+          "enum": ["source-analyzer", "dependency-analyzer", "secret-scanner", "api-discovery", "messaging-analyzer", "database-analyzer", "security-test", "dast", "fuzzer", "concurrency-test", "load-test", "infrastructure-analyzer", "runtime-observer", "regression-test", "report-exporter"]
+        },
+        "contractVersion": { "type": "string", "minLength": 1 },
+        "mode": { "enum": ["passive", "active"] },
+        "controls": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+        "capabilities": {
+          "type": "object",
+          "required": ["network", "sourceRead", "artifactWrite"],
+          "properties": {
+            "network": { "enum": ["false", "scoped-egress"] },
+            "sourceRead": { "type": "boolean" },
+            "artifactWrite": { "type": "boolean" }
+          }
+        },
+        "resources": {
+          "type": "object",
+          "required": ["timeoutSeconds", "memoryMiB"],
+          "properties": {
+            "timeoutSeconds": { "type": "integer", "minimum": 1, "maximum": 1800 },
+            "memoryMiB": { "type": "integer", "minimum": 16 }
+          }
+        },
+        "permissions": { "type": "array", "items": { "type": "string" } },
+        "execution": {
+          "type": "object",
+          "required": ["isolation"],
+          "properties": {
+            "isolation": { "enum": ["process", "container"] }
+          }
+        },
+        "riskClass": { "enum": ["low", "medium", "high"] }
+      }
+    }
+  }
+}

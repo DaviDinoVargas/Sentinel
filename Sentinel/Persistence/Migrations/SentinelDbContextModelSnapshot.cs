@@ -112,18 +112,11 @@ namespace Sentinel.Persistence.Migrations
                     b.ToTable("audit_evidence", (string)null);
                 });
 
-            modelBuilder.Entity("Sentinel.Persistence.AuditJobRow", b =>
+            modelBuilder.Entity("Sentinel.Persistence.AuditOutboxRow", b =>
                 {
-                    b.Property<Guid>("AuditId")
+                    b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasColumnName("audit_id");
-
-                    b.Property<string>("Action")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
-                        .HasColumnName("action");
+                        .HasColumnType("uuid");
 
                     b.Property<int>("Attempts")
                         .HasColumnType("integer")
@@ -133,22 +126,14 @@ namespace Sentinel.Persistence.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at_utc");
 
-                    b.Property<DateTimeOffset?>("LeaseExpiresAtUtc")
+                    b.Property<DateTimeOffset?>("DispatchedAtUtc")
                         .HasColumnType("timestamp with time zone")
-                        .HasColumnName("lease_expires_at_utc");
+                        .HasColumnName("dispatched_at_utc");
 
-                    b.Property<string>("LeaseOwner")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)")
-                        .HasColumnName("lease_owner");
-
-                    b.Property<Guid>("ProjectId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("project_id");
-
-                    b.Property<Guid>("ScopeId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("scope_id");
+                    b.Property<string>("PayloadJson")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("payload_json");
 
                     b.Property<string>("Status")
                         .IsRequired()
@@ -156,21 +141,11 @@ namespace Sentinel.Persistence.Migrations
                         .HasColumnType("character varying(50)")
                         .HasColumnName("status");
 
-                    b.Property<string>("TargetUrl")
-                        .IsRequired()
-                        .HasMaxLength(2048)
-                        .HasColumnType("character varying(2048)")
-                        .HasColumnName("target_url");
+                    b.HasKey("Id");
 
-                    b.Property<DateTimeOffset>("UpdatedAtUtc")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("updated_at_utc");
+                    b.HasIndex("Status", "CreatedAtUtc");
 
-                    b.HasKey("AuditId");
-
-                    b.HasIndex("Status", "LeaseExpiresAtUtc");
-
-                    b.ToTable("audit_jobs", (string)null);
+                    b.ToTable("audit_outbox", (string)null);
                 });
 
             modelBuilder.Entity("Sentinel.Persistence.AuditRow", b =>

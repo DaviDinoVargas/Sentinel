@@ -1,0 +1,22 @@
+apiVersion: sentinel.dev/v1
+kind: PluginManifest
+metadata:
+  id: sentinel.fixture.sim-001
+  version: 1.0.0
+  name: Fixture do pipeline (SIM-001)
+spec:
+  type: security-test
+  contractVersion: "1.0"
+  mode: passive
+  controls: [SIM-001]
+  capabilities:
+    network: "false"
+    sourceRead: false
+    artifactWrite: false
+  resources:
+    timeoutSeconds: 5
+    memoryMiB: 64
+  permissions: []
+  execution:
+    isolation: process
+  riskClass: low

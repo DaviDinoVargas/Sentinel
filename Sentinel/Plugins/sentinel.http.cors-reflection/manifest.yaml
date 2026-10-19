@@ -1,0 +1,22 @@
+apiVersion: sentinel.dev/v1
+kind: PluginManifest
+metadata:
+  id: sentinel.http.cors-reflection
+  version: 1.0.0
+  name: Reflexo de CORS (WEB-CFG-02)
+spec:
+  type: dast
+  contractVersion: "1.0"
+  mode: passive
+  controls: [WEB-CFG-02]
+  capabilities:
+    network: scoped-egress
+    sourceRead: false
+    artifactWrite: false
+  resources:
+    timeoutSeconds: 10
+    memoryMiB: 128
+  permissions: [target.http.passive]
+  execution:
+    isolation: process
+  riskClass: low

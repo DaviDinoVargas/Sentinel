@@ -7,12 +7,27 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="JsonSchema.Net" Version="7.2.3" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.11">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="8.0.11" />
+    <PackageReference Include="RabbitMQ.Client" Version="6.8.1" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
+    <PackageReference Include="YamlDotNet" Version="16.2.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Sentinel.Contracts\Sentinel.Contracts.csproj" />
+    <ProjectReference Include="..\Sentinel.PluginHost\Sentinel.PluginHost.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Manifestos (YAML) e schemas (JSON) dos plugins (ADR-0003): precisam existir no
+         diretório de saída para o PluginRegistry/PluginSchemaValidator os encontrarem em
+         tempo de execução. -->
+    <None Include="Plugins\**\*.yaml;Plugins\schemas\*.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

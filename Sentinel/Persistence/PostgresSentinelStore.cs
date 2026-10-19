@@ -1,5 +1,4 @@
 using Microsoft.EntityFrameworkCore;
-using Npgsql;
 using Sentinel.Core;
 
 namespace Sentinel.Persistence;
@@ -80,156 +79,95 @@ public sealed class PostgresSentinelStore : ISentinelStore
             .ToArray();
     }
 
-    public Audit SaveAudit(Audit audit)
+    public Audit SaveBlockedAudit(Audit audit)
     {
-        var row = new AuditRow
-        {
-            Id = audit.Id,
-            ProjectId = audit.ProjectId,
-            ScopeId = audit.ScopeId,
-            TargetUrl = audit.TargetUri.AbsoluteUri,
-            State = audit.State.ToString(),
-            CorrelationId = audit.CorrelationId,
-            PolicyReason = audit.PolicyReason,
-            CreatedAtUtc = audit.CreatedAtUtc,
-            Controls = audit.Controls.Select((control, index) => new AuditControlRow
-            {
-                Id = Guid.NewGuid(),
-                Sequence = index,
-                ControlId = control.ControlId,
-                State = control.State,
-                Summary = control.Summary,
-                Confidence = control.Confidence,
-                Severity = control.Severity,
-                PluginId = control.PluginId,
-                PluginVersion = control.PluginVersion
-            }).ToList(),
-            Evidence = audit.Evidence.Select(evidence => new AuditEvidenceRow
-            {
-                Id = Guid.NewGuid(),
-                EvidenceReference = evidence.Id,
-                Sha256 = evidence.Sha256,
-                Summary = evidence.Summary,
-                CollectedAtUtc = evidence.CollectedAtUtc
-            }).ToList()
-        };
-
+        var row = ToAuditRow(audit);
         using var db = _dbContextFactory.CreateDbContext();
         db.Audits.Add(row);
         db.SaveChanges();
         return audit;
     }
 
-    public void EnqueueJob(Guid auditId, Guid projectId, Guid scopeId, Uri targetUri, string action, DateTimeOffset createdAtUtc)
+    // Outbox pattern (ADR-0004): a auditoria (Queued) e a mensagem pendente de publicação
+    // são gravadas no mesmo SaveChanges — portanto na mesma transação do PostgreSQL. Não
+    // existe cenário em que a auditoria fica Queued sem uma mensagem para publicar no
+    // RabbitMQ, nem o contrário.
+    public Audit SaveQueuedAuditWithOutbox(Audit audit, string outboxPayloadJson)
     {
-        var row = new AuditJobRow
+        var auditRow = ToAuditRow(audit);
+        var outboxRow = new AuditOutboxRow
         {
-            AuditId = auditId,
-            ProjectId = projectId,
-            ScopeId = scopeId,
-            TargetUrl = targetUri.AbsoluteUri,
-            Action = action,
-            Status = "Queued",
+            Id = audit.Id,
+            PayloadJson = outboxPayloadJson,
+            Status = "Pending",
             Attempts = 0,
-            CreatedAtUtc = createdAtUtc,
-            UpdatedAtUtc = createdAtUtc
+            CreatedAtUtc = audit.CreatedAtUtc,
         };
 
         using var db = _dbContextFactory.CreateDbContext();
-        db.AuditJobs.Add(row);
+        db.Audits.Add(auditRow);
+        db.AuditOutbox.Add(outboxRow);
         db.SaveChanges();
+        return audit;
     }
 
-    // Usa FOR UPDATE SKIP LOCKED para que, com múltiplas instâncias da API e/ou vários
-    // workers, no máximo um deles arrende um job por vez; o arrendamento expirado (worker
-    // morto) também fica disponível para outro worker retomar, sem duplicar a execução.
-    public AuditJobLease? LeaseNextJob(string workerId, DateTimeOffset nowUtc, TimeSpan leaseDuration)
+    public IReadOnlyList<OutboxMessage> GetPendingOutboxMessages(int limit)
     {
         using var db = _dbContextFactory.CreateDbContext();
-        var connection = db.Database.GetDbConnection();
-        if (connection.State != System.Data.ConnectionState.Open)
-        {
-            connection.Open();
-        }
-
-        using var transaction = connection.BeginTransaction();
-        using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = """
-            UPDATE audit_jobs
-            SET status = 'Leased', lease_owner = @workerId, lease_expires_at_utc = @leaseExpiresAtUtc,
-                attempts = attempts + 1, updated_at_utc = @nowUtc
-            WHERE audit_id = (
-                SELECT audit_id FROM audit_jobs
-                WHERE status = 'Queued' OR (status = 'Leased' AND lease_expires_at_utc < @nowUtc)
-                ORDER BY created_at_utc
-                FOR UPDATE SKIP LOCKED
-                LIMIT 1
-            )
-            RETURNING audit_id, project_id, scope_id, target_url, action, attempts;
-            """;
-
-        var workerIdParameter = command.CreateParameter();
-        workerIdParameter.ParameterName = "workerId";
-        workerIdParameter.Value = workerId;
-        command.Parameters.Add(workerIdParameter);
-
-        var leaseExpiresParameter = command.CreateParameter();
-        leaseExpiresParameter.ParameterName = "leaseExpiresAtUtc";
-        leaseExpiresParameter.Value = nowUtc + leaseDuration;
-        command.Parameters.Add(leaseExpiresParameter);
-
-        var nowParameter = command.CreateParameter();
-        nowParameter.ParameterName = "nowUtc";
-        nowParameter.Value = nowUtc;
-        command.Parameters.Add(nowParameter);
-
-        AuditJobLease? lease = null;
-        using (var reader = command.ExecuteReader())
-        {
-            if (reader.Read())
-            {
-                lease = new AuditJobLease(
-                    reader.GetFieldValue<Guid>(0),
-                    reader.GetFieldValue<Guid>(1),
-                    reader.GetFieldValue<Guid>(2),
-                    new Uri(reader.GetFieldValue<string>(3), UriKind.Absolute),
-                    reader.GetFieldValue<string>(4),
-                    reader.GetFieldValue<int>(5));
-            }
-        }
-
-        transaction.Commit();
-        return lease;
+        return db.AuditOutbox.AsNoTracking()
+            .Where(message => message.Status == "Pending")
+            .OrderBy(message => message.CreatedAtUtc)
+            .Take(limit)
+            .Select(message => new OutboxMessage(message.Id, message.PayloadJson, message.Attempts))
+            .ToArray();
     }
 
-    public void CompleteJob(Guid auditId, DateTimeOffset completedAtUtc)
+    public void MarkOutboxDispatched(Guid outboxId, DateTimeOffset dispatchedAtUtc)
     {
         using var db = _dbContextFactory.CreateDbContext();
-        var row = db.AuditJobs.SingleOrDefault(job => job.AuditId == auditId);
+        var row = db.AuditOutbox.SingleOrDefault(message => message.Id == outboxId);
         if (row is null)
         {
             return;
         }
 
-        row.Status = "Completed";
-        row.UpdatedAtUtc = completedAtUtc;
+        row.Status = "Dispatched";
+        row.Attempts++;
+        row.DispatchedAtUtc = dispatchedAtUtc;
         db.SaveChanges();
     }
 
-    public void FailJobPermanently(Guid auditId, DateTimeOffset failedAtUtc)
+    private static AuditRow ToAuditRow(Audit audit) => new()
     {
-        using var db = _dbContextFactory.CreateDbContext();
-        var row = db.AuditJobs.SingleOrDefault(job => job.AuditId == auditId);
-        if (row is null)
+        Id = audit.Id,
+        ProjectId = audit.ProjectId,
+        ScopeId = audit.ScopeId,
+        TargetUrl = audit.TargetUri.AbsoluteUri,
+        State = audit.State.ToString(),
+        CorrelationId = audit.CorrelationId,
+        PolicyReason = audit.PolicyReason,
+        CreatedAtUtc = audit.CreatedAtUtc,
+        Controls = audit.Controls.Select((control, index) => new AuditControlRow
         {
-            return;
-        }
-
-        row.Status = "Failed";
-        row.UpdatedAtUtc = failedAtUtc;
-        db.SaveChanges();
-    }
+            Id = Guid.NewGuid(),
+            Sequence = index,
+            ControlId = control.ControlId,
+            State = control.State,
+            Summary = control.Summary,
+            Confidence = control.Confidence,
+            Severity = control.Severity,
+            PluginId = control.PluginId,
+            PluginVersion = control.PluginVersion,
+        }).ToList(),
+        Evidence = audit.Evidence.Select(evidence => new AuditEvidenceRow
+        {
+            Id = Guid.NewGuid(),
+            EvidenceReference = evidence.Id,
+            Sha256 = evidence.Sha256,
+            Summary = evidence.Summary,
+            CollectedAtUtc = evidence.CollectedAtUtc,
+        }).ToList(),
+    };
 
     // Auditoria nasce em Queued com Controls/Evidence vazios (SaveAudit); aqui só se
     // adicionam linhas novas às tabelas filhas (nunca existem linhas antigas para

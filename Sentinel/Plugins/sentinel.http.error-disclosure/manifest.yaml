@@ -1,0 +1,22 @@
+apiVersion: sentinel.dev/v1
+kind: PluginManifest
+metadata:
+  id: sentinel.http.error-disclosure
+  version: 1.0.0
+  name: Vazamento de stack trace em erros (WEB-CFG-04)
+spec:
+  type: dast
+  contractVersion: "1.0"
+  mode: passive
+  controls: [WEB-CFG-04]
+  capabilities:
+    network: scoped-egress
+    sourceRead: false
+    artifactWrite: false
+  resources:
+    timeoutSeconds: 10
+    memoryMiB: 128
+  permissions: [target.http.passive]
+  execution:
+    isolation: process
+  riskClass: low

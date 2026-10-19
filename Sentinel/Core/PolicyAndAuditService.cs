@@ -106,21 +106,22 @@ public sealed class AuditService
         var decision = _policy.Evaluate(_store.GetScopes(projectId), targetUri, request.Action, nowUtc);
         if (!decision.IsAllowed)
         {
-            return _store.SaveAudit(new Audit(
+            return _store.SaveBlockedAudit(new Audit(
                 Guid.NewGuid(), projectId, null, targetUri, AuditState.Blocked, correlationId, decision.Reason, nowUtc,
                 Array.Empty<AuditControlResult>(), Array.Empty<AuditEvidence>()));
         }
 
         // A execução real acontece de forma assíncrona em um worker (AuditWorker), que
-        // arrenda o job da fila e reavalia a política antes de rodar qualquer plugin
-        // (D11 / ADR-0011). A auditoria nasce em Queued; o cliente consulta o estado em
-        // GET /api/v1/audits/{auditId}.
+        // consome a fila do RabbitMQ e reavalia a política antes de rodar qualquer plugin
+        // (D11 / ADR-0011 / ADR-0004). A auditoria nasce em Queued; o cliente consulta o
+        // estado em GET /api/v1/audits/{auditId}. A mensagem do outbox é gravada na mesma
+        // transação que a auditoria — nunca existe uma auditoria Queued sem job pendente.
         var auditId = Guid.NewGuid();
-        var audit = _store.SaveAudit(new Audit(
-            auditId, projectId, decision.Scope!.Id, targetUri, AuditState.Queued, correlationId, null, nowUtc,
-            Array.Empty<AuditControlResult>(), Array.Empty<AuditEvidence>()));
-        _store.EnqueueJob(auditId, projectId, decision.Scope.Id, targetUri, request.Action, nowUtc);
-        return audit;
+        var outboxPayload = new Execution.OutboxMessagePayload(auditId, projectId, decision.Scope!.Id, targetUri.AbsoluteUri, request.Action);
+        var outboxPayloadJson = System.Text.Json.JsonSerializer.Serialize(outboxPayload, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
+        return _store.SaveQueuedAuditWithOutbox(
+            new Audit(auditId, projectId, decision.Scope.Id, targetUri, AuditState.Queued, correlationId, null, nowUtc, Array.Empty<AuditControlResult>(), Array.Empty<AuditEvidence>()),
+            outboxPayloadJson);
     }
 
     public Audit? FindAudit(Guid auditId) => _store.FindAudit(auditId);

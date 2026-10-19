@@ -2,6 +2,7 @@
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using Sentinel.Core;
+using Sentinel.Execution;
 using Sentinel.Persistence;
 using Sentinel.Workers;
 using System.Text.Json.Serialization;
@@ -36,17 +37,33 @@ builder.Services.AddSingleton<ISentinelStore, PostgresSentinelStore>();
 builder.Services.AddSingleton<ScopePolicyEngine>();
 builder.Services.AddSingleton<AuditService>();
 
-builder.Services.AddHttpClient(nameof(HttpSecurityHeadersPlugin));
-builder.Services.AddHttpClient(nameof(CorsReflectionPlugin));
-builder.Services.AddHttpClient(nameof(TechFingerprintHeadersPlugin));
-builder.Services.AddHttpClient(nameof(ErrorDisclosurePlugin));
-builder.Services.AddSingleton<IAuditPlugin, Sim001FixturePlugin>();
-builder.Services.AddSingleton<IAuditPlugin, HttpSecurityHeadersPlugin>();
-builder.Services.AddSingleton<IAuditPlugin, CorsReflectionPlugin>();
-builder.Services.AddSingleton<IAuditPlugin, TechFingerprintHeadersPlugin>();
-builder.Services.AddSingleton<IAuditPlugin, ErrorDisclosurePlugin>();
-builder.Services.Configure<AuditWorkerOptions>(builder.Configuration.GetSection("AuditWorker"));
+// RabbitMQ (ADR-0004): a senha nunca fica em arquivo versionado.
+builder.Services.Configure<RabbitMqOptions>(options =>
+{
+    builder.Configuration.GetSection("RabbitMq").Bind(options);
+    if (string.IsNullOrWhiteSpace(options.Password))
+    {
+        var password = builder.Configuration["SENTINEL_RABBITMQ_PASSWORD"];
+        if (string.IsNullOrWhiteSpace(password))
+        {
+            throw new InvalidOperationException("Defina SENTINEL_RABBITMQ_PASSWORD fora dos arquivos versionados.");
+        }
+
+        options.Password = password;
+    }
+});
+builder.Services.AddSingleton<RabbitMqConnectionProvider>();
+builder.Services.AddHostedService<OutboxDispatcher>();
 builder.Services.AddHostedService<AuditWorker>();
+builder.Services.AddHostedService<DeadLetterAuditConsumer>();
+
+// Plugins (ADR-0003): manifestos e schemas versionados, execução em processo isolado.
+var pluginsDirectory = Path.Combine(AppContext.BaseDirectory, "Plugins");
+var schemasDirectory = Path.Combine(pluginsDirectory, "schemas");
+var pluginHostDllPath = Path.Combine(AppContext.BaseDirectory, "Sentinel.PluginHost.dll");
+builder.Services.AddSingleton(new PluginSchemaValidator(schemasDirectory));
+builder.Services.AddSingleton(provider => new PluginRegistry(pluginsDirectory, provider.GetRequiredService<PluginSchemaValidator>(), provider.GetRequiredService<ILogger<PluginRegistry>>()));
+builder.Services.AddSingleton(provider => new IsolatedPluginRunner(pluginHostDllPath, provider.GetRequiredService<PluginSchemaValidator>(), provider.GetRequiredService<ILogger<IsolatedPluginRunner>>()));
 
 var app = builder.Build();
 
@@ -55,6 +72,16 @@ using (var scope = app.Services.CreateScope())
     var dbContextFactory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<SentinelDbContext>>();
     using var db = dbContextFactory.CreateDbContext();
     db.Database.Migrate();
+
+    var registry = scope.ServiceProvider.GetRequiredService<PluginRegistry>();
+    if (registry.RejectedManifestErrors.Count > 0)
+    {
+        var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+        foreach (var error in registry.RejectedManifestErrors)
+        {
+            logger.LogError("Manifesto de plugin rejeitado na inicialização: {Error}", error);
+        }
+    }
 }
 
 if (app.Environment.IsDevelopment())

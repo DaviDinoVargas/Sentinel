@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sentinel.dev/schemas/plugin-execution-request.schema.json",
+  "title": "Sentinel PluginExecutionRequest",
+  "type": "object",
+  "required": ["contractVersion", "executionId", "auditId", "projectId", "scopeId", "correlationId", "targetUri", "action", "deadlineUtc", "nowUtc"],
+  "properties": {
+    "contractVersion": { "type": "string", "minLength": 1 },
+    "executionId": { "type": "string", "format": "uuid" },
+    "auditId": { "type": "string", "format": "uuid" },
+    "projectId": { "type": "string", "format": "uuid" },
+    "scopeId": { "type": "string", "format": "uuid" },
+    "correlationId": { "type": "string", "minLength": 1 },
+    "targetUri": { "type": "string", "format": "uri" },
+    "action": { "type": "string", "minLength": 1 },
+    "deadlineUtc": { "type": "string", "format": "date-time" },
+    "nowUtc": { "type": "string", "format": "date-time" }
+  }
+}

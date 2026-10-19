@@ -16,9 +16,13 @@ public sealed class SentinelApiFactory : WebApplicationFactory<Program>
             configuration.AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["ConnectionStrings:SentinelPostgres"] = "Host=localhost;Port=5432;Database=sentinel_test;Username=sentinel_app",
-                // Polling rápido só nos testes, para não depender de esperas longas.
-                ["AuditWorker:PollInterval"] = "00:00:00.100",
-                ["AuditWorker:LeaseDuration"] = "00:00:05"
+                ["RabbitMq:HostName"] = "localhost",
+                ["RabbitMq:Port"] = "5672",
+                ["RabbitMq:VirtualHost"] = "sentinel",
+                ["RabbitMq:UserName"] = "sentinel_app",
+                // Sem sufixo: todas as instâncias de teste compartilham a mesma topologia
+                // real (fila com competing consumers), igual ao banco sentinel_test
+                // compartilhado — é justamente isso que WorkerDuplicationTests verifica.
             });
         });
     }
