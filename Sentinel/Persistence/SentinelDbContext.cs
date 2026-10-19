@@ -68,6 +68,8 @@ public sealed class SentinelDbContext : DbContext
             entity.Property(control => control.Summary).HasMaxLength(4_000).IsRequired();
             entity.Property(control => control.Confidence).HasMaxLength(100).IsRequired();
             entity.Property(control => control.Severity).HasMaxLength(50).IsRequired();
+            entity.Property(control => control.PluginId).HasMaxLength(200).IsRequired();
+            entity.Property(control => control.PluginVersion).HasMaxLength(50).IsRequired();
             entity.HasIndex(control => new { control.AuditId, control.Sequence }).IsUnique();
             entity.HasOne(control => control.Audit)
                 .WithMany(audit => audit.Controls)
@@ -160,6 +162,8 @@ public sealed class AuditControlRow
     public string Summary { get; set; } = string.Empty;
     public string Confidence { get; set; } = string.Empty;
     public string Severity { get; set; } = "Info";
+    public string PluginId { get; set; } = "unknown";
+    public string PluginVersion { get; set; } = "0.0.0";
     public AuditRow Audit { get; set; } = null!;
 }
 

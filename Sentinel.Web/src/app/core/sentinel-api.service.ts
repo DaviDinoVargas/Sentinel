@@ -3,7 +3,7 @@ import { HttpClient } from '@angular/common/http';
 
 export interface SentinelProject { id: string; name: string; description?: string | null; createdAtUtc: string; }
 export interface AuthorizedScope { id: string; projectId: string; targetBaseUri: string; environment: string; expiresAtUtc: string; }
-export interface AuditControlResult { controlId: string; state: string; summary: string; confidence: string; severity: string; }
+export interface AuditControlResult { controlId: string; state: string; summary: string; confidence: string; severity: string; pluginId: string; pluginVersion: string; }
 export interface AuditEvidence { id: string; sha256: string; summary: string; collectedAtUtc: string; }
 // A auditoria nasce em 'Queued' e é processada de forma assíncrona pelo AuditWorker
 // (núcleo de execução real, D11); o cliente consulta getAudit até sair de 'Queued'.

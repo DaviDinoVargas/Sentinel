@@ -22,7 +22,14 @@ public enum AuditState
 
 public sealed record AuditEvidence(string Id, string Sha256, string Summary, DateTimeOffset CollectedAtUtc);
 
-public sealed record AuditControlResult(string ControlId, string State, string Summary, string Confidence, string Severity = "Info");
+public sealed record AuditControlResult(
+    string ControlId,
+    string State,
+    string Summary,
+    string Confidence,
+    string Severity = "Info",
+    string PluginId = "unknown",
+    string PluginVersion = "0.0.0");
 
 public sealed record AuditJobLease(Guid AuditId, Guid ProjectId, Guid ScopeId, Uri TargetUri, string Action, int Attempts);
 

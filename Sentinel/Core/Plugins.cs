@@ -14,6 +14,8 @@ public sealed record PluginOutcome(AuditControlResult Control, AuditEvidence Evi
 public interface IAuditPlugin
 {
     string ControlId { get; }
+    string PluginId { get; }
+    string PluginVersion { get; }
 
     Task<PluginOutcome> ExecuteAsync(PluginExecutionContext context, DateTimeOffset nowUtc, CancellationToken cancellationToken);
 }
@@ -24,13 +26,15 @@ public interface IAuditPlugin
 public sealed class Sim001FixturePlugin : IAuditPlugin
 {
     public string ControlId => "SIM-001";
+    public string PluginId => "sentinel.fixture.sim-001";
+    public string PluginVersion => "1.0.0";
 
     public Task<PluginOutcome> ExecuteAsync(PluginExecutionContext context, DateTimeOffset nowUtc, CancellationToken cancellationToken)
     {
         var content = $"sentinel-fixture-control|{context.AuditId:N}|{context.TargetUri}|{nowUtc:O}";
         var hash = Sha256Hex(content);
         var evidence = new AuditEvidence(Guid.NewGuid().ToString("N"), hash, "Fixture determinística do pipeline; não testa o alvo.", nowUtc);
-        var control = new AuditControlResult(ControlId, "Passed", "Controle fixture usado apenas para validar o pipeline de fila/worker.", "DemonstrationOnly", "Info");
+        var control = new AuditControlResult(ControlId, "Passed", "Controle fixture usado apenas para validar o pipeline de fila/worker.", "DemonstrationOnly", "Info", PluginId, PluginVersion);
         return Task.FromResult(new PluginOutcome(control, evidence));
     }
 
@@ -55,6 +59,8 @@ public sealed class HttpSecurityHeadersPlugin : IAuditPlugin
     public HttpSecurityHeadersPlugin(IHttpClientFactory httpClientFactory) => _httpClientFactory = httpClientFactory;
 
     public string ControlId => "WEB-CFG-01";
+    public string PluginId => "sentinel.http.security-headers";
+    public string PluginVersion => "1.0.0";
 
     public async Task<PluginOutcome> ExecuteAsync(PluginExecutionContext context, DateTimeOffset nowUtc, CancellationToken cancellationToken)
     {
@@ -88,7 +94,7 @@ public sealed class HttpSecurityHeadersPlugin : IAuditPlugin
             var severity = missing.Length == 0 ? "Info" : "Medium";
             var evidenceSummary = $"status={statusCode};{string.Join(";", present.Select(item => $"{item.Header}={(item.Present ? "present" : "missing")}"))}";
             var evidence = BuildEvidence(context, nowUtc, evidenceSummary, summary);
-            var control = new AuditControlResult(ControlId, state, summary, "Reproduced", severity);
+            var control = new AuditControlResult(ControlId, state, summary, "Reproduced", severity, PluginId, PluginVersion);
             return new PluginOutcome(control, evidence);
         }
     }
@@ -96,10 +102,10 @@ public sealed class HttpSecurityHeadersPlugin : IAuditPlugin
     private static bool HasHeader(HttpResponseMessage response, string header) =>
         response.Headers.Contains(header) || response.Content.Headers.Contains(header);
 
-    private static PluginOutcome BuildInconclusive(PluginExecutionContext context, DateTimeOffset nowUtc, string summary)
+    private PluginOutcome BuildInconclusive(PluginExecutionContext context, DateTimeOffset nowUtc, string summary)
     {
         var evidence = BuildEvidence(context, nowUtc, "request-failed", summary);
-        var control = new AuditControlResult("WEB-CFG-01", "Inconclusive", summary, "NotAssessed", "Info");
+        var control = new AuditControlResult("WEB-CFG-01", "Inconclusive", summary, "NotAssessed", "Info", PluginId, PluginVersion);
         return new PluginOutcome(control, evidence);
     }
 
