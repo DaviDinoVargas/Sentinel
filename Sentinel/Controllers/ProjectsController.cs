@@ -11,6 +11,34 @@ public sealed class ProjectsController : ControllerBase
 
     public ProjectsController(AuditService auditService) => _auditService = auditService;
 
+    [HttpGet]
+    [ProducesResponseType(typeof(IReadOnlyList<SentinelProject>), StatusCodes.Status200OK)]
+    public ActionResult<IReadOnlyList<SentinelProject>> GetProjects([FromQuery] int limit = 50)
+    {
+        if (limit is < 1 or > 100)
+        {
+            return BadRequest(new ProblemDetails { Title = "Solicitação inválida", Detail = "O limite deve estar entre 1 e 100.", Status = StatusCodes.Status400BadRequest });
+        }
+
+        return Ok(_auditService.GetProjects(limit));
+    }
+
+    [HttpGet("{projectId:guid}")]
+    [ProducesResponseType(typeof(ProjectContext), StatusCodes.Status200OK)]
+    public ActionResult<ProjectContext> GetProject(Guid projectId)
+    {
+        var context = _auditService.GetProjectContext(projectId);
+        return context is null ? NotFound() : Ok(context);
+    }
+
+    [HttpGet("{projectId:guid}/scopes")]
+    [ProducesResponseType(typeof(IReadOnlyList<AuthorizedScope>), StatusCodes.Status200OK)]
+    public ActionResult<IReadOnlyList<AuthorizedScope>> GetScopes(Guid projectId)
+    {
+        var context = _auditService.GetProjectContext(projectId);
+        return context is null ? NotFound() : Ok(context.Scopes);
+    }
+
     [HttpPost]
     [ProducesResponseType(typeof(SentinelProject), StatusCodes.Status201Created)]
     public ActionResult<SentinelProject> CreateProject([FromBody] CreateProjectRequest request)

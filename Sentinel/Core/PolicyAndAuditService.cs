@@ -126,6 +126,14 @@ public sealed class AuditService
 
     public Audit? FindAudit(Guid auditId) => _store.FindAudit(auditId);
 
+    public IReadOnlyList<SentinelProject> GetProjects(int limit) => _store.GetProjects(limit);
+
+    public ProjectContext? GetProjectContext(Guid projectId)
+    {
+        var project = _store.FindProject(projectId);
+        return project is null ? null : new ProjectContext(project, _store.GetScopes(projectId));
+    }
+
     public SecurityScore? GetSecurityScore(Guid projectId)
     {
         if (_store.FindProject(projectId) is null)

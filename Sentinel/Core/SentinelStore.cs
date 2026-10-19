@@ -6,6 +6,7 @@ public interface ISentinelStore
 {
     SentinelProject CreateProject(string name, string? description, DateTimeOffset createdAtUtc);
     SentinelProject? FindProject(Guid projectId);
+    IReadOnlyList<SentinelProject> GetProjects(int limit);
     AuthorizedScope CreateScope(Guid projectId, Uri targetBaseUri, string environment, DateTimeOffset expiresAtUtc, DateTimeOffset createdAtUtc);
     IReadOnlyList<AuthorizedScope> GetScopes(Guid projectId);
     Audit SaveAudit(Audit audit);
@@ -32,6 +33,11 @@ public sealed class DevelopmentInMemorySentinelStore : ISentinelStore
     }
 
     public SentinelProject? FindProject(Guid projectId) => _projects.GetValueOrDefault(projectId);
+
+    public IReadOnlyList<SentinelProject> GetProjects(int limit) => _projects.Values
+        .OrderByDescending(project => project.CreatedAtUtc)
+        .Take(limit)
+        .ToArray();
 
     public AuthorizedScope CreateScope(Guid projectId, Uri targetBaseUri, string environment, DateTimeOffset expiresAtUtc, DateTimeOffset createdAtUtc)
     {

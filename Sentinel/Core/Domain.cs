@@ -5,6 +5,8 @@ namespace Sentinel.Core;
 
 public sealed record SentinelProject(Guid Id, string Name, string? Description, DateTimeOffset CreatedAtUtc);
 
+public sealed record ProjectContext(SentinelProject Project, IReadOnlyList<AuthorizedScope> Scopes);
+
 public sealed record AuthorizedScope(
     Guid Id,
     Guid ProjectId,

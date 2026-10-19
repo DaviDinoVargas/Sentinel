@@ -35,6 +35,16 @@ public sealed class PostgresSentinelStore : ISentinelStore
         return row is null ? null : ToProject(row);
     }
 
+    public IReadOnlyList<SentinelProject> GetProjects(int limit)
+    {
+        using var db = _dbContextFactory.CreateDbContext();
+        return db.Projects.AsNoTracking()
+            .OrderByDescending(project => project.CreatedAtUtc)
+            .Take(limit)
+            .Select(project => new SentinelProject(project.Id, project.Name, project.Description, project.CreatedAtUtc))
+            .ToArray();
+    }
+
     public AuthorizedScope CreateScope(Guid projectId, Uri targetBaseUri, string environment, DateTimeOffset expiresAtUtc, DateTimeOffset createdAtUtc)
     {
         var row = new ScopeRow

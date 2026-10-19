@@ -49,7 +49,10 @@ O indicador não é uma certificação nem garantia de ausência de vulnerabilid
 ## Endpoints disponíveis
 
 - `POST /api/v1/projects`
+- `GET /api/v1/projects?limit=50`
+- `GET /api/v1/projects/{projectId}`
 - `POST /api/v1/projects/{projectId}/scopes`
+- `GET /api/v1/projects/{projectId}/scopes`
 - `POST /api/v1/projects/{projectId}/audits`
 - `GET /api/v1/projects/{projectId}/security-score`
 - `GET /api/v1/audits/{auditId}`

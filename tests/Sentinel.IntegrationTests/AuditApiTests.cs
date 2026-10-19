@@ -24,6 +24,20 @@ public sealed class AuditApiTests : IClassFixture<SentinelApiFactory>
             new CreateScopeRequest(targetBaseUrl, "teste", DateTimeOffset.UtcNow.AddHours(1)));
         Assert.Equal(HttpStatusCode.Created, scopeResponse.StatusCode);
 
+        var contextResponse = await _client.GetAsync($"/api/v1/projects/{project.Id}");
+        Assert.Equal(HttpStatusCode.OK, contextResponse.StatusCode);
+        var context = await ReadRequiredAsync<ProjectContext>(contextResponse);
+        Assert.Equal(project.Id, context.Project.Id);
+        Assert.Single(context.Scopes);
+
+        var scopesResponse = await _client.GetAsync($"/api/v1/projects/{project.Id}/scopes");
+        Assert.Equal(HttpStatusCode.OK, scopesResponse.StatusCode);
+        Assert.Single(await ReadRequiredAsync<List<AuthorizedScope>>(scopesResponse));
+
+        var projectsResponse = await _client.GetAsync("/api/v1/projects?limit=100");
+        Assert.Equal(HttpStatusCode.OK, projectsResponse.StatusCode);
+        Assert.Contains(await ReadRequiredAsync<List<SentinelProject>>(projectsResponse), item => item.Id == project.Id);
+
         var auditResponse = await _client.PostAsJsonAsync(
             $"/api/v1/projects/{project.Id}/audits",
             new RequestAuditRequest($"{targetBaseUrl}area-segura", "simulated"));
