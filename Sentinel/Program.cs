@@ -62,3 +62,7 @@ app.MapGet("/api/v1/health", async (IDbContextFactory<SentinelDbContext> dbConte
 });
 
 app.Run();
+
+public partial class Program
+{
+}

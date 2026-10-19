@@ -23,6 +23,17 @@ Em desenvolvimento, a documentação OpenAPI fica disponível em `http://localho
 
 O Sentinel usa PostgreSQL. A senha não é armazenada no repositório: defina-a apenas na variável de ambiente `SENTINEL_POSTGRES_PASSWORD` antes de iniciar a aplicação. As migrações são aplicadas na inicialização.
 
+## Testes de integração
+
+Os testes usam um banco PostgreSQL isolado chamado `sentinel_test`. Com o banco local disponível, execute:
+
+```powershell
+$env:SENTINEL_POSTGRES_PASSWORD = "<senha local do PostgreSQL>"
+dotnet test .\tests\Sentinel.IntegrationTests\Sentinel.IntegrationTests.csproj -c Integration
+```
+
+A suíte valida o fluxo autorizado com persistência, o bloqueio fail-closed de alvo fora do escopo e a disponibilidade do banco. Ela não executa testes contra alvos externos.
+
 ## Endpoints disponíveis
 
 - `POST /api/v1/projects`
