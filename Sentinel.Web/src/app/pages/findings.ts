@@ -118,6 +118,7 @@ export class FindingsPage {
     { value: 'Passed', label: 'Aprovados' },
     { value: 'Inconclusive', label: 'Inconclusivos' },
     { value: 'ScriptError', label: 'Erros de plugin' },
+    { value: 'Informational', label: 'Informativos' },
     { value: '', label: 'Todos' },
   ];
   readonly filtered = computed(() =>

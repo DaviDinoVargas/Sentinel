@@ -50,4 +50,24 @@ describe('AuditsPage', () => {
     expect(ws.error()).toBe('');
     http.verify();
   });
+  it('envia confirmação explícita apenas no perfil ativo escolhido', () => {
+    const fixture = TestBed.createComponent(AuditsPage);
+    const page = fixture.componentInstance;
+    const ws = TestBed.inject(WorkspaceService);
+    ws.projectId.set('project');
+    vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+    vi.spyOn(ws, 'updateAudit').mockImplementation(() => undefined);
+    page.profile.set('lab-active');
+    page.form.setValue({ targetUrl: 'http://localhost:8080/', confirmed: true });
+    page.request();
+    const http = TestBed.inject(HttpTestingController);
+    const request = http.expectOne('/api/v1/projects/project/audits');
+    expect(request.request.body).toEqual({
+      targetUrl: 'http://localhost:8080/',
+      action: 'lab-active',
+      confirmActive: true,
+    });
+    request.flush({ id: 'audit', state: 'Queued' });
+    http.verify();
+  });
 });

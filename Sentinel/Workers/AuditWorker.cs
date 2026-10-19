@@ -109,9 +109,9 @@ public sealed class AuditWorker : BackgroundService
 
         // Reavalia a política no momento da execução: um escopo pode ter expirado ou sido
         // removido entre o enfileiramento e o consumo da mensagem.
-        var scopes = _store.GetScopes(payload.ProjectId);
+        var scopes = _store.GetScopes(payload.ProjectId).Where(scope => scope.Id == payload.ScopeId).ToArray();
         var targetUri = new Uri(payload.TargetUrl, UriKind.Absolute);
-        var decision = _policy.Evaluate(scopes, targetUri, payload.Action, nowUtc);
+        var decision = _policy.Evaluate(scopes, targetUri, payload.Action, nowUtc, payload.ConfirmActive);
         if (!decision.IsAllowed)
         {
             _store.CompleteAudit(payload.AuditId, AuditState.Blocked, Array.Empty<AuditControlResult>(), Array.Empty<AuditEvidence>(), decision.Reason);
@@ -121,8 +121,19 @@ public sealed class AuditWorker : BackgroundService
         var controls = new List<AuditControlResult>();
         var evidence = new List<AuditEvidence>();
 
-        foreach (var manifest in _pluginRegistry.Approved)
+        var active = payload.Action.Equals("lab-active", StringComparison.OrdinalIgnoreCase);
+        foreach (var manifest in _pluginRegistry.Approved.Where(plugin => plugin.Spec.Mode == (active ? "active" : "passive")))
         {
+            var pluginNow = _timeProvider.GetUtcNow();
+            var pluginPolicy = _policy.Evaluate(_store.GetScopes(payload.ProjectId).Where(scope => scope.Id == payload.ScopeId).ToArray(),
+                targetUri, payload.Action, pluginNow, payload.ConfirmActive);
+            if (!pluginPolicy.IsAllowed)
+            {
+                _store.CompleteAudit(payload.AuditId, AuditState.Blocked, controls, evidence, pluginPolicy.Reason);
+                return;
+            }
+            var timeoutDeadline = pluginNow + TimeSpan.FromSeconds(manifest.Spec.Resources.TimeoutSeconds);
+            var deadline = timeoutDeadline < pluginPolicy.Scope!.ExpiresAtUtc ? timeoutDeadline : pluginPolicy.Scope.ExpiresAtUtc;
             var executionId = Guid.NewGuid();
             var request = new PluginExecutionRequest(
                 manifest.Spec.ContractVersion,
@@ -133,8 +144,8 @@ public sealed class AuditWorker : BackgroundService
                 delivery.BasicProperties.MessageId ?? executionId.ToString("N"),
                 targetUri.AbsoluteUri,
                 payload.Action,
-                DeadlineUtc: _timeProvider.GetUtcNow() + TimeSpan.FromSeconds(manifest.Spec.Resources.TimeoutSeconds),
-                NowUtc: _timeProvider.GetUtcNow());
+                DeadlineUtc: deadline,
+                NowUtc: pluginNow);
 
             var result = await _pluginRunner.RunAsync(manifest, request, cancellationToken);
             foreach (var check in result.Checks)

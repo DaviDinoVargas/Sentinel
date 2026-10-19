@@ -22,6 +22,8 @@ public static class Program
         ["sentinel.http.error-disclosure"] = () => new ErrorDisclosureCheck(),
         ["sentinel.http.tech-fingerprint-headers"] = () => new TechFingerprintHeadersCheck(),
         ["sentinel.http.host-header-trust"] = () => new HostHeaderTrustCheck(),
+        ["sentinel.lab.input-probes"] = () => new LabInputProbesCheck(),
+        ["sentinel.lab.bounded-http-load"] = () => new BoundedHttpLoadCheck(),
     };
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)

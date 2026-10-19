@@ -1,0 +1,22 @@
+apiVersion: sentinel.dev/v1
+kind: PluginManifest
+metadata:
+  id: sentinel.lab.input-probes
+  version: 1.0.0
+  name: Probes ativos limitados de entrada e autenticação
+spec:
+  type: security-test
+  contractVersion: "1.0"
+  mode: active
+  controls: [LAB-AUTH-01, LAB-INP-01]
+  capabilities:
+    network: scoped-egress
+    sourceRead: false
+    artifactWrite: false
+  resources:
+    timeoutSeconds: 18
+    memoryMiB: 128
+  permissions: [target.http.lab-active]
+  execution:
+    isolation: process
+  riskClass: medium

@@ -33,11 +33,35 @@ import { Icon } from '../design-system/icon';
         <div class="panel-header" style="padding:0 0 20px">
           <div>
             <h2>Nova auditoria HTTP</h2>
-            <p>{{ realPlugins() }} plugins de verificação + fixture de validação do pipeline</p>
+            <p>
+              {{ realPlugins() }} plugins de verificação
+              {{ profile() === 'simulated' ? '+ fixture do pipeline' : 'ativos de laboratório' }}
+            </p>
           </div>
           <span class="tag">TRÁFEGO HTTP REAL</span>
         </div>
         <form [formGroup]="form" (ngSubmit)="request()" class="form-stack">
+          <label
+            >Perfil de execução<select
+              [value]="profile()"
+              (change)="
+                profile.set($any($event.target).value); form.controls.confirmed.setValue(false)
+              "
+            >
+              <option value="simulated">Verificações HTTP de baixo risco</option>
+              <option value="lab-active">Laboratório ativo: carga limitada + probes GET</option>
+            </select></label
+          >
+          @if (profile() === 'lab-active') {
+            <div class="banner warning">
+              <span
+                >Somente localhost/IP de loopback e escopo de ambiente laboratorio. Até 40 GETs de
+                carga, concorrência 2, até 10 inícios/s, mais até 5 probes GET. A carga para em 429,
+                5xx, timeout, redirecionamento ou latência acima de 1500 ms. A confirmação abaixo
+                autoriza este perfil ativo.</span
+              >
+            </div>
+          }
           <div class="form-grid">
             <label
               >URL a verificar<input
@@ -78,8 +102,11 @@ import { Icon } from '../design-system/icon';
           }
         </form>
         <p class="help">
-          Sem payloads de exploração ou carga. As verificações incluem cabeçalhos, CORS, erros e
-          confiança em Host. A ausência de evidência pode produzir um resultado inconclusivo.
+          {{
+            profile() === 'lab-active'
+              ? 'Tokens inválidos/sem assinatura e entradas GET de teste, sem alteração de dados nem redirecionamentos. Métricas em Performance Lab. A execução usa apenas a URL indicada e não representa toda a aplicação.'
+              : 'Verificações de cabeçalhos, CORS, erros e confiança em Host, sem carga. A ausência de evidência pode produzir resultado inconclusivo.'
+          }}
         </p>
         @if (!ws.activeScopes().length) {
           <p class="help">
@@ -219,8 +246,16 @@ export class AuditsPage {
     confirmed: [false, Validators.requiredTrue],
   });
   readonly realPlugins = computed(
-    () => this.ws.catalog()?.plugins.filter((plugin) => !plugin.isFixture).length ?? 0,
+    () =>
+      this.ws
+        .catalog()
+        ?.plugins.filter(
+          (plugin) =>
+            !plugin.isFixture &&
+            plugin.mode === (this.profile() === 'lab-active' ? 'active' : 'passive'),
+        ).length ?? 0,
   );
+  readonly profile = signal('simulated');
   readonly filtered = computed(() =>
     this.ws.audits().filter((audit) => !this.filter() || audit.state === this.filter()),
   );
@@ -241,17 +276,24 @@ export class AuditsPage {
       if (id === this.ws.projectId()) this.ws.updateAudit(audit);
       void this.router.navigate(['/audits', audit.id]);
     };
-    this.ws.api.requestAudit(id, this.form.getRawValue().targetUrl).subscribe({
-      next: complete,
-      error: (error) => {
-        if (error.status === 403 && error.error?.state === 'Blocked')
-          complete(error.error as Audit);
-        else {
-          this.submitting.set(false);
-          this.ws.fail(error);
-        }
-      },
-    });
+    this.ws.api
+      .requestAudit(
+        id,
+        this.form.getRawValue().targetUrl,
+        this.profile(),
+        this.profile() === 'lab-active' && this.form.controls.confirmed.value,
+      )
+      .subscribe({
+        next: complete,
+        error: (error) => {
+          if (error.status === 403 && error.error?.state === 'Blocked')
+            complete(error.error as Audit);
+          else {
+            this.submitting.set(false);
+            this.ws.fail(error);
+          }
+        },
+      });
   }
 }
 

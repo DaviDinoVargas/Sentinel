@@ -8,18 +8,24 @@ public sealed record PolicyDecision(bool IsAllowed, AuthorizedScope? Scope, stri
 
 public sealed class ScopePolicyEngine
 {
-    public PolicyDecision Evaluate(IReadOnlyList<AuthorizedScope> scopes, Uri targetUri, string action, DateTimeOffset nowUtc)
+    public PolicyDecision Evaluate(IReadOnlyList<AuthorizedScope> scopes, Uri targetUri, string action, DateTimeOffset nowUtc, bool confirmActive = false)
     {
-        if (!string.Equals(action, "simulated", StringComparison.OrdinalIgnoreCase))
+        var active = string.Equals(action, "lab-active", StringComparison.OrdinalIgnoreCase);
+        if (!active && !string.Equals(action, "simulated", StringComparison.OrdinalIgnoreCase))
         {
-            return PolicyDecision.Block("Ação bloqueada: o P0 só permite a ação 'simulated' (controles passivos de baixo risco).");
+            return PolicyDecision.Block("Ação bloqueada: perfil de execução não reconhecido.");
         }
 
         var scope = scopes.FirstOrDefault(candidate => IsAuthorized(candidate, targetUri, nowUtc));
-        return scope is null
-            ? PolicyDecision.Block("Ação bloqueada: o alvo não está em um escopo autorizado e válido.")
-            : PolicyDecision.Allow(scope);
+        if (scope is null) return PolicyDecision.Block("Ação bloqueada: o alvo não está em um escopo autorizado e válido.");
+        if (active && (!confirmActive || !scope.Environment.Equals("laboratorio", StringComparison.OrdinalIgnoreCase) ||
+            !IsLocalTarget(targetUri) || !string.IsNullOrEmpty(targetUri.UserInfo)))
+            return PolicyDecision.Block("Testes ativos exigem confirmação explícita, escopo de ambiente 'laboratorio' e alvo em localhost/IP de loopback, sem credenciais na URL.");
+        return PolicyDecision.Allow(scope);
     }
+
+    private static bool IsLocalTarget(Uri uri) => uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase) ||
+        System.Net.IPAddress.TryParse(uri.IdnHost.Trim('[', ']'), out var address) && System.Net.IPAddress.IsLoopback(address);
 
     private static bool IsAuthorized(AuthorizedScope scope, Uri targetUri, DateTimeOffset nowUtc)
     {
@@ -103,7 +109,7 @@ public sealed class AuditService
         }
 
         var nowUtc = _timeProvider.GetUtcNow();
-        var decision = _policy.Evaluate(_store.GetScopes(projectId), targetUri, request.Action, nowUtc);
+        var decision = _policy.Evaluate(_store.GetScopes(projectId), targetUri, request.Action, nowUtc, request.ConfirmActive);
         if (!decision.IsAllowed)
         {
             return _store.SaveBlockedAudit(new Audit(
@@ -117,7 +123,7 @@ public sealed class AuditService
         // estado em GET /api/v1/audits/{auditId}. A mensagem do outbox é gravada na mesma
         // transação que a auditoria — nunca existe uma auditoria Queued sem job pendente.
         var auditId = Guid.NewGuid();
-        var outboxPayload = new Execution.OutboxMessagePayload(auditId, projectId, decision.Scope!.Id, targetUri.AbsoluteUri, request.Action);
+        var outboxPayload = new Execution.OutboxMessagePayload(auditId, projectId, decision.Scope!.Id, targetUri.AbsoluteUri, request.Action, request.ConfirmActive);
         var outboxPayloadJson = System.Text.Json.JsonSerializer.Serialize(outboxPayload, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
         return _store.SaveQueuedAuditWithOutbox(
             new Audit(auditId, projectId, decision.Scope.Id, targetUri, AuditState.Queued, correlationId, null, nowUtc, Array.Empty<AuditControlResult>(), Array.Empty<AuditEvidence>()),

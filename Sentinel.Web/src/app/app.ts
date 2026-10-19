@@ -22,6 +22,7 @@ export class App {
     { path: '/findings', label: 'Resultados e achados', icon: 'search', group: '' },
     { path: '/evidence', label: 'Evidências e relatórios', icon: 'document', group: '' },
     { path: '/score', label: 'Security Score', icon: 'chart', group: '' },
+    { path: '/performance', label: 'Performance Lab', icon: 'clock', group: '' },
     { path: '/plugins', label: 'Plugins e controles', icon: 'plugin', group: 'PLATAFORMA' },
     { path: '/operations', label: 'Infraestrutura e filas', icon: 'server', group: '' },
     { path: '/coverage', label: 'Capacidades', icon: 'layers', group: '' },

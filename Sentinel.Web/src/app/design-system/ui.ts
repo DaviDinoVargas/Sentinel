@@ -12,6 +12,7 @@ const labels: Record<string, string> = {
   Failed: 'Reprovado',
   Passed: 'Aprovado',
   Inconclusive: 'Inconclusivo',
+  Informational: 'Informativo',
   ScriptError: 'Erro no plugin',
   Observed: 'Observada',
   Reproduced: 'Reproduzida',

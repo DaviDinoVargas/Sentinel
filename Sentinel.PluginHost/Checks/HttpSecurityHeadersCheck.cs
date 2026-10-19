@@ -16,7 +16,7 @@ public sealed class HttpSecurityHeadersCheck : IIsolatedCheck
 
     public async Task<PluginExecutionResult> RunAsync(PluginExecutionRequest request, CancellationToken cancellationToken)
     {
-        using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+        using var client = ScopedHttp.Create();
         HttpResponseMessage response;
         try
         {

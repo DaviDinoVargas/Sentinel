@@ -48,6 +48,11 @@ export const routes: Routes = [
     loadComponent: () => import('./pages/plugins').then((m) => m.PluginsPage),
   },
   {
+    path: 'performance',
+    title: 'Performance Lab · Sentinel',
+    loadComponent: () => import('./pages/performance').then((m) => m.PerformancePage),
+  },
+  {
     path: 'operations',
     title: 'Infraestrutura e filas · Sentinel',
     loadComponent: () => import('./pages/operations').then((m) => m.OperationsPage),

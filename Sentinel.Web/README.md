@@ -11,6 +11,7 @@ Workspace Angular para acompanhar a segurança de aplicações autorizadas. A in
 - Resultados e achados: filtros por resultado, severidade, controle, alvo e resumo.
 - Evidências e relatórios: registros SHA-256, relatório por auditoria e exportação JSON no detalhe.
 - Security Score: fórmula, componentes, cobertura, confiança e limitações.
+- Performance Lab: percentis, distribuição HTTP, taxa observada e motivos de interrupção do perfil ativo local.
 - Plugins e controles: catálogo real da API, versões, permissões e recursos declarados.
 - Infraestrutura e filas: PostgreSQL, outbox, RabbitMQ, mensagens prontas e consumidores conectados.
 - Capacidades: mapa do que está implementado e das expansões previstas.
@@ -44,7 +45,7 @@ npm run test:contrast
 npm run build
 ```
 
-Os testes incluem troca de projeto sem mistura de respostas, tratamento de bloqueio HTTP 403, confirmação de tráfego real, horário local de validade, escape de conteúdo de plugins e axe nas dez telas em ambos os temas. Axe/jsdom verifica semântica e nomes acessíveis; o teste de contraste lê os tokens CSS e exige 4.5:1 para 20 pares de texto. Layout e comportamento de teclado também precisam de revisão no navegador.
+Os testes incluem troca de projeto sem mistura de respostas, tratamento de bloqueio HTTP 403, confirmação de tráfego real, horário local de validade, escape de conteúdo de plugins e axe nas onze telas em ambos os temas. Axe/jsdom verifica semântica e nomes acessíveis; o teste de contraste lê os tokens CSS e exige 4.5:1 para 20 pares de texto. Layout e comportamento de teclado também precisam de revisão no navegador.
 
 ## Design system
 
@@ -56,4 +57,12 @@ O tema e o identificador do projeto selecionado podem ser salvos no navegador; c
 
 Os cinco plugins HTTP atuais fazem requisições reais de baixo risco; a fixture não testa o alvo. O campo de ação `simulated` é mantido no contrato da API por compatibilidade. O score atual inclui a fixture, e sua cobertura observada mede auditorias com controles, não cobertura de vulnerabilidades. A interface apresenta essas limitações.
 
-Outros protocolos, análise de repositórios, carga, aprovação humana, cancelamento, autenticação, containers para plugins e armazenamento de artefatos externo permanecem pendentes. A plataforma deve ser usada localmente, em laboratório autorizado, enquanto essas guardas não forem implementadas.
+Outros protocolos, análise de repositórios, carga autenticada/ampliada, aprovação humana, cancelamento, autenticação, containers para plugins e armazenamento de artefatos externo permanecem pendentes. A plataforma deve ser usada localmente, em laboratório autorizado, enquanto essas guardas não forem implementadas.
+
+## Laboratório ativo local
+
+Na Central de auditorias, selecione `Laboratório ativo` e confirme a execução. A API exige `confirmActive: true`, escopo válido em ambiente `laboratorio`, host localhost/IP de loopback e ausência de credenciais na URL. Plugins ativos não são executados no perfil padrão. Redirecionamentos nunca são seguidos.
+
+O cenário fixo gera até 40 GETs de carga, concorrência 2 e até 10 inícios/s por execução, além de até cinco probes GET. Interrompe carga em 429, 5xx, erro de transporte, redirecionamento, latência >1500 ms ou prazo. Os percentis medem cabeçalhos sem autenticação; não são latência de negócio ou capacidade máxima. Respostas 401/403 precisam ser lidas nesse contexto.
+
+As evidências JSON são validadas antes de exibir métricas. Resultados de carga são informativos; os probes de entradas ficam inconclusivos quando não há evidência suficiente. Nenhum resultado é apresentado como aprovação geral de SQL injection/XSS.

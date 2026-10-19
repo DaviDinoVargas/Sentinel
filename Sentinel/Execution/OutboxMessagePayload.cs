@@ -6,4 +6,5 @@ public sealed record OutboxMessagePayload(
     Guid ProjectId,
     Guid ScopeId,
     string TargetUrl,
-    string Action);
+    string Action,
+    bool ConfirmActive = false);

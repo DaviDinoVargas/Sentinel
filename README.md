@@ -29,7 +29,7 @@ Alternativamente, defina `SENTINEL_POSTGRES_PASSWORD` e `SENTINEL_RABBITMQ_PASSW
 
 ## Interface
 
-Dez módulos: visão geral, projetos, escopos/políticas, auditorias e detalhe, resultados/achados, evidências/relatórios, score, plugins/controles, infraestrutura/filas e capacidades. O estado vem da API; gráficos e contadores informam o recorte consultado. Veja [Sentinel.Web/README.md](Sentinel.Web/README.md).
+Onze módulos: visão geral, projetos, escopos/políticas, auditorias e detalhe, resultados/achados, evidências/relatórios, score, Performance Lab, plugins/controles, infraestrutura/filas e capacidades. O estado vem da API; gráficos e contadores informam o recorte consultado. Veja [Sentinel.Web/README.md](Sentinel.Web/README.md).
 
 ## Controles atuais
 
@@ -40,7 +40,19 @@ Dez módulos: visão geral, projetos, escopos/políticas, auditorias e detalhe, 
 - `WEB-CFG-06`: confiança em Host/X-Forwarded-Host e reflexo em resposta/redirecionamento.
 - `WEB-CFG-09`: exposição de tecnologia/versão em cabeçalhos.
 
-Os cinco últimos fazem requisições HTTP reais. O nome de ação `simulated` permanece por compatibilidade do contrato. Cada manifesto YAML e os schemas JSON são validados; o host aplica timeout e mata a árvore de processos se necessário. Memória/egress são declarações do manifesto, sem sandbox por container ainda.
+Os cinco últimos fazem requisições HTTP reais. O nome de ação `simulated` permanece por compatibilidade do contrato. Redirecionamentos automáticos, cookies compartilhados e proxies do ambiente estão desabilitados nos clientes dos plugins. Cada manifesto YAML e os schemas JSON são validados; o host aplica timeout e mata a árvore de processos se necessário. Memória/egress são declarações do manifesto, sem sandbox por container ainda.
+
+## Perfil ativo de laboratório
+
+`POST /api/v1/projects/{id}/audits` aceita também `action: "lab-active"` com `confirmActive: true`. Exige escopo válido em ambiente `laboratorio`, URL sem credenciais e host localhost/IP de loopback. A política é reavaliada no worker e antes de cada plugin; o deadline é limitado à validade do escopo. O cliente ativo fixa a conexão em IP de loopback e mantém validação TLS. Este perfil não habilita testes ativos externos ou em produção.
+
+- `LAB-PERF-01`: até 40 GETs, concorrência 2, até 10 inícios/s por execução; interrompe a carga em 429, 5xx, erro de transporte, latência acima de 1500 ms, redirect ou prazo. Persiste p50/p95/p99 nearest-rank, códigos HTTP e taxa observada. Mede somente cabeçalhos sem credenciais; resultado informativo não aprova segurança.
+- `LAB-AUTH-01`: quando o baseline exige autenticação, tenta dois tokens de laboratório (inválido e JWT sem assinatura). Acesso 2xx após recusa anônima exige revisão de possível bypass.
+- `LAB-INP-01`: duas entradas GET na query da URL autorizada, procurando vazamento de stack trace em 5xx. Ausência de vazamento é inconclusiva quanto a SQL injection/XSS.
+
+Os dois plugins ativos não executam no perfil padrão. Métricas aparecem em Performance Lab; controles e evidências nas telas de investigação e no relatório. Os limites são por execução; ainda não há orçamento distribuído de carga entre múltiplos workers, autenticação de operadores, cancelamento ou cenários autenticados.
+
+Para uma cópia da Locadora já preparada fora do diretório original, `scripts/start-locadora-lab.ps1 -LabPath <caminho-da-copia>` inicia SQL Server com banco/volume próprios e processos locais nas portas 14200, 15079/17064 e 18000. Requer dependências instaladas e build Release da cópia. Não modifica o TCC original; o proxy valida TLS com o certificado público local e não exporta chave privada. Logs/relatórios ficam em `.local/locadora/`, fora do Git. Consulte [scripts/README.md](scripts/README.md).
 
 ## Consultas da API
 
@@ -75,6 +87,6 @@ O score `P0-1.0` expõe fórmula, componentes, cobertura, confiança e limitaç�
 
 ## Cobertura e continuidade
 
-Hoje os adaptadores implementados avaliam URLs HTTP/HTTPS. O objetivo de atender diferentes softwares exige novos adaptadores de alvo e plugins. A tela Capacidades explicita pendências como análise de código/dependências, banco e RabbitMQ do alvo, desktop/mobile, carga, grafo/fluxos, Keycloak, MinIO/S3, containers para plugins e triagem de achados.
+Hoje os adaptadores implementados avaliam URLs HTTP/HTTPS. O objetivo de atender diferentes softwares exige novos adaptadores de alvo e plugins. A tela Capacidades explicita pendências como análise de código/dependências, banco e RabbitMQ do alvo, desktop/mobile, carga autenticada/ampliada, grafo/fluxos, Keycloak, MinIO/S3, containers para plugins e triagem de achados.
 
 Uso atual: ambiente local/laboratório autorizado. Ainda não há autenticação, aprovação humana, cancelamento de auditoria, revogação de escopo ou guardas completas de produção.

@@ -98,14 +98,14 @@ export function localExpiry(): string {
               <li>
                 <strong>03 · Ação permitida</strong>
                 <p>
-                  Somente os controles HTTP de baixo risco do catálogo atual. Bloqueios ficam
+                  Perfis de baixo risco ou laboratório ativo local com confirmação. Bloqueios ficam
                   registrados no histórico.
                 </p>
               </li>
             </ul>
             <p class="help">
-              Limites de carga, exclusões de rotas, aprovação de produção e revogação de escopos
-              ainda não estão implementados.
+              Orçamentos configuráveis de carga, exclusões de rotas, aprovação de produção e
+              revogação de escopos ainda não estão implementados.
             </p>
           </section>
         </div>

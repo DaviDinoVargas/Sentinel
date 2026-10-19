@@ -11,6 +11,8 @@ public sealed class LabTargetServer : IDisposable
     private readonly HttpListener _listener;
     private readonly CancellationTokenSource _cancellation = new();
     private readonly Task _acceptLoop;
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string,int> _requests = new();
+    public int RequestsFor(string path) => _requests.GetValueOrDefault(path);
 
     public Uri BaseUri { get; }
 
@@ -42,9 +44,26 @@ public sealed class LabTargetServer : IDisposable
         }
     }
 
-    private static void Handle(HttpListenerContext context)
+    private void Handle(HttpListenerContext context)
     {
         var path = context.Request.Url?.AbsolutePath ?? "/";
+        _requests.AddOrUpdate(path, 1, (_, count) => count + 1);
+        if (path.Contains("redirect-fora", StringComparison.Ordinal))
+        {
+            context.Response.StatusCode = 302;
+            context.Response.RedirectLocation = new Uri(BaseUri, "fora-do-escopo").AbsoluteUri;
+            context.Response.Close(); return;
+        }
+        if (path.Contains("carga-limitada", StringComparison.Ordinal))
+        {
+            context.Response.StatusCode = 429;
+            context.Response.Close(); return;
+        }
+        if (path.Contains("protegido", StringComparison.Ordinal) || path.Contains("jwt-vulneravel", StringComparison.Ordinal))
+        {
+            context.Response.StatusCode = path.Contains("jwt-vulneravel", StringComparison.Ordinal) && context.Request.Headers["Authorization"] is not null ? 200 : 401;
+            context.Response.Close(); return;
+        }
         if (path.Contains("area-segura", StringComparison.OrdinalIgnoreCase))
         {
             context.Response.Headers.Add("Strict-Transport-Security", "max-age=63072000; includeSubDomains");

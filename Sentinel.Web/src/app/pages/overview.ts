@@ -335,7 +335,7 @@ export class OverviewPage {
     },
     { label: 'Reprovados', value: this.ws.findings().length, class: 'warning' },
     {
-      label: 'Inconclusivos / erros',
+      label: 'Outros / inconclusivos',
       value: this.ws.controls().filter((c) => !['Passed', 'Failed'].includes(c.state)).length,
       class: 'neutral',
     },

@@ -1,0 +1,22 @@
+apiVersion: sentinel.dev/v1
+kind: PluginManifest
+metadata:
+  id: sentinel.lab.bounded-http-load
+  version: 1.0.0
+  name: Carga HTTP limitada de laboratório
+spec:
+  type: load-test
+  contractVersion: "1.0"
+  mode: active
+  controls: [LAB-PERF-01]
+  capabilities:
+    network: scoped-egress
+    sourceRead: false
+    artifactWrite: false
+  resources:
+    timeoutSeconds: 15
+    memoryMiB: 128
+  permissions: [target.http.lab-active]
+  execution:
+    isolation: process
+  riskClass: medium

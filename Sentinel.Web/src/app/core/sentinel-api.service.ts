@@ -163,10 +163,11 @@ export class SentinelApiService {
       expiresAtUtc,
     });
   }
-  requestAudit(projectId: string, targetUrl: string) {
+  requestAudit(projectId: string, targetUrl: string, action = 'simulated', confirmActive = false) {
     return this.http.post<Audit>(`${this.baseUrl}/projects/${projectId}/audits`, {
       targetUrl,
-      action: 'simulated',
+      action,
+      confirmActive,
     });
   }
   getAudit(auditId: string) {

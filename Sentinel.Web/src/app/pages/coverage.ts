@@ -112,6 +112,13 @@ export class CoveragePage {
   );
   readonly available = [
     {
+      title: 'Carga limitada de laboratório',
+      description:
+        '40 GETs, concorrência 2, teto 10 inícios/s, percentis e aborto por sinais de impacto',
+      path: '/performance',
+      screen: 'Performance Lab',
+    },
+    {
       title: 'Projetos',
       description: 'Cadastro e consulta de aplicações persistidas',
       path: '/projects',
@@ -173,10 +180,6 @@ export class CoveragePage {
       title: 'Outros tipos de alvo',
       description:
         'Banco e RabbitMQ da aplicação testada, desktop/mobile e outros protocolos exigem adaptadores próprios.',
-    },
-    {
-      title: 'Performance Lab',
-      description: 'Carga, percentis de latência, throughput, saturação e comparação de execuções.',
     },
     {
       title: 'Grafo e fluxos do alvo',

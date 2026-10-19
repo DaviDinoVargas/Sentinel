@@ -98,7 +98,7 @@ public sealed record CreateProjectRequest(string Name, string? Description);
 
 public sealed record CreateScopeRequest(string TargetBaseUrl, string Environment, DateTimeOffset ExpiresAtUtc);
 
-public sealed record RequestAuditRequest(string TargetUrl, string Action = "simulated");
+public sealed record RequestAuditRequest(string TargetUrl, string Action = "simulated", bool ConfirmActive = false);
 
 public sealed record AuditReport(
     Guid AuditId,

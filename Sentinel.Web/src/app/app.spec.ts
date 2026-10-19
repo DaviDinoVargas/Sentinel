@@ -36,7 +36,7 @@ describe('Central Sentinel', () => {
   it('apresenta navegação para todas as capacidades implementadas', () => {
     const fixture = render();
     const element = fixture.nativeElement as HTMLElement;
-    expect(element.querySelectorAll('nav a').length).toBe(10);
+    expect(element.querySelectorAll('nav a').length).toBe(11);
     expect(element.textContent).toContain('Infraestrutura e filas');
     expect(element.textContent).toContain('Evidências e relatórios');
     expect(element.querySelector('select')?.disabled).toBe(true);
