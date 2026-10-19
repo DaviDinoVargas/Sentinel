@@ -20,9 +20,10 @@ public sealed class SentinelApiFactory : WebApplicationFactory<Program>
                 ["RabbitMq:Port"] = "5672",
                 ["RabbitMq:VirtualHost"] = "sentinel",
                 ["RabbitMq:UserName"] = "sentinel_app",
-                // Sem sufixo: todas as instâncias de teste compartilham a mesma topologia
-                // real (fila com competing consumers), igual ao banco sentinel_test
-                // compartilhado — é justamente isso que WorkerDuplicationTests verifica.
+                // Todos os hosts de teste competem pelas mesmas filas, separadas das
+                // filas da aplicação local. Um worker de sentinel_dev nunca deve
+                // consumir e descartar mensagens destinadas a sentinel_test.
+                ["RabbitMq:TopologySuffix"] = "integration-tests",
             });
         });
     }

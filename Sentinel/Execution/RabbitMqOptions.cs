@@ -10,9 +10,9 @@ public sealed class RabbitMqOptions
     public string UserName { get; set; } = "sentinel_app";
     public string Password { get; set; } = string.Empty;
 
-    // Sufixo aplicado aos nomes de exchange/fila. Vazio em produção; testes de integração
-    // usam um sufixo único por execução para não colidir com mensagens de execuções
-    // anteriores na mesma instância do RabbitMQ.
+    // Sufixo aplicado aos nomes de exchange/fila. Vazio na aplicação local; todos os
+    // hosts dos testes usam "integration-tests" para competir entre si sem consumir
+    // mensagens destinadas ao banco de desenvolvimento.
     public string TopologySuffix { get; set; } = string.Empty;
 
     public TimeSpan OutboxPollInterval { get; set; } = TimeSpan.FromMilliseconds(500);

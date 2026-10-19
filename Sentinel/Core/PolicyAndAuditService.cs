@@ -128,6 +128,12 @@ public sealed class AuditService
 
     public IReadOnlyList<SentinelProject> GetProjects(int limit) => _store.GetProjects(limit);
 
+    public async Task<AuditHistoryPage?> GetAuditHistoryAsync(Guid projectId, int limit, int offset, CancellationToken cancellationToken)
+    {
+        if (_store.FindProject(projectId) is null) return null;
+        return await _store.GetAuditHistoryAsync(projectId, limit, offset, cancellationToken);
+    }
+
     public ProjectContext? GetProjectContext(Guid projectId)
     {
         var project = _store.FindProject(projectId);
@@ -163,7 +169,7 @@ public sealed class AuditService
         var blockedAudits = audits.Count(audit => audit.State == AuditState.Blocked);
         var limitations = new List<string>
         {
-            "O P0 ainda cobre poucos controles do catálogo (hoje WEB-CFG-01, WEB-CFG-02, WEB-CFG-04 e WEB-CFG-09 contra o alvo); SIM-001 é fixture do pipeline e não testa o alvo.",
+            "O P0 ainda cobre poucos controles do catálogo (hoje WEB-CFG-01, WEB-CFG-02, WEB-CFG-04, WEB-CFG-06 e WEB-CFG-09 contra o alvo); SIM-001 é fixture do pipeline e não testa o alvo.",
             "O score não é certificação nem garantia de ausência de vulnerabilidades."
         };
 
@@ -216,7 +222,7 @@ public sealed class AuditService
             : new AuditReport(
                 audit.Id,
                 audit.State,
-                "Este relatório demonstra o fluxo do P0. Ele não representa garantia de segurança nem Security Score de produção.",
+                "Relatório dos controles registrados nesta auditoria. Resultados inconclusivos, erros e bloqueios não representam aprovação do alvo; o conjunto atual de controles não garante ausência de vulnerabilidades.",
                 audit.Controls,
                 audit.Evidence,
                 audit.PolicyReason);

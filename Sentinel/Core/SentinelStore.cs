@@ -13,6 +13,7 @@ public interface ISentinelStore
     Audit SaveBlockedAudit(Audit audit);
     Audit? FindAudit(Guid auditId);
     IReadOnlyList<Audit> GetAudits(Guid projectId);
+    Task<AuditHistoryPage> GetAuditHistoryAsync(Guid projectId, int limit, int offset, CancellationToken cancellationToken);
 
     // Fila de execução real (ADR-0004): a auditoria e a mensagem do outbox são gravadas
     // juntas, na mesma transação — nunca existe uma auditoria "Queued" sem uma mensagem

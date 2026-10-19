@@ -8,11 +8,9 @@ namespace Sentinel.IntegrationTests;
 
 // Prova o critério de saída do P0 (Roadmap.md): duas instâncias da API, cada uma com seu
 // próprio AuditWorker, não duplicam a execução de uma auditoria. As duas instâncias
-// competem pelos mesmos jobs na mesma tabela audit_jobs (sentinel_test); o arrendamento
-// com FOR UPDATE SKIP LOCKED (PostgresSentinelStore.LeaseNextJob) garante que só uma
-// delas processe cada auditoria. É uma simulação dentro do processo de teste (duas
-// instâncias lógicas, não dois processos do sistema operacional) — isolamento real de
-// processo/container ainda é pendência (ver handoff).
+// competem pela mesma fila quorum real do RabbitMQ, separada da topologia de
+// desenvolvimento. São dois hosts lógicos no processo de teste; cada controle roda
+// em um processo filho isolado. Testar hosts em processos distintos continua pendente.
 public sealed class WorkerDuplicationTests : IAsyncLifetime
 {
     private static readonly JsonSerializerOptions JsonOptions = CreateJsonOptions();

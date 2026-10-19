@@ -4,6 +4,8 @@ public sealed record SentinelProject(Guid Id, string Name, string? Description, 
 
 public sealed record ProjectContext(SentinelProject Project, IReadOnlyList<AuthorizedScope> Scopes);
 
+public sealed record AuditHistoryPage(IReadOnlyList<Audit> Items, int TotalCount, int Limit, int Offset);
+
 public sealed record AuthorizedScope(
     Guid Id,
     Guid ProjectId,

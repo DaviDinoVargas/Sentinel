@@ -1,0 +1,61 @@
+param([switch]$RestartApi, [switch]$SkipBuild)
+$ErrorActionPreference = 'Stop'
+$repoRoot = Split-Path $PSScriptRoot -Parent
+$logDirectory = Join-Path $repoRoot '.local'
+New-Item -ItemType Directory -Path $logDirectory -Force | Out-Null
+foreach ($name in @('sentinel-postgres', 'sentinel-rabbitmq')) {
+    $container = docker inspect $name | ConvertFrom-Json
+    if ($LASTEXITCODE -ne 0) { throw "Container local ausente: $name" }
+    if (-not $container.State.Running) {
+        docker start $name | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "Não foi possível iniciar $name" }
+    }
+}
+$listener = Get-NetTCPConnection -State Listen -LocalPort 5161 -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($listener -and $RestartApi) {
+    $existing = Get-CimInstance Win32_Process -Filter "ProcessId=$($listener.OwningProcess)"
+    $expectedRoot = [IO.Path]::GetFullPath($repoRoot) + [IO.Path]::DirectorySeparatorChar
+    $knownExecutable = $existing.ExecutablePath -and $existing.ExecutablePath.StartsWith($expectedRoot, [StringComparison]::OrdinalIgnoreCase)
+    $knownCommand = $existing.Name -eq 'dotnet.exe' -and $existing.CommandLine.Contains((Join-Path $repoRoot 'Sentinel\bin\Release\net8.0\Sentinel.dll'))
+    if (-not ($knownExecutable -or $knownCommand)) { throw 'A porta 5161 pertence a outro processo. Nenhum processo foi encerrado.' }
+    Stop-Process -Id $listener.OwningProcess
+    $listener = $null
+}
+if (-not $listener) {
+    Push-Location $repoRoot
+    try {
+        if (-not $SkipBuild) {
+            dotnet build Sentinel.sln -c Release --no-restore
+            if ($LASTEXITCODE -ne 0) { throw 'Build da API falhou.' }
+        }
+        # Reutiliza credenciais dos containers locais, sem exibição nem gravação em disco.
+        $pgContainer = docker inspect sentinel-postgres | ConvertFrom-Json
+        $mqContainer = docker inspect sentinel-rabbitmq | ConvertFrom-Json
+        $env:SENTINEL_POSTGRES_PASSWORD = (($pgContainer.Config.Env | Where-Object { $_.StartsWith('POSTGRES_PASSWORD=') }) -split '=', 2)[1]
+        $env:SENTINEL_RABBITMQ_PASSWORD = (($mqContainer.Config.Env | Where-Object { $_.StartsWith('RABBITMQ_DEFAULT_PASS=') }) -split '=', 2)[1]
+        $env:ASPNETCORE_ENVIRONMENT = 'Development'
+        $env:ASPNETCORE_URLS = 'http://localhost:5161'
+        Set-Item -Path 'Env:Logging__LogLevel__Microsoft.EntityFrameworkCore' -Value 'Warning'
+        $apiDll = Join-Path $repoRoot 'Sentinel\bin\Release\net8.0\Sentinel.dll'
+        Start-Process -FilePath 'dotnet' -ArgumentList @($apiDll) -WorkingDirectory (Join-Path $repoRoot 'Sentinel') -WindowStyle Hidden -RedirectStandardOutput (Join-Path $logDirectory 'api.log') -RedirectStandardError (Join-Path $logDirectory 'api-error.log') | Out-Null
+    } finally { Pop-Location }
+}
+$frontend = Get-NetTCPConnection -State Listen -LocalPort 4200 -ErrorAction SilentlyContinue | Select-Object -First 1
+if (-not $frontend) {
+    $node = (Get-Command node).Source
+    $cli = Join-Path $repoRoot 'Sentinel.Web\node_modules\@angular\cli\bin\ng.js'
+    Start-Process -FilePath $node -ArgumentList @($cli, 'serve', '--host', 'localhost') -WorkingDirectory (Join-Path $repoRoot 'Sentinel.Web') -WindowStyle Hidden -RedirectStandardOutput (Join-Path $logDirectory 'web.log') -RedirectStandardError (Join-Path $logDirectory 'web-error.log') | Out-Null
+}
+$deadline = [DateTime]::UtcNow.AddSeconds(45)
+do {
+    try {
+        $health = Invoke-RestMethod 'http://localhost:5161/api/v1/health' -TimeoutSec 2
+        $catalog = Invoke-RestMethod 'http://localhost:5161/api/v1/plugins' -TimeoutSec 2
+        $page = Invoke-WebRequest 'http://localhost:4200' -TimeoutSec 2
+        if ($health.status -eq 'healthy' -and $catalog.plugins.Count -gt 0 -and $page.StatusCode -eq 200) {
+            Write-Output 'Sentinel disponível: http://localhost:4200 | API: http://localhost:5161 | Logs: .local/'
+            exit 0
+        }
+    } catch { Start-Sleep -Seconds 1 }
+} while ([DateTime]::UtcNow -lt $deadline)
+throw 'A aplicação não ficou disponível. Consulte .local/api-error.log e .local/web-error.log. Para uma API antiga, use -RestartApi.'

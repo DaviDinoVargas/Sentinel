@@ -1,26 +1,54 @@
 import { TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
+import { provideRouter } from '@angular/router';
 import { App } from './app';
 
-describe('App', () => {
-  beforeEach(async () => {
-    await TestBed.configureTestingModule({
+describe('Central Sentinel', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    TestBed.configureTestingModule({
       imports: [App],
-      providers: [provideHttpClient()],
-    })
-      .compileComponents();
+      providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([])],
+    });
   });
-
-  it('should create the app', () => {
-    const fixture = TestBed.createComponent(App);
-    const app = fixture.componentInstance;
-    expect(app).toBeTruthy();
+  afterEach(() => {
+    TestBed.inject(HttpTestingController).verify();
+    document.documentElement.removeAttribute('data-theme');
   });
-
-  it('should render the Sentinel workspace heading', async () => {
+  function render() {
     const fixture = TestBed.createComponent(App);
-    await fixture.whenStable();
-    const compiled = fixture.nativeElement as HTMLElement;
-    expect(compiled.querySelector('h1')?.textContent).toContain('Validar antes de confiar');
+    fixture.detectChanges();
+    const http = TestBed.inject(HttpTestingController);
+    http.expectOne('/api/v1/projects?limit=100').flush([]);
+    http
+      .expectOne('/api/v1/plugins')
+      .flush({ plugins: [], rejectedCount: 0, approvalMode: 'automatic-schema-validation' });
+    http.expectOne('/api/v1/operations').flush({
+      status: 'healthy',
+      sampledAtUtc: '2026-10-19T12:00:00Z',
+      database: { status: 'healthy' },
+      broker: { status: 'healthy', queues: [] },
+    });
+    fixture.detectChanges();
+    return fixture;
+  }
+  it('apresenta navegação para todas as capacidades implementadas', () => {
+    const fixture = render();
+    const element = fixture.nativeElement as HTMLElement;
+    expect(element.querySelectorAll('nav a').length).toBe(10);
+    expect(element.textContent).toContain('Infraestrutura e filas');
+    expect(element.textContent).toContain('Evidências e relatórios');
+    expect(element.querySelector('select')?.disabled).toBe(true);
+    fixture.destroy();
+  });
+  it('alterna tema e persiste apenas a preferência visual', () => {
+    const fixture = render();
+    fixture.componentInstance.toggleTheme();
+    expect(document.documentElement.dataset['theme']).toBe('dark');
+    expect(localStorage.getItem('sentinel.theme')).toBe('dark');
+    fixture.componentInstance.toggleTheme();
+    expect(document.documentElement.dataset['theme']).toBe('light');
+    fixture.destroy();
   });
 });

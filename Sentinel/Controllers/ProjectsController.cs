@@ -39,6 +39,18 @@ public sealed class ProjectsController : ControllerBase
         return context is null ? NotFound() : Ok(context.Scopes);
     }
 
+    [HttpGet("{projectId:guid}/audits")]
+    [ProducesResponseType(typeof(AuditHistoryPage), StatusCodes.Status200OK)]
+    public async Task<ActionResult<AuditHistoryPage>> GetAudits(Guid projectId,
+        CancellationToken cancellationToken, [FromQuery] int limit = 25, [FromQuery] int offset = 0)
+    {
+        if (limit is < 1 or > 100 || offset < 0)
+            return BadRequest(new ProblemDetails { Title = "Paginação inválida", Detail = "Use limit entre 1 e 100 e offset não negativo.", Status = 400 });
+
+        var history = await _auditService.GetAuditHistoryAsync(projectId, limit, offset, cancellationToken);
+        return history is null ? NotFound() : Ok(history);
+    }
+
     [HttpPost]
     [ProducesResponseType(typeof(SentinelProject), StatusCodes.Status201Created)]
     public ActionResult<SentinelProject> CreateProject([FromBody] CreateProjectRequest request)

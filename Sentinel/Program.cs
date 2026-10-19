@@ -8,31 +8,29 @@ using Sentinel.Workers;
 using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
-var configuredConnectionString = builder.Configuration.GetConnectionString("SentinelPostgres");
-
-if (string.IsNullOrWhiteSpace(configuredConnectionString))
-{
-    throw new InvalidOperationException("A connection string SentinelPostgres é obrigatória.");
-}
-
-var connectionStringBuilder = new NpgsqlConnectionStringBuilder(configuredConnectionString);
-if (string.IsNullOrWhiteSpace(connectionStringBuilder.Password))
-{
-    var password = builder.Configuration["SENTINEL_POSTGRES_PASSWORD"];
-    if (string.IsNullOrWhiteSpace(password))
-    {
-        throw new InvalidOperationException("Defina SENTINEL_POSTGRES_PASSWORD fora dos arquivos versionados.");
-    }
-
-    connectionStringBuilder.Password = password;
-}
-
 builder.Services.AddControllers().AddJsonOptions(options =>
     options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddSingleton<TimeProvider>(TimeProvider.System);
-builder.Services.AddDbContextFactory<SentinelDbContext>(options => options.UseNpgsql(connectionStringBuilder.ConnectionString));
+// Resolve a configuração final do host no momento de criar as opções. Capturar a
+// connection string antes de Build ignora substituições do WebApplicationFactory
+// e pode enviar os testes para o banco de desenvolvimento.
+builder.Services.AddDbContextFactory<SentinelDbContext>((provider, options) =>
+{
+    var configuration = provider.GetRequiredService<IConfiguration>();
+    var configured = configuration.GetConnectionString("SentinelPostgres");
+    if (string.IsNullOrWhiteSpace(configured))
+        throw new InvalidOperationException("A connection string SentinelPostgres é obrigatória.");
+    var connection = new NpgsqlConnectionStringBuilder(configured);
+    if (string.IsNullOrWhiteSpace(connection.Password))
+    {
+        connection.Password = configuration["SENTINEL_POSTGRES_PASSWORD"];
+        if (string.IsNullOrWhiteSpace(connection.Password))
+            throw new InvalidOperationException("Defina SENTINEL_POSTGRES_PASSWORD fora dos arquivos versionados.");
+    }
+    options.UseNpgsql(connection.ConnectionString);
+});
 builder.Services.AddSingleton<ISentinelStore, PostgresSentinelStore>();
 builder.Services.AddSingleton<ScopePolicyEngine>();
 builder.Services.AddSingleton<AuditService>();

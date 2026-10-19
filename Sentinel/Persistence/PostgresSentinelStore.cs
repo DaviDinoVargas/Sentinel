@@ -236,6 +236,17 @@ public sealed class PostgresSentinelStore : ISentinelStore
             .ToArray();
     }
 
+    public async Task<AuditHistoryPage> GetAuditHistoryAsync(Guid projectId, int limit, int offset, CancellationToken cancellationToken)
+    {
+        await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+        var query = db.Audits.AsNoTracking().Where(audit => audit.ProjectId == projectId);
+        var total = await query.CountAsync(cancellationToken);
+        var rows = await query.OrderByDescending(audit => audit.CreatedAtUtc).ThenBy(audit => audit.Id)
+            .Skip(offset).Take(limit).Include(audit => audit.Controls).Include(audit => audit.Evidence)
+            .AsSplitQuery().ToArrayAsync(cancellationToken);
+        return new AuditHistoryPage(rows.Select(ToAudit).ToArray(), total, limit, offset);
+    }
+
     private static SentinelProject ToProject(ProjectRow row) =>
         new(row.Id, row.Name, row.Description, row.CreatedAtUtc);
 
