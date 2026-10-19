@@ -46,7 +46,21 @@ export class App {
   }
   protected requestAudit(): void {
     if (!this.requireProject() || this.auditForm.invalid) { this.auditForm.markAllAsTouched(); return; }
-    this.startRequest(); this.api.requestSimulatedAudit(this.activeProjectId(), this.auditForm.getRawValue().targetUrl).subscribe({ next: (audit) => { this.audit.set(audit); this.report.set(null); this.completeRequest(audit.state === 'Blocked' ? 'Auditoria bloqueada pela política.' : 'Auditoria simulada concluída.'); this.loadScore(); }, error: (error) => this.failRequest(error) });
+    this.startRequest(); this.report.set(null);
+    this.api.requestSimulatedAudit(this.activeProjectId(), this.auditForm.getRawValue().targetUrl).subscribe({ next: (audit) => { this.audit.set(audit); if (audit.state === 'Blocked') { this.completeRequest('Auditoria bloqueada pela política.'); this.loadScore(); } else { this.pollAudit(audit.id); } }, error: (error) => this.failRequest(error) });
+  }
+  // A execução real acontece de forma assíncrona em um worker; a interface consulta o
+  // estado até ele deixar de ser 'Queued' (ADR-0011).
+  private pollAudit(auditId: string, attempt = 0): void {
+    this.api.getAudit(auditId).subscribe({
+      next: (audit) => {
+        this.audit.set(audit);
+        if (audit.state === 'Queued' && attempt < 50) { setTimeout(() => this.pollAudit(auditId, attempt + 1), 300); return; }
+        this.completeRequest(audit.state === 'Completed' ? 'Auditoria concluída.' : audit.state === 'Failed' ? 'A execução da auditoria falhou.' : 'Auditoria bloqueada pela política.');
+        this.loadScore();
+      },
+      error: (error) => this.failRequest(error),
+    });
   }
   protected loadProject(): void { if (!this.activeProjectId().trim()) { this.lastError.set('Informe um identificador de projeto para consultar o Security Score.'); return; } this.loadScore(); }
   protected loadReport(): void { const audit = this.audit(); if (!audit) return; this.startRequest(); this.api.report(audit.id).subscribe({ next: (report) => { this.report.set(report); this.completeRequest('Relatório atualizado.'); }, error: (error) => this.failRequest(error) }); }

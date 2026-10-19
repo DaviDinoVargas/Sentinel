@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using Sentinel.Core;
 
 namespace Sentinel.Persistence;
@@ -98,7 +99,8 @@ public sealed class PostgresSentinelStore : ISentinelStore
                 ControlId = control.ControlId,
                 State = control.State,
                 Summary = control.Summary,
-                Confidence = control.Confidence
+                Confidence = control.Confidence,
+                Severity = control.Severity
             }).ToList(),
             Evidence = audit.Evidence.Select(evidence => new AuditEvidenceRow
             {
@@ -114,6 +116,158 @@ public sealed class PostgresSentinelStore : ISentinelStore
         db.Audits.Add(row);
         db.SaveChanges();
         return audit;
+    }
+
+    public void EnqueueJob(Guid auditId, Guid projectId, Guid scopeId, Uri targetUri, string action, DateTimeOffset createdAtUtc)
+    {
+        var row = new AuditJobRow
+        {
+            AuditId = auditId,
+            ProjectId = projectId,
+            ScopeId = scopeId,
+            TargetUrl = targetUri.AbsoluteUri,
+            Action = action,
+            Status = "Queued",
+            Attempts = 0,
+            CreatedAtUtc = createdAtUtc,
+            UpdatedAtUtc = createdAtUtc
+        };
+
+        using var db = _dbContextFactory.CreateDbContext();
+        db.AuditJobs.Add(row);
+        db.SaveChanges();
+    }
+
+    // Usa FOR UPDATE SKIP LOCKED para que, com múltiplas instâncias da API e/ou vários
+    // workers, no máximo um deles arrende um job por vez; o arrendamento expirado (worker
+    // morto) também fica disponível para outro worker retomar, sem duplicar a execução.
+    public AuditJobLease? LeaseNextJob(string workerId, DateTimeOffset nowUtc, TimeSpan leaseDuration)
+    {
+        using var db = _dbContextFactory.CreateDbContext();
+        var connection = db.Database.GetDbConnection();
+        if (connection.State != System.Data.ConnectionState.Open)
+        {
+            connection.Open();
+        }
+
+        using var transaction = connection.BeginTransaction();
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            UPDATE audit_jobs
+            SET status = 'Leased', lease_owner = @workerId, lease_expires_at_utc = @leaseExpiresAtUtc,
+                attempts = attempts + 1, updated_at_utc = @nowUtc
+            WHERE audit_id = (
+                SELECT audit_id FROM audit_jobs
+                WHERE status = 'Queued' OR (status = 'Leased' AND lease_expires_at_utc < @nowUtc)
+                ORDER BY created_at_utc
+                FOR UPDATE SKIP LOCKED
+                LIMIT 1
+            )
+            RETURNING audit_id, project_id, scope_id, target_url, action, attempts;
+            """;
+
+        var workerIdParameter = command.CreateParameter();
+        workerIdParameter.ParameterName = "workerId";
+        workerIdParameter.Value = workerId;
+        command.Parameters.Add(workerIdParameter);
+
+        var leaseExpiresParameter = command.CreateParameter();
+        leaseExpiresParameter.ParameterName = "leaseExpiresAtUtc";
+        leaseExpiresParameter.Value = nowUtc + leaseDuration;
+        command.Parameters.Add(leaseExpiresParameter);
+
+        var nowParameter = command.CreateParameter();
+        nowParameter.ParameterName = "nowUtc";
+        nowParameter.Value = nowUtc;
+        command.Parameters.Add(nowParameter);
+
+        AuditJobLease? lease = null;
+        using (var reader = command.ExecuteReader())
+        {
+            if (reader.Read())
+            {
+                lease = new AuditJobLease(
+                    reader.GetFieldValue<Guid>(0),
+                    reader.GetFieldValue<Guid>(1),
+                    reader.GetFieldValue<Guid>(2),
+                    new Uri(reader.GetFieldValue<string>(3), UriKind.Absolute),
+                    reader.GetFieldValue<string>(4),
+                    reader.GetFieldValue<int>(5));
+            }
+        }
+
+        transaction.Commit();
+        return lease;
+    }
+
+    public void CompleteJob(Guid auditId, DateTimeOffset completedAtUtc)
+    {
+        using var db = _dbContextFactory.CreateDbContext();
+        var row = db.AuditJobs.SingleOrDefault(job => job.AuditId == auditId);
+        if (row is null)
+        {
+            return;
+        }
+
+        row.Status = "Completed";
+        row.UpdatedAtUtc = completedAtUtc;
+        db.SaveChanges();
+    }
+
+    public void FailJobPermanently(Guid auditId, DateTimeOffset failedAtUtc)
+    {
+        using var db = _dbContextFactory.CreateDbContext();
+        var row = db.AuditJobs.SingleOrDefault(job => job.AuditId == auditId);
+        if (row is null)
+        {
+            return;
+        }
+
+        row.Status = "Failed";
+        row.UpdatedAtUtc = failedAtUtc;
+        db.SaveChanges();
+    }
+
+    // Auditoria nasce em Queued com Controls/Evidence vazios (SaveAudit); aqui só se
+    // adicionam linhas novas às tabelas filhas (nunca existem linhas antigas para
+    // substituir), por isso usar Add em vez de reatribuir a navegação já carregada —
+    // evita o rastreamento confuso de entidades com chave Guid atribuída pelo cliente.
+    public Audit CompleteAudit(Guid auditId, AuditState finalState, IReadOnlyList<AuditControlResult> controls, IReadOnlyList<AuditEvidence> evidence, string? reason)
+    {
+        using var db = _dbContextFactory.CreateDbContext();
+        var row = db.Audits.Single(audit => audit.Id == auditId);
+        row.State = finalState.ToString();
+        row.PolicyReason = reason;
+
+        var controlRows = controls.Select((control, index) => new AuditControlRow
+        {
+            Id = Guid.NewGuid(),
+            AuditId = auditId,
+            Sequence = index,
+            ControlId = control.ControlId,
+            State = control.State,
+            Summary = control.Summary,
+            Confidence = control.Confidence,
+            Severity = control.Severity
+        }).ToList();
+        var evidenceRows = evidence.Select(item => new AuditEvidenceRow
+        {
+            Id = Guid.NewGuid(),
+            AuditId = auditId,
+            EvidenceReference = item.Id,
+            Sha256 = item.Sha256,
+            Summary = item.Summary,
+            CollectedAtUtc = item.CollectedAtUtc
+        }).ToList();
+
+        db.AuditControls.AddRange(controlRows);
+        db.AuditEvidence.AddRange(evidenceRows);
+        db.SaveChanges();
+
+        return new Audit(
+            row.Id, row.ProjectId, row.ScopeId, new Uri(row.TargetUrl, UriKind.Absolute), finalState,
+            row.CorrelationId, reason, row.CreatedAtUtc, controls, evidence);
     }
 
     public Audit? FindAudit(Guid auditId)
@@ -157,7 +311,7 @@ public sealed class PostgresSentinelStore : ISentinelStore
             row.PolicyReason,
             row.CreatedAtUtc,
             row.Controls.OrderBy(control => control.Sequence)
-                .Select(control => new AuditControlResult(control.ControlId, control.State, control.Summary, control.Confidence))
+                .Select(control => new AuditControlResult(control.ControlId, control.State, control.Summary, control.Confidence, control.Severity))
                 .ToArray(),
             row.Evidence.OrderBy(evidence => evidence.CollectedAtUtc)
                 .Select(evidence => new AuditEvidence(evidence.EvidenceReference, evidence.Sha256, evidence.Summary, evidence.CollectedAtUtc))

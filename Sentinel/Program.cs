@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using Sentinel.Core;
 using Sentinel.Persistence;
+using Sentinel.Workers;
 using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -34,6 +35,12 @@ builder.Services.AddDbContextFactory<SentinelDbContext>(options => options.UseNp
 builder.Services.AddSingleton<ISentinelStore, PostgresSentinelStore>();
 builder.Services.AddSingleton<ScopePolicyEngine>();
 builder.Services.AddSingleton<AuditService>();
+
+builder.Services.AddHttpClient(nameof(HttpSecurityHeadersPlugin));
+builder.Services.AddSingleton<IAuditPlugin, Sim001FixturePlugin>();
+builder.Services.AddSingleton<IAuditPlugin, HttpSecurityHeadersPlugin>();
+builder.Services.Configure<AuditWorkerOptions>(builder.Configuration.GetSection("AuditWorker"));
+builder.Services.AddHostedService<AuditWorker>();
 
 var app = builder.Build();
 

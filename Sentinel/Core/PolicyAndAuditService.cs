@@ -12,7 +12,7 @@ public sealed class ScopePolicyEngine
     {
         if (!string.Equals(action, "simulated", StringComparison.OrdinalIgnoreCase))
         {
-            return PolicyDecision.Block("Ação bloqueada: o P0 só permite o controle simulado e inofensivo.");
+            return PolicyDecision.Block("Ação bloqueada: o P0 só permite a ação 'simulated' (controles passivos de baixo risco).");
         }
 
         var scope = scopes.FirstOrDefault(candidate => IsAuthorized(candidate, targetUri, nowUtc));
@@ -111,17 +111,16 @@ public sealed class AuditService
                 Array.Empty<AuditControlResult>(), Array.Empty<AuditEvidence>()));
         }
 
+        // A execução real acontece de forma assíncrona em um worker (AuditWorker), que
+        // arrenda o job da fila e reavalia a política antes de rodar qualquer plugin
+        // (D11 / ADR-0011). A auditoria nasce em Queued; o cliente consulta o estado em
+        // GET /api/v1/audits/{auditId}.
         var auditId = Guid.NewGuid();
-        var evidence = AuditEvidenceFactory.Create(auditId, targetUri, nowUtc);
-        var control = new AuditControlResult(
-            "SIM-001",
-            "Passed",
-            "O controle simulado foi processado sem executar chamadas ou testes contra o alvo.",
-            "DemonstrationOnly");
-
-        return _store.SaveAudit(new Audit(
-            auditId, projectId, decision.Scope!.Id, targetUri, AuditState.Completed, correlationId, null, nowUtc,
-            new[] { control }, new[] { evidence }));
+        var audit = _store.SaveAudit(new Audit(
+            auditId, projectId, decision.Scope!.Id, targetUri, AuditState.Queued, correlationId, null, nowUtc,
+            Array.Empty<AuditControlResult>(), Array.Empty<AuditEvidence>()));
+        _store.EnqueueJob(auditId, projectId, decision.Scope.Id, targetUri, request.Action, nowUtc);
+        return audit;
     }
 
     public Audit? FindAudit(Guid auditId) => _store.FindAudit(auditId);
@@ -163,7 +162,7 @@ public sealed class AuditService
         var blockedAudits = audits.Count(audit => audit.State == AuditState.Blocked);
         var limitations = new List<string>
         {
-            "O P0 executa somente o controle simulado SIM-001 e não realiza chamadas ou testes contra o alvo.",
+            "O P0 ainda executa poucos controles reais (hoje, apenas WEB-CFG-01 contra o alvo); SIM-001 é fixture do pipeline e não testa o alvo.",
             "O score não é certificação nem garantia de ausência de vulnerabilidades."
         };
 

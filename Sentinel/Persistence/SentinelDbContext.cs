@@ -13,6 +13,7 @@ public sealed class SentinelDbContext : DbContext
     public DbSet<AuditRow> Audits => Set<AuditRow>();
     public DbSet<AuditControlRow> AuditControls => Set<AuditControlRow>();
     public DbSet<AuditEvidenceRow> AuditEvidence => Set<AuditEvidenceRow>();
+    public DbSet<AuditJobRow> AuditJobs => Set<AuditJobRow>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -66,6 +67,7 @@ public sealed class SentinelDbContext : DbContext
             entity.Property(control => control.State).HasMaxLength(50).IsRequired();
             entity.Property(control => control.Summary).HasMaxLength(4_000).IsRequired();
             entity.Property(control => control.Confidence).HasMaxLength(100).IsRequired();
+            entity.Property(control => control.Severity).HasMaxLength(50).IsRequired();
             entity.HasIndex(control => new { control.AuditId, control.Sequence }).IsUnique();
             entity.HasOne(control => control.Audit)
                 .WithMany(audit => audit.Controls)
@@ -86,6 +88,27 @@ public sealed class SentinelDbContext : DbContext
                 .WithMany(audit => audit.Evidence)
                 .HasForeignKey(evidence => evidence.AuditId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<AuditJobRow>(entity =>
+        {
+            entity.ToTable("audit_jobs");
+            entity.HasKey(job => job.AuditId);
+            // Nomes de coluna em snake_case explícitos: o arrendamento (LeaseNextJob) usa
+            // SQL bruto (FOR UPDATE SKIP LOCKED) e precisa que os nomes sejam estáveis e
+            // conhecidos, em vez de depender da convenção padrão (PascalCase) do EF Core.
+            entity.Property(job => job.AuditId).HasColumnName("audit_id");
+            entity.Property(job => job.ProjectId).HasColumnName("project_id");
+            entity.Property(job => job.ScopeId).HasColumnName("scope_id");
+            entity.Property(job => job.TargetUrl).HasColumnName("target_url").HasMaxLength(2_048).IsRequired();
+            entity.Property(job => job.Action).HasColumnName("action").HasMaxLength(100).IsRequired();
+            entity.Property(job => job.Status).HasColumnName("status").HasMaxLength(50).IsRequired();
+            entity.Property(job => job.LeaseOwner).HasColumnName("lease_owner").HasMaxLength(200);
+            entity.Property(job => job.LeaseExpiresAtUtc).HasColumnName("lease_expires_at_utc");
+            entity.Property(job => job.Attempts).HasColumnName("attempts");
+            entity.Property(job => job.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
+            entity.Property(job => job.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
+            entity.HasIndex(job => new { job.Status, job.LeaseExpiresAtUtc });
         });
     }
 }
@@ -136,7 +159,23 @@ public sealed class AuditControlRow
     public string State { get; set; } = string.Empty;
     public string Summary { get; set; } = string.Empty;
     public string Confidence { get; set; } = string.Empty;
+    public string Severity { get; set; } = "Info";
     public AuditRow Audit { get; set; } = null!;
+}
+
+public sealed class AuditJobRow
+{
+    public Guid AuditId { get; set; }
+    public Guid ProjectId { get; set; }
+    public Guid ScopeId { get; set; }
+    public string TargetUrl { get; set; } = string.Empty;
+    public string Action { get; set; } = string.Empty;
+    public string Status { get; set; } = "Queued";
+    public string? LeaseOwner { get; set; }
+    public DateTimeOffset? LeaseExpiresAtUtc { get; set; }
+    public int Attempts { get; set; }
+    public DateTimeOffset CreatedAtUtc { get; set; }
+    public DateTimeOffset UpdatedAtUtc { get; set; }
 }
 
 public sealed class AuditEvidenceRow

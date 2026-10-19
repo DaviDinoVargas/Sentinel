@@ -1,10 +1,15 @@
 # Sentinel
 
-API inicial da plataforma Sentinel. Esta primeira fatia implementa um fluxo seguro e exclusivamente simulado:
+API da plataforma Sentinel. Fluxo:
 
-`projeto → escopo autorizado → auditoria simulada → evidência → relatório`
+`projeto → escopo autorizado → auditoria (fila) → worker executa controles reais contra o alvo → evidência → relatório`
 
-Nenhuma solicitação desta versão executa chamadas, scanners ou testes contra o alvo informado. A política permite somente a ação `simulated` e bloqueia qualquer alvo fora de um escopo válido.
+A auditoria nasce no estado `Queued` e é processada de forma assíncrona por um `AuditWorker` (um ou mais, mesmo em mais de uma instância da API), que reavalia a política de escopo no momento da execução — fail-closed mesmo sob redelivery. Hoje o worker executa dois controles por auditoria:
+
+- `SIM-001`: fixture determinística do pipeline; não faz nenhuma chamada contra o alvo. Usada só para validar fila/worker (ADR-0011).
+- `WEB-CFG-01` (`Controls-Catalog.md`, grupo D): controle **real e passivo**. Faz uma única requisição HTTP `GET` contra o alvo autorizado e verifica a presença de `Strict-Transport-Security`, `X-Content-Type-Options` e `Content-Security-Policy`. Não envia payload nem tenta explorar nada.
+
+Fora da ação `simulated` (controles passivos de baixo risco), qualquer alvo fora de um escopo autorizado e válido é bloqueado antes de qualquer execução.
 
 ## Pré-requisitos
 
@@ -27,24 +32,28 @@ O módulo Angular do P0 fica em `Sentinel.Web`. Consulte [Sentinel.Web/README.md
 
 O Sentinel usa PostgreSQL. A senha não é armazenada no repositório: defina-a apenas na variável de ambiente `SENTINEL_POSTGRES_PASSWORD` antes de iniciar a aplicação. As migrações são aplicadas na inicialização.
 
+## Fila de auditorias
+
+A tabela `audit_jobs` guarda o job de cada auditoria. `PostgresSentinelStore.LeaseNextJob` usa `FOR UPDATE SKIP LOCKED` para que múltiplos workers (ou múltiplas instâncias da API) nunca executem a mesma auditoria duas vezes; um arrendamento expirado (worker morto) fica disponível para outro worker retomar. O intervalo de verificação e a duração do arrendamento são configuráveis em `AuditWorker` (`appsettings.json`).
+
 ## Testes de integração
 
-Os testes usam um banco PostgreSQL isolado chamado `sentinel_test`. Com o banco local disponível, execute:
+Os testes usam um banco PostgreSQL isolado chamado `sentinel_test` e um servidor HTTP de laboratório em loopback (`LabTargetServer`, apenas no projeto de testes) como alvo real do controle `WEB-CFG-01`. Com o banco local disponível, execute:
 
 ```powershell
 $env:SENTINEL_POSTGRES_PASSWORD = "<senha local do PostgreSQL>"
 dotnet test .\tests\Sentinel.IntegrationTests\Sentinel.IntegrationTests.csproj -c Integration
 ```
 
-A suíte valida o fluxo autorizado com persistência, o bloqueio fail-closed de alvo fora do escopo e a disponibilidade do banco. Ela não executa testes contra alvos externos.
+A suíte valida: o fluxo autorizado com persistência e execução real do controle `WEB-CFG-01` (caso aprovado e caso reprovado por cabeçalhos ausentes), o bloqueio fail-closed de alvo fora do escopo, e a disponibilidade do banco. Ela não executa testes contra alvos externos — só contra o servidor de laboratório do próprio processo de teste.
 
 ## Security Score do P0
 
 `GET /api/v1/projects/{projectId}/security-score` retorna um indicador agregado, com versão do algoritmo, fórmula, componentes, cobertura, confiança e limitações.
 
-Nesta fase, o único controle (`SIM-001`) é demonstrativo e não testa o alvo. Por isso, quando houver controles avaliados, a fórmula aplica um teto de **20/100** à taxa de controles aprovados e informa a confiança `DemonstrationOnly`. Se não houver controles avaliados, a nota é `null` e a confiança é `NotAssessed`.
+A fórmula aplica um teto de **20/100** somente quando **todos** os controles avaliados de um projeto são demonstrativos (`DemonstrationOnly`, hoje só `SIM-001`). Como `WEB-CFG-01` é real (`Reproduced`), um projeto com pelo menos uma auditoria completa tem confiança `Observed` e o score reflete a taxa real de controles aprovados. Se não houver controles avaliados, a nota é `null` e a confiança é `NotAssessed`.
 
-O indicador não é uma certificação nem garantia de ausência de vulnerabilidades. Auditorias bloqueadas pela política são exibidas separadamente e não contam como avaliação de segurança do alvo.
+O indicador não é uma certificação nem garantia de ausência de vulnerabilidades. Auditorias bloqueadas pela política são exibidas separadamente e não contam como avaliação de segurança do alvo. O P0 ainda cobre poucos controles — a cobertura real do catálogo (`Controls-Catalog.md`) é trabalho futuro.
 
 ## Endpoints disponíveis
 
@@ -53,8 +62,8 @@ O indicador não é uma certificação nem garantia de ausência de vulnerabilid
 - `GET /api/v1/projects/{projectId}`
 - `POST /api/v1/projects/{projectId}/scopes`
 - `GET /api/v1/projects/{projectId}/scopes`
-- `POST /api/v1/projects/{projectId}/audits`
+- `POST /api/v1/projects/{projectId}/audits` — aceita (202) e enfileira; a auditoria retorna no estado `Queued`
 - `GET /api/v1/projects/{projectId}/security-score`
-- `GET /api/v1/audits/{auditId}`
+- `GET /api/v1/audits/{auditId}` — consultar para acompanhar a transição `Queued → Completed/Blocked/Failed`
 - `GET /api/v1/audits/{auditId}/report`
 - `GET /api/v1/health`

@@ -1,6 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
-
 namespace Sentinel.Core;
 
 public sealed record SentinelProject(Guid Id, string Name, string? Description, DateTimeOffset CreatedAtUtc);
@@ -17,13 +14,17 @@ public sealed record AuthorizedScope(
 
 public enum AuditState
 {
+    Queued,
     Completed,
-    Blocked
+    Blocked,
+    Failed
 }
 
 public sealed record AuditEvidence(string Id, string Sha256, string Summary, DateTimeOffset CollectedAtUtc);
 
-public sealed record AuditControlResult(string ControlId, string State, string Summary, string Confidence);
+public sealed record AuditControlResult(string ControlId, string State, string Summary, string Confidence, string Severity = "Info");
+
+public sealed record AuditJobLease(Guid AuditId, Guid ProjectId, Guid ScopeId, Uri TargetUri, string Action, int Attempts);
 
 public sealed record SecurityScoreComponent(
     string Id,
@@ -98,12 +99,3 @@ public sealed record AuditReport(
     IReadOnlyList<AuditEvidence> Evidence,
     string? PolicyReason);
 
-internal static class AuditEvidenceFactory
-{
-    public static AuditEvidence Create(Guid auditId, Uri targetUri, DateTimeOffset collectedAtUtc)
-    {
-        var content = $"sentinel-simulated-control|{auditId:N}|{targetUri}|{collectedAtUtc:O}";
-        var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(content))).ToLowerInvariant();
-        return new AuditEvidence(Guid.NewGuid().ToString("N"), hash, "Resultado produzido pelo controle simulado seguro do P0.", collectedAtUtc);
-    }
-}
