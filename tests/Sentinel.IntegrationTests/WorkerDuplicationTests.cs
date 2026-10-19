@@ -64,7 +64,7 @@ public sealed class WorkerDuplicationTests : IAsyncLifetime
         }
 
         var completed = new List<Audit>();
-        var deadline = DateTime.UtcNow.AddSeconds(20);
+        var deadline = DateTime.UtcNow.AddSeconds(60);
         while (completed.Count < auditCount && DateTime.UtcNow < deadline)
         {
             completed.Clear();
@@ -72,7 +72,7 @@ public sealed class WorkerDuplicationTests : IAsyncLifetime
             {
                 var response = await clientA.GetAsync($"/api/v1/audits/{auditId}");
                 var audit = await ReadRequiredAsync<Audit>(response);
-                if (audit.State != AuditState.Queued)
+                if (AuditStates.IsTerminal(audit.State))
                 {
                     completed.Add(audit);
                 }

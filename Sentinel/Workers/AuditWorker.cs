@@ -8,169 +8,134 @@ using Sentinel.Execution;
 
 namespace Sentinel.Workers;
 
-// Consumidor RabbitMQ da fila de auditorias (ADR-0004). Pode haver qualquer número de
-// instâncias (mesmo processo ou processos/hosts distintos) consumindo a mesma fila: o
-// RabbitMQ entrega cada mensagem a um único consumidor entre os concorrentes (padrão
-// "competing consumers"), e a checagem de idempotência abaixo cobre o caso de redelivery
-// após uma instância cair depois de processar mas antes de confirmar (ack).
-//
-// Para cada controle aprovado (PluginRegistry), executa o plugin em processo isolado
-// (IsolatedPluginRunner / ADR-0003) — nunca dentro deste processo.
-public sealed class AuditWorker : BackgroundService
+public sealed class AuditWorker(
+    ISentinelStore store, ScopePolicyEngine policy, TimeProvider timeProvider,
+    PluginRegistry registry, IsolatedPluginRunner runner, ExecutionCoordinator coordinator,
+    RabbitMqConnectionProvider connectionProvider, IOptions<RabbitMqOptions> options,
+    ILogger<AuditWorker> logger) : BackgroundService
 {
-    private readonly ISentinelStore _store;
-    private readonly ScopePolicyEngine _policy;
-    private readonly TimeProvider _timeProvider;
-    private readonly PluginRegistry _pluginRegistry;
-    private readonly IsolatedPluginRunner _pluginRunner;
-    private readonly RabbitMqConnectionProvider _connectionProvider;
-    private readonly RabbitMqOptions _options;
-    private readonly ILogger<AuditWorker> _logger;
-
+    private readonly string _workerId = $"{Environment.MachineName}:{Environment.ProcessId}:{Guid.NewGuid():N}";
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
-    public AuditWorker(
-        ISentinelStore store,
-        ScopePolicyEngine policy,
-        TimeProvider timeProvider,
-        PluginRegistry pluginRegistry,
-        IsolatedPluginRunner pluginRunner,
-        RabbitMqConnectionProvider connectionProvider,
-        IOptions<RabbitMqOptions> options,
-        ILogger<AuditWorker> logger)
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _store = store;
-        _policy = policy;
-        _timeProvider = timeProvider;
-        _pluginRegistry = pluginRegistry;
-        _pluginRunner = pluginRunner;
-        _connectionProvider = connectionProvider;
-        _options = options.Value;
-        _logger = logger;
-    }
-
-    protected override Task ExecuteAsync(CancellationToken stoppingToken)
-    {
-        var channel = _connectionProvider.Connection.CreateModel();
-        RabbitMqTopology.Declare(channel, _options);
-        channel.BasicQos(prefetchSize: 0, prefetchCount: 1, global: false);
-
-        var queue = RabbitMqTopology.QueueName(_options);
+        using var channel = connectionProvider.Connection.CreateModel();
+        RabbitMqTopology.Declare(channel, options.Value);
+        channel.BasicQos(0, 1, false);
         var consumer = new AsyncEventingBasicConsumer(channel);
         consumer.Received += async (_, delivery) =>
         {
             try
             {
-                await HandleMessageAsync(delivery, stoppingToken);
-                channel.BasicAck(delivery.DeliveryTag, multiple: false);
+                var payload = JsonSerializer.Deserialize<OutboxMessagePayload>(delivery.Body.Span, JsonOptions)
+                    ?? throw new InvalidOperationException("Mensagem de auditoria inválida.");
+                await HandleAsync(payload, stoppingToken);
+                if (channel.IsOpen) channel.BasicAck(delivery.DeliveryTag, false);
             }
             catch (Exception exception)
             {
-                _logger.LogError(exception, "Falha ao processar mensagem da fila {Queue}; será redentregue (até o limite do manifesto da fila, depois vai para a DLQ).", queue);
-                channel.BasicNack(delivery.DeliveryTag, multiple: false, requeue: true);
+                logger.LogError(exception, "Falha no consumidor; posse e checkpoints serão reconciliados.");
+                if (channel.IsOpen) channel.BasicNack(delivery.DeliveryTag, false, true);
             }
         };
-
-        channel.BasicConsume(queue, autoAck: false, consumer);
-        _logger.LogInformation("AuditWorker consumindo {Queue} (prefetch=1).", queue);
-
-        var tcs = new TaskCompletionSource();
-        stoppingToken.Register(() =>
-        {
-            channel.Close();
-            channel.Dispose();
-            tcs.TrySetResult();
-        });
-        return tcs.Task;
+        channel.BasicConsume(RabbitMqTopology.QueueName(options.Value), false, consumer);
+        try { await Task.Delay(Timeout.Infinite, stoppingToken); }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { }
     }
 
-    private async Task HandleMessageAsync(BasicDeliverEventArgs delivery, CancellationToken cancellationToken)
+    private async Task HandleAsync(OutboxMessagePayload payload, CancellationToken stoppingToken)
     {
-        var payload = JsonSerializer.Deserialize<OutboxMessagePayload>(delivery.Body.Span, JsonOptions)
-            ?? throw new InvalidOperationException("Mensagem da fila de auditorias não pôde ser desserializada.");
-
-        // Idempotência (ADR-0004): se a auditoria já saiu de Queued, esta entrega é uma
-        // redelivery de uma mensagem já processada (ou um outbox publicado duas vezes) —
-        // confirma sem repetir efeitos.
-        var existing = _store.FindAudit(payload.AuditId);
-        if (existing is null)
+        var existing = store.FindAudit(payload.AuditId);
+        if (existing is null || AuditStates.IsTerminal(existing.State)) return;
+        // The queue is a notification, not an authority for target/scope/active consent.
+        payload = coordinator.Payload(existing.Id) ?? throw new InvalidOperationException("Auditoria sem envelope persistido.");
+        if (payload.AuditId != existing.Id || payload.ProjectId != existing.ProjectId || payload.ScopeId != existing.ScopeId ||
+            new Uri(payload.TargetUrl) != existing.TargetUri) throw new InvalidOperationException("Envelope persistido não corresponde à auditoria.");
+        var lease = coordinator.TryAcquire(payload.AuditId, _workerId);
+        if (lease is null) return; // Reconciler republishes waiting work without hot requeue.
+        using var executionCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+        var monitor = MonitorAsync(lease, executionCts);
+        var childStopped = true;
+        try
         {
-            _logger.LogWarning("Auditoria {AuditId} referenciada pela fila não existe mais; descartando mensagem.", payload.AuditId);
-            return;
+            var target = new Uri(payload.TargetUrl);
+            var completed = coordinator.Snapshot(payload.AuditId)!.CompletedPlugins;
+            var mode = payload.Action.Equals("lab-active", StringComparison.OrdinalIgnoreCase) ? "active" : "passive";
+            foreach (var manifest in registry.Approved.Where(item => item.Spec.Mode == mode))
+            {
+                executionCts.Token.ThrowIfCancellationRequested();
+                if (completed.Contains(manifest.Metadata.Id)) continue;
+                var now = timeProvider.GetUtcNow();
+                var decision = policy.Evaluate(store.GetScopes(payload.ProjectId).Where(scope => scope.Id == payload.ScopeId).ToArray(),
+                    target, payload.Action, now, payload.ConfirmActive);
+                if (!decision.IsAllowed) { coordinator.Finish(lease, AuditState.Blocked, decision.Reason); return; }
+                var timeout = now.AddSeconds(manifest.Spec.Resources.TimeoutSeconds);
+                var deadline = timeout < decision.Scope!.ExpiresAtUtc ? timeout : decision.Scope.ExpiresAtUtc;
+                if (!coordinator.BeginPlugin(lease, manifest.Metadata.Id, deadline)) return;
+                var request = new PluginExecutionRequest(manifest.Spec.ContractVersion, Guid.NewGuid(), payload.AuditId, payload.ProjectId,
+                    payload.ScopeId, existing.CorrelationId, target.AbsoluteUri, payload.Action, deadline, now, RequireRequestPermits: true);
+                childStopped = false;
+                var result = await runner.RunAsync(manifest, request, executionCts.Token, async token =>
+                {
+                    while (true)
+                    {
+                        token.ThrowIfCancellationRequested();
+                        var permit = coordinator.Permit(lease);
+                        if (permit.Allowed) return true;
+                        if (permit.RetryAfterMs == 0) return false;
+                        await Task.Delay(Math.Min(permit.RetryAfterMs, 200), token);
+                    }
+                });
+                childStopped = true;
+                executionCts.Token.ThrowIfCancellationRequested();
+                var controls = result.Checks.Select(check => new AuditControlResult(check.ControlId, check.State, check.Summary,
+                    check.Confidence, check.Severity, manifest.Metadata.Id, manifest.Metadata.Version)).ToArray();
+                var evidence = result.Evidence.Select(item => BuildEvidence(manifest.Metadata.Id, payload.AuditId, target, now, item)).ToArray();
+                if (!coordinator.Checkpoint(lease, manifest.Metadata.Id, controls, evidence)) return;
+                if (result.Outcome is PluginExecutionOutcome.TimedOut or PluginExecutionOutcome.Cancelled or PluginExecutionOutcome.Failed)
+                {
+                    coordinator.Finish(lease, AuditState.Interrupted, $"Plugin {manifest.Metadata.Id}: {result.Outcome}. Resultados parciais preservados; nenhuma aprovação inferida.");
+                    return;
+                }
+            }
+            coordinator.Finish(lease, AuditState.Completed);
         }
-
-        if (existing.State != AuditState.Queued)
+        catch (OperationCanceledException)
         {
-            _logger.LogInformation("Auditoria {AuditId} já estava em {State}; ignorando redelivery.", payload.AuditId, existing.State);
-            return;
+            coordinator.Finish(lease, AuditState.Interrupted, "Execução interrompida; processos encerrados e checkpoints preservados.");
         }
-
-        var nowUtc = _timeProvider.GetUtcNow();
-
-        // Reavalia a política no momento da execução: um escopo pode ter expirado ou sido
-        // removido entre o enfileiramento e o consumo da mensagem.
-        var scopes = _store.GetScopes(payload.ProjectId).Where(scope => scope.Id == payload.ScopeId).ToArray();
-        var targetUri = new Uri(payload.TargetUrl, UriKind.Absolute);
-        var decision = _policy.Evaluate(scopes, targetUri, payload.Action, nowUtc, payload.ConfirmActive);
-        if (!decision.IsAllowed)
+        finally
         {
-            _store.CompleteAudit(payload.AuditId, AuditState.Blocked, Array.Empty<AuditControlResult>(), Array.Empty<AuditEvidence>(), decision.Reason);
-            return;
+            executionCts.Cancel();
+            await monitor;
+            if (childStopped && coordinator.Snapshot(lease.AuditId)?.FinishedAtUtc is null)
+                coordinator.Finish(lease, AuditState.Interrupted, "Execução interrompida; checkpoints preservados.");
+            if (childStopped) coordinator.ReleaseStoppedChild(lease);
         }
-
-        var controls = new List<AuditControlResult>();
-        var evidence = new List<AuditEvidence>();
-
-        var active = payload.Action.Equals("lab-active", StringComparison.OrdinalIgnoreCase);
-        foreach (var manifest in _pluginRegistry.Approved.Where(plugin => plugin.Spec.Mode == (active ? "active" : "passive")))
-        {
-            var pluginNow = _timeProvider.GetUtcNow();
-            var pluginPolicy = _policy.Evaluate(_store.GetScopes(payload.ProjectId).Where(scope => scope.Id == payload.ScopeId).ToArray(),
-                targetUri, payload.Action, pluginNow, payload.ConfirmActive);
-            if (!pluginPolicy.IsAllowed)
-            {
-                _store.CompleteAudit(payload.AuditId, AuditState.Blocked, controls, evidence, pluginPolicy.Reason);
-                return;
-            }
-            var timeoutDeadline = pluginNow + TimeSpan.FromSeconds(manifest.Spec.Resources.TimeoutSeconds);
-            var deadline = timeoutDeadline < pluginPolicy.Scope!.ExpiresAtUtc ? timeoutDeadline : pluginPolicy.Scope.ExpiresAtUtc;
-            var executionId = Guid.NewGuid();
-            var request = new PluginExecutionRequest(
-                manifest.Spec.ContractVersion,
-                executionId,
-                payload.AuditId,
-                payload.ProjectId,
-                payload.ScopeId,
-                delivery.BasicProperties.MessageId ?? executionId.ToString("N"),
-                targetUri.AbsoluteUri,
-                payload.Action,
-                DeadlineUtc: deadline,
-                NowUtc: pluginNow);
-
-            var result = await _pluginRunner.RunAsync(manifest, request, cancellationToken);
-            foreach (var check in result.Checks)
-            {
-                controls.Add(new AuditControlResult(check.ControlId, check.State, check.Summary, check.Confidence, check.Severity, manifest.Metadata.Id, manifest.Metadata.Version));
-            }
-
-            foreach (var evidenceRef in result.Evidence)
-            {
-                evidence.Add(BuildEvidence(manifest.Metadata.Id, payload.AuditId, targetUri, nowUtc, evidenceRef));
-            }
-
-            if (result.Outcome is PluginExecutionOutcome.TimedOut or PluginExecutionOutcome.Cancelled)
-            {
-                _logger.LogWarning("Plugin {PluginId} não concluiu normalmente (outcome={Outcome}) para a auditoria {AuditId}.", manifest.Metadata.Id, result.Outcome, payload.AuditId);
-            }
-        }
-
-        _store.CompleteAudit(payload.AuditId, AuditState.Completed, controls, evidence, null);
     }
 
-    private static AuditEvidence BuildEvidence(string pluginId, Guid auditId, Uri targetUri, DateTimeOffset nowUtc, PluginEvidenceRef evidenceRef)
+    private async Task MonitorAsync(ExecutionLease lease, CancellationTokenSource executionCts)
     {
-        var content = $"{pluginId}|{auditId:N}|{targetUri}|{nowUtc:O}|{evidenceRef.EvidenceSummary}";
+        try
+        {
+            while (!executionCts.IsCancellationRequested)
+            {
+                await Task.Delay(500, executionCts.Token);
+                if (!coordinator.Heartbeat(lease)) { executionCts.Cancel(); return; }
+            }
+        }
+        catch (OperationCanceledException) when (executionCts.IsCancellationRequested) { }
+        catch (Exception exception)
+        {
+            logger.LogError(exception, "Heartbeat indisponível para {AuditId}; execução abortada.", lease.AuditId);
+            executionCts.Cancel();
+        }
+    }
+
+    private static AuditEvidence BuildEvidence(string pluginId, Guid auditId, Uri target, DateTimeOffset now, PluginEvidenceRef item)
+    {
+        var content = $"{pluginId}|{auditId:N}|{target}|{now:O}|{item.EvidenceSummary}";
         var hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(content))).ToLowerInvariant();
-        return new AuditEvidence(Guid.NewGuid().ToString("N"), hash, evidenceRef.Summary, nowUtc);
+        return new(Guid.NewGuid().ToString("N"), hash, item.Summary, now);
     }
 }

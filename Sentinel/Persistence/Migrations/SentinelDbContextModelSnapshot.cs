@@ -112,6 +112,62 @@ namespace Sentinel.Persistence.Migrations
                     b.ToTable("audit_evidence", (string)null);
                 });
 
+            modelBuilder.Entity("Sentinel.Persistence.AuditExecutionRow", b =>
+                {
+                    b.Property<Guid>("AuditId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset?>("CancelRequestedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CompletedPluginsJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<string>("CurrentPluginId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTimeOffset?>("FinishedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("GrantedRequests")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset?>("HeartbeatAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("LeaseToken")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("LeaseUntilUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("PluginDeadlineUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("SafetyUntilUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("TargetKey")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<string>("WorkerId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.HasKey("AuditId");
+
+                    b.HasIndex("TargetKey", "SafetyUntilUtc");
+
+                    b.ToTable("audit_executions", (string)null);
+                });
+
             modelBuilder.Entity("Sentinel.Persistence.AuditOutboxRow", b =>
                 {
                     b.Property<Guid>("Id")
@@ -191,6 +247,37 @@ namespace Sentinel.Persistence.Migrations
                     b.ToTable("audits", (string)null);
                 });
 
+            modelBuilder.Entity("Sentinel.Persistence.ExecutionEventRow", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTimeOffset>("AtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("AuditId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Detail")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AuditId", "Id");
+
+                    b.ToTable("execution_events", (string)null);
+                });
+
             modelBuilder.Entity("Sentinel.Persistence.ProjectRow", b =>
                 {
                     b.Property<Guid>("Id")
@@ -246,6 +333,23 @@ namespace Sentinel.Persistence.Migrations
                     b.ToTable("scopes", (string)null);
                 });
 
+            modelBuilder.Entity("Sentinel.Persistence.TargetBudgetRow", b =>
+                {
+                    b.Property<string>("TargetKey")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<DateTimeOffset?>("NextRequestAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("RequestsPerSecond")
+                        .HasColumnType("integer");
+
+                    b.HasKey("TargetKey");
+
+                    b.ToTable("target_budgets", (string)null);
+                });
+
             modelBuilder.Entity("Sentinel.Persistence.AuditControlRow", b =>
                 {
                     b.HasOne("Sentinel.Persistence.AuditRow", "Audit")
@@ -268,6 +372,15 @@ namespace Sentinel.Persistence.Migrations
                     b.Navigation("Audit");
                 });
 
+            modelBuilder.Entity("Sentinel.Persistence.AuditExecutionRow", b =>
+                {
+                    b.HasOne("Sentinel.Persistence.AuditRow", null)
+                        .WithOne()
+                        .HasForeignKey("Sentinel.Persistence.AuditExecutionRow", "AuditId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Sentinel.Persistence.AuditRow", b =>
                 {
                     b.HasOne("Sentinel.Persistence.ProjectRow", "Project")
@@ -284,6 +397,15 @@ namespace Sentinel.Persistence.Migrations
                     b.Navigation("Project");
 
                     b.Navigation("Scope");
+                });
+
+            modelBuilder.Entity("Sentinel.Persistence.ExecutionEventRow", b =>
+                {
+                    b.HasOne("Sentinel.Persistence.AuditRow", null)
+                        .WithMany()
+                        .HasForeignKey("AuditId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Sentinel.Persistence.ScopeRow", b =>

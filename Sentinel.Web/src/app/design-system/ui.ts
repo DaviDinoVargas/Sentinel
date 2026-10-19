@@ -7,6 +7,11 @@ import { BrnTooltip } from '@spartan-ng/brain/tooltip';
 export class Tooltip {}
 const labels: Record<string, string> = {
   Queued: 'Na fila',
+  WaitingForBudget: 'Aguardando orçamento',
+  Running: 'Em execução',
+  Cancelling: 'Cancelando',
+  Cancelled: 'Cancelada',
+  Interrupted: 'Interrompida',
   Completed: 'Concluída',
   Blocked: 'Bloqueada',
   Failed: 'Reprovado',
@@ -44,6 +49,7 @@ export class Badge {
         ? 'critical'
         : [
               'Failed',
+              'Interrupted',
               'Blocked',
               'High',
               'Medium',

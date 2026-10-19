@@ -1,16 +1,21 @@
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
 
 namespace Sentinel.IntegrationTests;
 
 public sealed class SentinelApiFactory : WebApplicationFactory<Program>
 {
+    public bool StartWorkers { get; init; } = true;
     public LabTargetServer LabTarget { get; } = new();
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Development");
+        if (!StartWorkers) builder.ConfigureServices(services => services.RemoveAll<IHostedService>());
         builder.ConfigureAppConfiguration((_, configuration) =>
         {
             configuration.AddInMemoryCollection(new Dictionary<string, string?>

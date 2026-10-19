@@ -3,8 +3,13 @@ import { CommonModule } from '@angular/common';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { catchError, exhaustMap, of, switchMap, timer } from 'rxjs';
-import { Audit, AuditReport } from '../core/sentinel-api.service';
+import { catchError, exhaustMap, forkJoin, of, switchMap, timer } from 'rxjs';
+import {
+  Audit,
+  AuditReport,
+  ExecutionSnapshot,
+  isAuditTerminal,
+} from '../core/sentinel-api.service';
 import { WorkspaceService } from '../core/workspace.service';
 import { Badge, EmptyState } from '../design-system/ui';
 import { Icon } from '../design-system/icon';
@@ -56,9 +61,10 @@ import { Icon } from '../design-system/icon';
             <div class="banner warning">
               <span
                 >Somente localhost/IP de loopback e escopo de ambiente laboratorio. Até 40 GETs de
-                carga, concorrência 2, até 10 inícios/s, mais até 5 probes GET. A carga para em 429,
-                5xx, timeout, redirecionamento ou latência acima de 1500 ms. A confirmação abaixo
-                autoriza este perfil ativo.</span
+                carga, concorrência 2, até 10 permissões/s compartilhadas por host/porta, mais até 5
+                probes GET. Uma auditoria por alvo. A carga para em 429, 5xx, timeout,
+                redirecionamento ou latência acima de 1500 ms. A confirmação abaixo autoriza este
+                perfil ativo.</span
               >
             </div>
           }
@@ -234,6 +240,11 @@ export class AuditsPage {
   readonly states = [
     { value: '', label: 'Todas' },
     { value: 'Queued', label: 'Na fila' },
+    { value: 'WaitingForBudget', label: 'Aguardando orçamento' },
+    { value: 'Running', label: 'Em execução' },
+    { value: 'Cancelling', label: 'Cancelando' },
+    { value: 'Cancelled', label: 'Canceladas' },
+    { value: 'Interrupted', label: 'Interrompidas' },
     { value: 'Completed', label: 'Concluídas' },
     { value: 'Blocked', label: 'Bloqueadas' },
     { value: 'Failed', label: 'Falhas' },
@@ -298,7 +309,7 @@ export class AuditsPage {
 }
 
 @Component({
-  imports: [CommonModule, RouterLink, Badge, Icon],
+  imports: [CommonModule, ReactiveFormsModule, RouterLink, Badge, Icon],
   template: `
     <div class="page-heading">
       <div>
@@ -322,9 +333,9 @@ export class AuditsPage {
           </div>
           <s-badge [value]="item.state" [text]="item.state === 'Failed' ? 'Falhou' : ''" />
         </div>
-        @if (item.state === 'Queued') {
+        @if (!terminal(item.state)) {
           <p class="help" role="status">
-            Aguardando conclusão pelo worker. A consulta continua a cada 3 segundos; o tempo de
+            Acompanhando fila, orçamento e worker. A consulta continua a cada 3 segundos; o tempo de
             espera não é tratado como bloqueio ou falha.
           </p>
         }
@@ -348,6 +359,98 @@ export class AuditsPage {
           <dt>Correlação</dt>
           <dd class="mono">{{ item.correlationId }}</dd>
         </dl>
+      </section>
+      <section class="panel panel-pad section-gap">
+        <div class="panel-header" style="padding:0 0 16px">
+          <div>
+            <h2>Controle distribuído</h2>
+            <p>Posse, orçamento global e checkpoints persistidos</p>
+          </div>
+          @if (!terminal(item.state)) {
+            <button
+              class="button"
+              (click)="cancel(item.id)"
+              [disabled]="cancelling() || item.state === 'Cancelling'"
+            >
+              {{ item.state === 'Cancelling' ? 'Cancelamento solicitado' : 'Cancelar execução' }}
+            </button>
+          }
+        </div>
+        @if (execution(); as run) {
+          <dl class="detail-list">
+            <dt>Alvo compartilhado</dt>
+            <dd class="mono">{{ run.targetKey }}</dd>
+            <dt>Worker</dt>
+            <dd class="mono">{{ run.workerId || 'Aguardando posse' }}</dd>
+            <dt>Tentativas de posse</dt>
+            <dd>{{ run.attempts }}</dd>
+            <dt>Último heartbeat</dt>
+            <dd>{{ (run.heartbeatAtUtc | date: 'dd/MM HH:mm:ss') || '—' }}</dd>
+            <dt>Posse válida até</dt>
+            <dd>{{ (run.leaseUntilUtc | date: 'dd/MM HH:mm:ss') || 'Sem posse ativa' }}</dd>
+            <dt>Reserva de segurança até</dt>
+            <dd>{{ (run.safetyUntilUtc | date: 'dd/MM HH:mm:ss') || '—' }}</dd>
+            <dt>Plugin atual</dt>
+            <dd class="mono">{{ run.currentPluginId || 'Nenhum' }}</dd>
+            <dt>Checkpoints concluídos</dt>
+            <dd>{{ run.completedPlugins.length }}</dd>
+            <dt>Permissões HTTP concedidas</dt>
+            <dd>{{ run.grantedRequests }}</dd>
+            <dt>Cancelamento solicitado</dt>
+            <dd>{{ (run.cancelRequestedAtUtc | date: 'dd/MM HH:mm:ss') || 'Não' }}</dd>
+            <dt>Encerramento</dt>
+            <dd>{{ (run.finishedAtUtc | date: 'dd/MM HH:mm:ss') || 'Pendente' }}</dd>
+          </dl>
+          <form
+            class="form-stack section-gap"
+            [formGroup]="budgetForm"
+            (ngSubmit)="saveBudget(item.id)"
+          >
+            <label
+              >Limite global de permissões HTTP por segundo
+              <input type="number" min="1" max="10" step="1" formControlName="requestsPerSecond" />
+            </label>
+            <p class="help">
+              Atual: {{ run.budget.requestsPerSecond }}/s ·
+              {{ run.budget.concurrentAudits }} auditoria por host/porta. Alterar afeta todos os
+              projetos e perfis que usam esse alvo. Taxas menores podem interromper testes pelo
+              prazo do plugin.
+            </p>
+            <button
+              class="button small"
+              type="submit"
+              [disabled]="savingBudget() || budgetForm.invalid"
+            >
+              Salvar limite global
+            </button>
+          </form>
+          @if (executionNotice()) {
+            <p role="status" class="help">{{ executionNotice() }}</p>
+          }
+          <h3 class="section-gap">Limitações</h3>
+          <ul>
+            @for (limitation of run.limitations; track limitation) {
+              <li>{{ limitation }}</li>
+            }
+          </ul>
+          <h3 class="section-gap">Eventos recentes</h3>
+          <ul class="list-reset mini-list">
+            @for (event of run.events; track event.id) {
+              <li>
+                <span class="mono">{{ event.atUtc | date: 'HH:mm:ss.SSS' }}</span> ·
+                {{ eventLabel(event.kind) }}
+                <p class="help">{{ event.detail }}</p>
+              </li>
+            }
+          </ul>
+        } @else {
+          <p class="help">
+            {{
+              executionError() ||
+                'Esta auditoria não possui registro de execução distribuída (bloqueio prévio ou registro anterior à implantação).'
+            }}
+          </p>
+        }
       </section>
       <section class="panel section-gap">
         <div class="panel-header">
@@ -391,7 +494,7 @@ export class AuditsPage {
         } @else {
           <p class="loading-line">
             {{
-              item.state === 'Queued'
+              !terminal(item.state)
                 ? 'Resultados disponíveis ao concluir a execução.'
                 : 'Nenhum controle executado.'
             }}
@@ -404,11 +507,7 @@ export class AuditsPage {
             <h2>Relatório e evidências</h2>
             <p>Registro persistido desta auditoria</p>
           </div>
-          <button
-            class="button small"
-            (click)="loadReport(item.id)"
-            [disabled]="item.state === 'Queued' || reportLoading()"
-          >
+          <button class="button small" (click)="loadReport(item.id)" [disabled]="reportLoading()">
             {{ reportLoading() ? 'Carregando…' : 'Consultar relatório' }}
           </button>
         </div>
@@ -433,7 +532,9 @@ export class AuditsPage {
             }
           </div>
         } @else {
-          <p class="loading-line">Consulte o relatório quando a execução sair da fila.</p>
+          <p class="loading-line">
+            Consulte os checkpoints e evidências já persistidos, inclusive durante a execução.
+          </p>
         }
       </section>
     } @else if (!error()) {
@@ -444,21 +545,49 @@ export class AuditsPage {
   `,
 })
 export class AuditDetailPage {
+  readonly terminal = isAuditTerminal;
   readonly ws = inject(WorkspaceService);
   readonly audit = signal<Audit | null>(null);
   readonly report = signal<AuditReport | null>(null);
   readonly reportLoading = signal(false);
   readonly error = signal('');
+  readonly execution = signal<ExecutionSnapshot | null>(null);
+  readonly executionError = signal('');
+  readonly executionNotice = signal('');
+  readonly cancelling = signal(false);
+  readonly savingBudget = signal(false);
+  readonly budgetForm = inject(FormBuilder).nonNullable.group({
+    requestsPerSecond: [
+      10,
+      [Validators.required, Validators.min(1), Validators.max(10), Validators.pattern(/^\d+$/)],
+    ],
+  });
   constructor() {
     inject(ActivatedRoute)
       .paramMap.pipe(
         switchMap((params) => {
           this.audit.set(null);
+          this.execution.set(null);
+          this.executionError.set('');
+          this.executionNotice.set('');
+          this.budgetForm.reset({ requestsPerSecond: 10 });
           this.report.set(null);
           this.error.set('');
           return timer(0, 3000).pipe(
             exhaustMap(() =>
-              this.ws.api.getAudit(params.get('id') ?? '').pipe(
+              forkJoin({
+                audit: this.ws.api.getAudit(params.get('id') ?? ''),
+                execution: this.ws.api.execution(params.get('id') ?? '').pipe(
+                  catchError((error) => {
+                    this.executionError.set(
+                      error.status === 404
+                        ? ''
+                        : 'Não foi possível consultar o controle distribuído. Nova tentativa na próxima atualização.',
+                    );
+                    return of(null);
+                  }),
+                ),
+              }).pipe(
                 catchError((error) => {
                   this.error.set(
                     error.status === 404
@@ -473,12 +602,77 @@ export class AuditDetailPage {
         }),
         takeUntilDestroyed(inject(DestroyRef)),
       )
-      .subscribe((audit) => {
-        if (audit) {
-          this.audit.set(audit);
+      .subscribe((result) => {
+        if (result) {
+          this.audit.set(result.audit);
+          this.execution.set(result.execution);
+          if (result.execution) {
+            this.executionError.set('');
+            if (!this.budgetForm.dirty)
+              this.budgetForm.controls.requestsPerSecond.setValue(
+                result.execution.budget.requestsPerSecond,
+              );
+          }
           this.error.set('');
         }
       });
+  }
+  cancel(id: string): void {
+    if (this.cancelling() || !this.audit() || this.terminal(this.audit()!.state)) return;
+    this.cancelling.set(true);
+    this.ws.api.cancelAudit(id).subscribe({
+      next: (audit) => {
+        this.cancelling.set(false);
+        if (this.audit()?.id === id) {
+          this.audit.set(audit);
+          this.executionNotice.set(
+            'Cancelamento registrado; novas permissões HTTP serão recusadas.',
+          );
+        }
+      },
+      error: (error) => {
+        this.cancelling.set(false);
+        this.ws.fail(error);
+      },
+    });
+  }
+  saveBudget(id: string): void {
+    if (this.budgetForm.invalid || this.savingBudget()) return;
+    this.savingBudget.set(true);
+    this.ws.api.configureBudget(id, this.budgetForm.getRawValue().requestsPerSecond).subscribe({
+      next: (budget) => {
+        this.savingBudget.set(false);
+        if (this.audit()?.id !== id) return;
+        this.execution.update((run) => (run ? { ...run, budget } : null));
+        this.budgetForm.markAsPristine();
+        this.executionNotice.set('Limite global atualizado para este host/porta.');
+      },
+      error: (error) => {
+        this.savingBudget.set(false);
+        this.ws.fail(error);
+      },
+    });
+  }
+  eventLabel(kind: string): string {
+    return (
+      (
+        {
+          Acquired: 'Posse obtida',
+          WaitingForBudget: 'Aguardando orçamento',
+          PluginStarted: 'Plugin iniciado',
+          PluginCompleted: 'Checkpoint salvo',
+          RequestGranted: 'Permissão HTTP',
+          CancelRequested: 'Cancelamento solicitado',
+          BudgetChanged: 'Orçamento alterado',
+          Recovered: 'Retomada agendada',
+          Completed: 'Concluída',
+          Interrupted: 'Interrompida',
+          Cancelled: 'Cancelada',
+          Blocked: 'Bloqueada',
+          Failed: 'Falha',
+        } as Record<string, string>
+      )[kind] ?? kind
+    );
   }
   loadReport(id: string): void {
     this.reportLoading.set(true);

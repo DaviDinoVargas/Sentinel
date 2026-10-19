@@ -34,6 +34,8 @@ builder.Services.AddDbContextFactory<SentinelDbContext>((provider, options) =>
 builder.Services.AddSingleton<ISentinelStore, PostgresSentinelStore>();
 builder.Services.AddSingleton<ScopePolicyEngine>();
 builder.Services.AddSingleton<AuditService>();
+builder.Services.AddSingleton<ExecutionCoordinator>();
+builder.Services.AddHostedService<ExecutionReconciler>();
 
 // RabbitMQ (ADR-0004): a senha nunca fica em arquivo versionado.
 builder.Services.Configure<RabbitMqOptions>(options =>

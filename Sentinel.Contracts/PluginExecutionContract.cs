@@ -13,7 +13,8 @@ public sealed record PluginExecutionRequest(
     string TargetUri,
     string Action,
     DateTimeOffset DeadlineUtc,
-    DateTimeOffset NowUtc);
+    DateTimeOffset NowUtc,
+    bool RequireRequestPermits = false);
 
 // Estados de saída que um plugin pode devolver (Plugins.md). Um plugin que não conseguiu
 // testar devolve Inconclusive ou Partial, nunca "sem achados" como aprovação.

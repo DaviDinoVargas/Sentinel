@@ -58,6 +58,7 @@ public static class Program
         }
 
         var remaining = request.DeadlineUtc - DateTimeOffset.UtcNow;
+        RequestPermitHandler.Required = request.RequireRequestPermits;
         using var deadlineCts = new CancellationTokenSource(remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero);
 
         PluginExecutionResult result;

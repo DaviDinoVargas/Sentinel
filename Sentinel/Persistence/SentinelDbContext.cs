@@ -14,9 +14,38 @@ public sealed class SentinelDbContext : DbContext
     public DbSet<AuditControlRow> AuditControls => Set<AuditControlRow>();
     public DbSet<AuditEvidenceRow> AuditEvidence => Set<AuditEvidenceRow>();
     public DbSet<AuditOutboxRow> AuditOutbox => Set<AuditOutboxRow>();
+    public DbSet<AuditExecutionRow> AuditExecutions => Set<AuditExecutionRow>();
+    public DbSet<TargetBudgetRow> TargetBudgets => Set<TargetBudgetRow>();
+    public DbSet<ExecutionEventRow> ExecutionEvents => Set<ExecutionEventRow>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<AuditExecutionRow>(entity =>
+        {
+            entity.ToTable("audit_executions");
+            entity.HasKey(row => row.AuditId);
+            entity.Property(row => row.TargetKey).HasMaxLength(512);
+            entity.Property(row => row.WorkerId).HasMaxLength(200);
+            entity.Property(row => row.CurrentPluginId).HasMaxLength(200);
+            entity.Property(row => row.CompletedPluginsJson).HasColumnType("jsonb");
+            entity.HasIndex(row => new { row.TargetKey, row.SafetyUntilUtc });
+            entity.HasOne<AuditRow>().WithOne().HasForeignKey<AuditExecutionRow>(row => row.AuditId).OnDelete(DeleteBehavior.Cascade);
+        });
+        modelBuilder.Entity<TargetBudgetRow>(entity =>
+        {
+            entity.ToTable("target_budgets");
+            entity.HasKey(row => row.TargetKey);
+            entity.Property(row => row.TargetKey).HasMaxLength(512);
+        });
+        modelBuilder.Entity<ExecutionEventRow>(entity =>
+        {
+            entity.ToTable("execution_events");
+            entity.HasKey(row => row.Id);
+            entity.Property(row => row.Kind).HasMaxLength(100);
+            entity.Property(row => row.Detail).HasMaxLength(2000);
+            entity.HasIndex(row => new { row.AuditId, row.Id });
+            entity.HasOne<AuditRow>().WithMany().HasForeignKey(row => row.AuditId).OnDelete(DeleteBehavior.Restrict);
+        });
         modelBuilder.Entity<ProjectRow>(entity =>
         {
             entity.ToTable("projects");
@@ -104,6 +133,40 @@ public sealed class SentinelDbContext : DbContext
             entity.HasIndex(message => new { message.Status, message.CreatedAtUtc });
         });
     }
+}
+
+public sealed class AuditExecutionRow
+{
+    public Guid AuditId { get; set; }
+    public string TargetKey { get; set; } = "";
+    public string? WorkerId { get; set; }
+    public Guid? LeaseToken { get; set; }
+    public DateTimeOffset? LeaseUntilUtc { get; set; }
+    public DateTimeOffset? HeartbeatAtUtc { get; set; }
+    public DateTimeOffset? SafetyUntilUtc { get; set; }
+    public DateTimeOffset? CancelRequestedAtUtc { get; set; }
+    public DateTimeOffset? FinishedAtUtc { get; set; }
+    public int Attempts { get; set; }
+    public string? CurrentPluginId { get; set; }
+    public DateTimeOffset? PluginDeadlineUtc { get; set; }
+    public string CompletedPluginsJson { get; set; } = "[]";
+    public int GrantedRequests { get; set; }
+}
+
+public sealed class TargetBudgetRow
+{
+    public string TargetKey { get; set; } = "";
+    public int RequestsPerSecond { get; set; } = 10;
+    public DateTimeOffset? NextRequestAtUtc { get; set; }
+}
+
+public sealed class ExecutionEventRow
+{
+    public long Id { get; set; }
+    public Guid AuditId { get; set; }
+    public DateTimeOffset AtUtc { get; set; }
+    public string Kind { get; set; } = "";
+    public string Detail { get; set; } = "";
 }
 
 public sealed class ProjectRow

@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Sentinel.Core;
+using Sentinel.Execution;
 
 namespace Sentinel.Controllers;
 
@@ -9,7 +10,33 @@ public sealed class AuditsController : ControllerBase
 {
     private readonly AuditService _auditService;
 
-    public AuditsController(AuditService auditService) => _auditService = auditService;
+    private readonly ExecutionCoordinator _coordinator;
+    public AuditsController(AuditService auditService, ExecutionCoordinator coordinator)
+    {
+        _auditService = auditService;
+        _coordinator = coordinator;
+    }
+
+    [HttpGet("{auditId:guid}/execution")]
+    public ActionResult<ExecutionSnapshot> GetExecution(Guid auditId)
+        => _coordinator.Snapshot(auditId) is { } snapshot ? Ok(snapshot) : NotFound();
+
+    [HttpPost("{auditId:guid}/cancel")]
+    public ActionResult<Audit> Cancel(Guid auditId)
+    {
+        var audit = _auditService.FindAudit(auditId);
+        if (audit is null) return NotFound();
+        if (_coordinator.Snapshot(auditId) is not null) _coordinator.Cancel(auditId);
+        return Ok(_auditService.FindAudit(auditId));
+    }
+
+    [HttpPut("{auditId:guid}/target-budget")]
+    public ActionResult<TargetBudget> ConfigureBudget(Guid auditId, ConfigureTargetBudgetRequest request)
+    {
+        if (_coordinator.Snapshot(auditId) is null) return NotFound();
+        try { return Ok(_coordinator.ConfigureBudget(auditId, request.RequestsPerSecond)); }
+        catch (ArgumentException exception) { return Problem(statusCode: 400, detail: exception.Message); }
+    }
 
     [HttpGet("{auditId:guid}")]
     [ProducesResponseType(typeof(Audit), StatusCodes.Status200OK)]
@@ -27,3 +54,5 @@ public sealed class AuditsController : ControllerBase
         return report is null ? NotFound() : Ok(report);
     }
 }
+
+public sealed record ConfigureTargetBudgetRequest(int RequestsPerSecond);

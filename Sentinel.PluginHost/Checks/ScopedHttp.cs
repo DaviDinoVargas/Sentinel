@@ -7,19 +7,19 @@ internal static class ScopedHttp
 {
     // Redirecionar automaticamente pode sair do host/caminho autorizado. O cliente
     // também não reutiliza cookies nem aceita configuração de proxy do ambiente.
-    public static HttpClient Create(TimeSpan? timeout = null) => new(new SocketsHttpHandler
+    public static HttpClient Create(TimeSpan? timeout = null) => new(new RequestPermitHandler(new SocketsHttpHandler
     {
         AllowAutoRedirect = false,
         UseCookies = false,
         UseProxy = false,
-    }) { Timeout = timeout ?? TimeSpan.FromSeconds(10) };
+    })) { Timeout = timeout ?? TimeSpan.FromSeconds(10) };
 
     public static HttpClient CreateLabClient(Uri target)
     {
         if (!IsLoopback(target) || !string.IsNullOrEmpty(target.UserInfo)) throw new ArgumentException("Alvo de laboratório inválido.");
         var address = target.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase)
             ? IPAddress.Loopback : IPAddress.Parse(target.IdnHost.Trim('[', ']'));
-        return new HttpClient(new SocketsHttpHandler
+        return new HttpClient(new RequestPermitHandler(new SocketsHttpHandler
         {
             AllowAutoRedirect = false, UseCookies = false, UseProxy = false,
             ConnectCallback = async (context, cancellationToken) =>
@@ -30,7 +30,7 @@ internal static class ScopedHttp
                 try { await socket.ConnectAsync(new IPEndPoint(address, target.Port), cancellationToken); return new NetworkStream(socket, ownsSocket: true); }
                 catch { socket.Dispose(); throw; }
             },
-        }) { Timeout = TimeSpan.FromSeconds(3) };
+        })) { Timeout = TimeSpan.FromSeconds(3) };
     }
 
     public static bool IsLoopback(Uri uri) => uri.Scheme is "http" or "https" &&

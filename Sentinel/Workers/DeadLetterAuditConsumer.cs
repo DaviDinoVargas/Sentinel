@@ -15,6 +15,7 @@ namespace Sentinel.Workers;
 public sealed class DeadLetterAuditConsumer : BackgroundService
 {
     private readonly ISentinelStore _store;
+    private readonly ExecutionCoordinator _coordinator;
     private readonly TimeProvider _timeProvider;
     private readonly RabbitMqConnectionProvider _connectionProvider;
     private readonly RabbitMqOptions _options;
@@ -24,12 +25,14 @@ public sealed class DeadLetterAuditConsumer : BackgroundService
 
     public DeadLetterAuditConsumer(
         ISentinelStore store,
+        ExecutionCoordinator coordinator,
         TimeProvider timeProvider,
         RabbitMqConnectionProvider connectionProvider,
         IOptions<RabbitMqOptions> options,
         ILogger<DeadLetterAuditConsumer> logger)
     {
         _store = store;
+        _coordinator = coordinator;
         _timeProvider = timeProvider;
         _connectionProvider = connectionProvider;
         _options = options.Value;
@@ -53,11 +56,8 @@ public sealed class DeadLetterAuditConsumer : BackgroundService
                     var existing = _store.FindAudit(payload.AuditId);
                     if (existing is not null && existing.State == AuditState.Queued)
                     {
-                        _store.CompleteAudit(
+                        _coordinator.FailUnclaimed(
                             payload.AuditId,
-                            AuditState.Failed,
-                            Array.Empty<AuditControlResult>(),
-                            Array.Empty<AuditEvidence>(),
                             $"A auditoria esgotou o limite de redelivery da fila ({_options.DeliveryLimit} tentativas) e foi movida para a fila morta em {_timeProvider.GetUtcNow():O}.");
                         _logger.LogError("Auditoria {AuditId} marcada como Failed após cair na DLQ.", payload.AuditId);
                     }

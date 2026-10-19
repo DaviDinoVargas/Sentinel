@@ -87,7 +87,7 @@ export function parseLoadObservation(summary: string): LoadObservation | null {
     </div>
     <div class="banner">
       <s-icon name="clock" /><span
-        >Até 40 GETs, concorrência 2 e até 10 inícios/s por execução. Mede chegada dos cabeçalhos,
+        >Até 40 GETs, concorrência 2 e orçamento global de até 10 permissões HTTP/s por host/porta. Uma auditoria por alvo. Mede chegada dos cabeçalhos,
         sem credenciais. Respostas 401/403 não representam desempenho dos fluxos autenticados ou do
         banco.</span
       >

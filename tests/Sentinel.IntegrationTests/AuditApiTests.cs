@@ -285,7 +285,7 @@ public sealed class AuditApiTests : IClassFixture<SentinelApiFactory>
             var response = await _client.GetAsync($"/api/v1/audits/{auditId}");
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
             var audit = await ReadRequiredAsync<Audit>(response);
-            if (audit.State != AuditState.Queued)
+            if (AuditStates.IsTerminal(audit.State))
             {
                 return audit;
             }

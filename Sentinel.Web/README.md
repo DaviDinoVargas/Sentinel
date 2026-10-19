@@ -57,12 +57,16 @@ O tema e o identificador do projeto selecionado podem ser salvos no navegador; c
 
 Os cinco plugins HTTP atuais fazem requisições reais de baixo risco; a fixture não testa o alvo. O campo de ação `simulated` é mantido no contrato da API por compatibilidade. O score atual inclui a fixture, e sua cobertura observada mede auditorias com controles, não cobertura de vulnerabilidades. A interface apresenta essas limitações.
 
-Outros protocolos, análise de repositórios, carga autenticada/ampliada, aprovação humana, cancelamento, autenticação, containers para plugins e armazenamento de artefatos externo permanecem pendentes. A plataforma deve ser usada localmente, em laboratório autorizado, enquanto essas guardas não forem implementadas.
+Outros protocolos, análise de repositórios, carga autenticada/ampliada, aprovação humana, autenticação, containers para plugins e armazenamento de artefatos externo permanecem pendentes. A plataforma deve ser usada localmente, em laboratório autorizado, enquanto essas guardas não forem implementadas.
 
 ## Laboratório ativo local
 
 Na Central de auditorias, selecione `Laboratório ativo` e confirme a execução. A API exige `confirmActive: true`, escopo válido em ambiente `laboratorio`, host localhost/IP de loopback e ausência de credenciais na URL. Plugins ativos não são executados no perfil padrão. Redirecionamentos nunca são seguidos.
 
-O cenário fixo gera até 40 GETs de carga, concorrência 2 e até 10 inícios/s por execução, além de até cinco probes GET. Interrompe carga em 429, 5xx, erro de transporte, redirecionamento, latência >1500 ms ou prazo. Os percentis medem cabeçalhos sem autenticação; não são latência de negócio ou capacidade máxima. Respostas 401/403 precisam ser lidas nesse contexto.
+O cenário fixo gera até 40 GETs de carga, concorrência 2 e até 10 permissões HTTP/s compartilhadas por host/porta, além de até cinco probes GET. Interrompe carga em 429, 5xx, erro de transporte, redirecionamento, latência >1500 ms ou prazo. Os percentis medem cabeçalhos sem autenticação; não são latência de negócio ou capacidade máxima. Respostas 401/403 precisam ser lidas nesse contexto.
 
 As evidências JSON são validadas antes de exibir métricas. Resultados de carga são informativos; os probes de entradas ficam inconclusivos quando não há evidência suficiente. Nenhum resultado é apresentado como aprovação geral de SQL injection/XSS.
+
+## Controle distribuído
+
+O detalhe da auditoria mostra orçamento global, worker, lease/heartbeat, reserva de segurança, plugin atual, checkpoints e últimos 100 eventos. Permite cancelar e alterar o limite global de 1 a 10 permissões/s. Cancelamento impede novas permissões e encerra o filho; requisições já em trânsito não podem ser desfeitas. Queda durante plugin fica interrompida, sem repetição automática de efeitos incertos. Relatórios podem ser consultados durante a execução para examinar checkpoints concluídos.

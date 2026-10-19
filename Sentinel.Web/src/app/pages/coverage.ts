@@ -132,7 +132,7 @@ export class CoveragePage {
     },
     {
       title: 'Execução assíncrona',
-      description: 'Histórico paginado, estado e detalhe dos controles',
+      description: 'Orçamento global, posse/heartbeat, checkpoints, cancelamento e recuperação após falhas',
       path: '/audits',
       screen: 'Central de auditorias',
     },
@@ -188,7 +188,7 @@ export class CoveragePage {
     },
     {
       title: 'Governança ampliada',
-      description: 'Keycloak, aprovação humana, limites de produção, cancelamento e revogação.',
+      description: 'Keycloak, aprovação humana, limites de produção e revogação de escopo.',
     },
     {
       title: 'Isolamento e evidências',

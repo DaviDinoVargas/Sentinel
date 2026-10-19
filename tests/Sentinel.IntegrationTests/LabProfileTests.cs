@@ -91,7 +91,7 @@ public sealed class LabProfileTests(SentinelApiFactory factory) : IClassFixture<
         while (DateTime.UtcNow < deadline)
         {
             var current = (await _client.GetFromJsonAsync<Audit>($"/api/v1/audits/{queued.Id}", JsonOptions))!;
-            if (current.State != AuditState.Queued) return current;
+            if (AuditStates.IsTerminal(current.State)) return current;
             await Task.Delay(100);
         }
         throw new TimeoutException("Auditoria de laboratório não concluiu.");

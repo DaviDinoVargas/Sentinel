@@ -106,6 +106,7 @@ public sealed class PostgresSentinelStore : ISentinelStore
 
         using var db = _dbContextFactory.CreateDbContext();
         db.Audits.Add(auditRow);
+        db.AuditExecutions.Add(new AuditExecutionRow { AuditId = audit.Id, TargetKey = Execution.ExecutionCoordinator.TargetKey(audit.TargetUri) });
         db.AuditOutbox.Add(outboxRow);
         db.SaveChanges();
         return audit;

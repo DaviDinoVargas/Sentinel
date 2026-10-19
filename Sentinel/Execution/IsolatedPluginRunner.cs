@@ -32,7 +32,8 @@ public sealed class IsolatedPluginRunner
         _logger = logger;
     }
 
-    public async Task<PluginExecutionResult> RunAsync(PluginManifest manifest, PluginExecutionRequest request, CancellationToken cancellationToken)
+    public async Task<PluginExecutionResult> RunAsync(PluginManifest manifest, PluginExecutionRequest request, CancellationToken cancellationToken,
+        Func<CancellationToken, Task<bool>>? permit = null)
     {
         var inputValidation = _validator.ValidateInput(request);
         if (!inputValidation.IsValid)
@@ -46,6 +47,10 @@ public sealed class IsolatedPluginRunner
         var timeout = TimeSpan.FromSeconds(Math.Clamp(manifest.Spec.Resources.TimeoutSeconds, 1, 1800));
         using var timeoutCts = new CancellationTokenSource(timeout);
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+        var remaining = request.DeadlineUtc - DateTimeOffset.UtcNow;
+        if (remaining <= TimeSpan.Zero) return TimedOut(request, "Prazo já expirado antes de iniciar o processo.");
+        if (remaining < timeout) timeoutCts.CancelAfter(remaining);
+        cancellationToken.ThrowIfCancellationRequested();
 
         var startInfo = new ProcessStartInfo
         {
@@ -63,33 +68,50 @@ public sealed class IsolatedPluginRunner
         using var process = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
         var stdout = new StringBuilder();
         var stderr = new StringBuilder();
-        process.OutputDataReceived += (_, e) => AppendCapped(stdout, e.Data);
+        var started = false;
         process.ErrorDataReceived += (_, e) => AppendCapped(stderr, e.Data);
 
         try
         {
             process.Start();
-            process.BeginOutputReadLine();
+            started = true;
             process.BeginErrorReadLine();
 
             var inputJson = JsonSerializer.Serialize(request, JsonOptions);
             await process.StandardInput.WriteLineAsync(inputJson);
-            process.StandardInput.Close();
+            await process.StandardInput.FlushAsync(linkedCts.Token);
+            while (await process.StandardOutput.ReadLineAsync(linkedCts.Token) is { } line)
+            {
+                if (line == "{\"kind\":\"request-permit\"}")
+                {
+                    var allowed = request.RequireRequestPermits && permit is not null && await permit(linkedCts.Token);
+                    await process.StandardInput.WriteLineAsync(allowed ? "{\"allowed\":true}" : "{\"allowed\":false}");
+                    await process.StandardInput.FlushAsync(linkedCts.Token);
+                }
+                else
+                {
+                    if (stdout.Length + line.Length > MaxCapturedOutputChars) throw new InvalidOperationException("Saída do plugin excedeu o limite.");
+                    stdout.AppendLine(line);
+                }
+            }
 
             await process.WaitForExitAsync(linkedCts.Token);
         }
         catch (OperationCanceledException)
         {
             TryKill(process);
+            await process.WaitForExitAsync();
             var reason = timeoutCts.IsCancellationRequested
                 ? $"O plugin {manifest.Metadata.Id} excedeu o timeout declarado no manifesto ({timeout.TotalSeconds:0}s)."
                 : $"A execução do plugin {manifest.Metadata.Id} foi cancelada.";
             _logger.LogWarning("{Reason}", reason);
-            return TimedOut(request, reason);
+            return new(request.ContractVersion, timeoutCts.IsCancellationRequested ? PluginExecutionOutcome.TimedOut : PluginExecutionOutcome.Cancelled,
+                Array.Empty<PluginCheckResult>(), Array.Empty<PluginEvidenceRef>(), new[] { reason });
         }
         catch (Exception exception)
         {
             TryKill(process);
+            if (started) await process.WaitForExitAsync();
             _logger.LogError(exception, "Falha ao iniciar/comunicar com o processo isolado do plugin {PluginId}.", manifest.Metadata.Id);
             return ScriptError(request, $"Falha ao executar o plugin em processo isolado: {exception.GetType().Name}: {exception.Message}");
         }

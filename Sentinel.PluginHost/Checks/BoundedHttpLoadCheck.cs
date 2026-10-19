@@ -67,7 +67,9 @@ public sealed class BoundedHttpLoadCheck : IIsolatedCheck
         try
         {
             using var response = await client.GetAsync(target, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
-            return new((int)response.StatusCode, clock.Elapsed.TotalMilliseconds);
+            var elapsed = response.RequestMessage?.Options.TryGetValue(RequestPermitHandler.StartedAt, out var startedAt) == true
+                ? Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds : clock.Elapsed.TotalMilliseconds;
+            return new((int)response.StatusCode, elapsed);
         }
         catch (Exception exception) when (exception is HttpRequestException or OperationCanceledException)
         { return new(0, clock.Elapsed.TotalMilliseconds); }

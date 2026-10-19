@@ -36,7 +36,16 @@ export interface Audit {
   projectId: string;
   scopeId?: string | null;
   targetUri: string;
-  state: 'Queued' | 'Completed' | 'Blocked' | 'Failed';
+  state:
+    | 'Queued'
+    | 'WaitingForBudget'
+    | 'Running'
+    | 'Cancelling'
+    | 'Cancelled'
+    | 'Interrupted'
+    | 'Completed'
+    | 'Blocked'
+    | 'Failed';
   correlationId: string;
   policyReason?: string | null;
   createdAtUtc: string;
@@ -50,6 +59,31 @@ export interface AuditReport {
   controls: AuditControlResult[];
   evidence: AuditEvidence[];
   policyReason?: string | null;
+}
+export function isAuditTerminal(state: Audit['state']): boolean {
+  return ['Completed', 'Blocked', 'Failed', 'Cancelled', 'Interrupted'].includes(state);
+}
+export interface TargetBudget {
+  targetKey: string;
+  requestsPerSecond: number;
+  concurrentAudits: number;
+}
+export interface ExecutionSnapshot {
+  auditId: string;
+  targetKey: string;
+  workerId: string | null;
+  attempts: number;
+  heartbeatAtUtc: string | null;
+  leaseUntilUtc: string | null;
+  safetyUntilUtc: string | null;
+  cancelRequestedAtUtc: string | null;
+  finishedAtUtc: string | null;
+  currentPluginId: string | null;
+  completedPlugins: string[];
+  grantedRequests: number;
+  budget: TargetBudget;
+  events: { id: number; atUtc: string; kind: string; detail: string }[];
+  limitations: string[];
 }
 export interface SecurityScoreComponent {
   id: string;
@@ -172,6 +206,17 @@ export class SentinelApiService {
   }
   getAudit(auditId: string) {
     return this.http.get<Audit>(`${this.baseUrl}/audits/${auditId}`);
+  }
+  execution(auditId: string) {
+    return this.http.get<ExecutionSnapshot>(`${this.baseUrl}/audits/${auditId}/execution`);
+  }
+  cancelAudit(auditId: string) {
+    return this.http.post<Audit>(`${this.baseUrl}/audits/${auditId}/cancel`, {});
+  }
+  configureBudget(auditId: string, requestsPerSecond: number) {
+    return this.http.put<TargetBudget>(`${this.baseUrl}/audits/${auditId}/target-budget`, {
+      requestsPerSecond,
+    });
   }
   report(auditId: string) {
     return this.http.get<AuditReport>(`${this.baseUrl}/audits/${auditId}/report`);

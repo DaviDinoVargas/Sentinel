@@ -17,9 +17,19 @@ public sealed record AuthorizedScope(
 public enum AuditState
 {
     Queued,
+    WaitingForBudget,
+    Running,
+    Cancelling,
+    Cancelled,
+    Interrupted,
     Completed,
     Blocked,
     Failed
+}
+
+public static class AuditStates
+{
+    public static bool IsTerminal(AuditState state) => state is AuditState.Completed or AuditState.Blocked or AuditState.Failed or AuditState.Cancelled or AuditState.Interrupted;
 }
 
 public sealed record AuditEvidence(string Id, string Sha256, string Summary, DateTimeOffset CollectedAtUtc);
