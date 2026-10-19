@@ -55,11 +55,11 @@ public sealed class AuditApiTests : IClassFixture<SentinelApiFactory>
         var audit = await PollAuditUntilCompletedAsync(queuedAudit.Id);
         Assert.Equal(AuditState.Completed, audit.State);
         // SIM-001 (fixture) + WEB-CFG-01 (cabeçalhos) + WEB-CFG-02 (CORS) + WEB-CFG-04
-        // (erro/stack trace) + WEB-CFG-09 (fingerprinting). O HttpListener de teste
-        // sempre envia "Server: Microsoft-HTTPAPI/2.0", então WEB-CFG-09 reprova mesmo em
-        // /area-segura — é um caso real, não simulado.
-        Assert.Equal(5, audit.Controls.Count);
-        Assert.Equal(5, audit.Evidence.Count);
+        // (erro/stack trace) + WEB-CFG-06 (host header) + WEB-CFG-09 (fingerprinting). O
+        // HttpListener de teste sempre envia "Server: Microsoft-HTTPAPI/2.0", então
+        // WEB-CFG-09 reprova mesmo em /area-segura — é um caso real, não simulado.
+        Assert.Equal(6, audit.Controls.Count);
+        Assert.Equal(6, audit.Evidence.Count);
 
         var fixtureControl = Assert.Single(audit.Controls, control => control.ControlId == "SIM-001");
         Assert.Equal("Passed", fixtureControl.State);
@@ -82,11 +82,15 @@ public sealed class AuditApiTests : IClassFixture<SentinelApiFactory>
         Assert.Equal("Failed", fingerprintControl.State);
         Assert.Contains("Server", fingerprintControl.Summary);
 
+        // /area-segura não reflete Host/X-Forwarded-Host: WEB-CFG-06 aprova.
+        var hostControl = Assert.Single(audit.Controls, control => control.ControlId == "WEB-CFG-06");
+        Assert.Equal("Passed", hostControl.State);
+
         var reportResponse = await _client.GetAsync($"/api/v1/audits/{audit.Id}/report");
         Assert.Equal(HttpStatusCode.OK, reportResponse.StatusCode);
         var report = await ReadRequiredAsync<AuditReport>(reportResponse);
         Assert.Equal(AuditState.Completed, report.State);
-        Assert.Equal(5, report.Evidence.Count);
+        Assert.Equal(6, report.Evidence.Count);
         Assert.All(report.Evidence, evidence => Assert.Matches("^[a-f0-9]{64}$", evidence.Sha256));
 
         var scoreResponse = await _client.GetAsync($"/api/v1/projects/{project.Id}/security-score");
@@ -94,11 +98,12 @@ public sealed class AuditApiTests : IClassFixture<SentinelApiFactory>
         var score = await ReadRequiredAsync<SecurityScore>(scoreResponse);
         Assert.Equal("P0-1.0", score.AlgorithmVersion);
         // Nem todos os controles avaliados são DemonstrationOnly (os controles HTTP são
-        // Reproduced), então o teto de 20 do P0 não se aplica. 3 de 4 controles passam.
-        Assert.Equal(75m, score.Score);
+        // Reproduced), então o teto de 20 do P0 não se aplica. 4 de 5 controles passam
+        // (WEB-CFG-04 fica Inconclusive e não entra na amostra avaliada).
+        Assert.Equal(80m, score.Score);
         Assert.Equal("Observed", score.Confidence);
-        Assert.Equal(4, score.ControlsEvaluated);
-        Assert.Equal(3, score.ControlsPassed);
+        Assert.Equal(5, score.ControlsEvaluated);
+        Assert.Equal(4, score.ControlsPassed);
     }
 
     [Fact]
@@ -200,6 +205,32 @@ public sealed class AuditApiTests : IClassFixture<SentinelApiFactory>
         var errorControl = Assert.Single(audit.Controls, control => control.ControlId == "WEB-CFG-04");
         Assert.Equal("Passed", errorControl.State);
         Assert.Equal("Reproduced", errorControl.Confidence);
+    }
+
+    [Fact]
+    public async Task Alvo_que_reflete_host_header_e_reprovado_pelo_controle_real()
+    {
+        var project = await CreateProjectAsync();
+        var targetBaseUrl = $"{_factory.LabTarget.BaseUri}aplicacao/";
+        var scopeResponse = await _client.PostAsJsonAsync(
+            $"/api/v1/projects/{project.Id}/scopes",
+            new CreateScopeRequest(targetBaseUrl, "teste", DateTimeOffset.UtcNow.AddHours(1)));
+        Assert.Equal(HttpStatusCode.Created, scopeResponse.StatusCode);
+
+        var auditResponse = await _client.PostAsJsonAsync(
+            $"/api/v1/projects/{project.Id}/audits",
+            new RequestAuditRequest($"{targetBaseUrl}host-header-vulneravel", "simulated"));
+        Assert.Equal(HttpStatusCode.Accepted, auditResponse.StatusCode);
+        var queuedAudit = await ReadRequiredAsync<Audit>(auditResponse);
+
+        var audit = await PollAuditUntilCompletedAsync(queuedAudit.Id);
+        Assert.Equal(AuditState.Completed, audit.State);
+
+        var hostControl = Assert.Single(audit.Controls, control => control.ControlId == "WEB-CFG-06");
+        Assert.Equal("Failed", hostControl.State);
+        Assert.Equal("High", hostControl.Severity);
+        Assert.Equal("Reproduced", hostControl.Confidence);
+        Assert.Contains("sentinel-host-probe.invalid", hostControl.Summary);
     }
 
     [Fact]

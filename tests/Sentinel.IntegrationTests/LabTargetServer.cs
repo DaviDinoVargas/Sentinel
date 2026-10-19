@@ -64,6 +64,16 @@ public sealed class LabTargetServer : IDisposable
             }
         }
 
+        if (path.Contains("host-header-vulneravel", StringComparison.OrdinalIgnoreCase))
+        {
+            // Reflete o Host/X-Forwarded-Host recebido de volta no corpo — caso reprovado
+            // real para o WEB-CFG-06 (host header injection).
+            var forwardedHost = context.Request.Headers["X-Forwarded-Host"];
+            var effectiveHost = !string.IsNullOrEmpty(forwardedHost) ? forwardedHost : context.Request.Headers["Host"];
+            WriteBody(context, $"<a href=\"https://{effectiveHost}/reset-senha?token=abc\">Redefinir senha</a>");
+            return;
+        }
+
         if (path.Contains("erro-com-stacktrace", StringComparison.OrdinalIgnoreCase))
         {
             // Simula um erro 500 que vaza stack trace — caso reprovado real para o

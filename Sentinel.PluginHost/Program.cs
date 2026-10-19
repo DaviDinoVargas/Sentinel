@@ -21,6 +21,7 @@ public static class Program
         ["sentinel.http.cors-reflection"] = () => new CorsReflectionCheck(),
         ["sentinel.http.error-disclosure"] = () => new ErrorDisclosureCheck(),
         ["sentinel.http.tech-fingerprint-headers"] = () => new TechFingerprintHeadersCheck(),
+        ["sentinel.http.host-header-trust"] = () => new HostHeaderTrustCheck(),
     };
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)

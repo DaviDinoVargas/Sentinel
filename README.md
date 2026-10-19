@@ -13,6 +13,7 @@ Hoje existem cinco plugins/controles, todos passivos (uma única requisição HT
 - `WEB-CFG-02`: **real**. Envia a requisição com um cabeçalho `Origin` propositalmente estranho e verifica se o alvo reflete essa origem em `Access-Control-Allow-Origin` (pior ainda se combinado com `Access-Control-Allow-Credentials: true`).
 - `WEB-CFG-04`: **real**. Só é avaliável quando o próprio alvo responde HTTP 5xx para a URL auditada; nesse caso, inspeciona o corpo da resposta por marcadores de stack trace. Quando o alvo não retorna um erro de servidor, o controle fica `Inconclusive` em vez de "aprovado" — não é tratado como ausência de vulnerabilidade sem evidência.
 - `WEB-CFG-09`: **real**. Verifica se a resposta expõe cabeçalhos de fingerprinting de tecnologia (`Server`, `X-Powered-By`, `X-AspNet-Version`, `X-AspNetMvc-Version`).
+- `WEB-CFG-06`: **real**. Envia a requisição com Host e X-Forwarded-Host sobrescritos para um valor estranho e verifica se o alvo reflete esse valor no corpo ou em um `Location` de redirect — indício de host header injection (ex.: envenenamento de link de reset de senha).
 
 Fora da ação `simulated` (controles passivos de baixo risco), qualquer alvo fora de um escopo autorizado e válido é bloqueado antes de qualquer execução.
 
