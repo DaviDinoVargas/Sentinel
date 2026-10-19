@@ -13,14 +13,15 @@ Nenhuma solicitação desta versão executa chamadas, scanners ou testes contra 
 ## Executar localmente
 
 ```powershell
+$env:SENTINEL_POSTGRES_PASSWORD = "<senha local do PostgreSQL>"
 dotnet run --project .\Sentinel\Sentinel.csproj
 ```
 
 Em desenvolvimento, a documentação OpenAPI fica disponível em `http://localhost:5161/swagger`.
 
-## Estado atual
+## Persistência local
 
-O armazenamento em memória é deliberadamente temporário e serve apenas para validar o fluxo P0. As auditorias são perdidas ao reiniciar a aplicação. A próxima etapa substitui esse armazenamento por PostgreSQL.
+O Sentinel usa PostgreSQL. A senha não é armazenada no repositório: defina-a apenas na variável de ambiente `SENTINEL_POSTGRES_PASSWORD` antes de iniciar a aplicação. As migrações são aplicadas na inicialização.
 
 ## Endpoints disponíveis
 
