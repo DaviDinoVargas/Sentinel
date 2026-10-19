@@ -162,7 +162,7 @@ public sealed class AuditService
         var blockedAudits = audits.Count(audit => audit.State == AuditState.Blocked);
         var limitations = new List<string>
         {
-            "O P0 ainda executa poucos controles reais (hoje, apenas WEB-CFG-01 contra o alvo); SIM-001 é fixture do pipeline e não testa o alvo.",
+            "O P0 ainda cobre poucos controles do catálogo (hoje WEB-CFG-01, WEB-CFG-02 e WEB-CFG-09 contra o alvo); SIM-001 é fixture do pipeline e não testa o alvo.",
             "O score não é certificação nem garantia de ausência de vulnerabilidades."
         };
 
