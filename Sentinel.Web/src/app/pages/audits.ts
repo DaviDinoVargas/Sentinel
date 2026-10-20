@@ -14,6 +14,7 @@ import { WorkspaceService } from '../core/workspace.service';
 import { Badge, EmptyState } from '../design-system/ui';
 import { Icon } from '../design-system/icon';
 import { AuthSessionService } from '../core/auth-session.service';
+import { EvidenceViewer } from '../design-system/evidence-viewer';
 
 @Component({
   imports: [CommonModule, ReactiveFormsModule, RouterLink, Badge, EmptyState, Icon],
@@ -326,7 +327,7 @@ export class AuditsPage {
 }
 
 @Component({
-  imports: [CommonModule, ReactiveFormsModule, RouterLink, Badge, Icon],
+  imports: [CommonModule, ReactiveFormsModule, RouterLink, Badge, Icon, EvidenceViewer],
   template: `
     <div class="page-heading">
       <div>
@@ -566,6 +567,7 @@ export class AuditsPage {
                   <strong class="mono">{{ evidence.id }}</strong>
                   <p class="url">{{ evidence.summary }}</p>
                   <code class="break-code">SHA-256: {{ evidence.sha256 }}</code>
+                  <s-evidence-viewer [auditId]="item.id" [evidence]="evidence" />
                   <p>Coletada em {{ evidence.collectedAtUtc | date: 'dd/MM/yyyy · HH:mm:ss' }}</p>
                 </li>
               }

@@ -138,6 +138,7 @@ public sealed class ExecutionCoordinator(IDbContextFactory<SentinelDbContext> fa
         {
             Id = Guid.NewGuid(), AuditId = lease.AuditId, EvidenceReference = item.Id, Sha256 = item.Sha256,
             Summary = item.Summary, CollectedAtUtc = item.CollectedAtUtc,
+            ArtifactReference = item.Artifact?.Reference, ArtifactMetadataJson = item.Artifact is null ? null : JsonSerializer.Serialize(item.Artifact), RetainUntilUtc = item.Artifact?.RetainUntilUtc, ArtifactStorageId = item.Artifact?.StorageId,
         }));
         completed.Add(pluginId);
         execution.CompletedPluginsJson = JsonSerializer.Serialize(completed);

@@ -10,7 +10,7 @@ namespace Sentinel.Workers;
 
 public sealed class AuditWorker(
     ISentinelStore store, ScopePolicyEngine policy, TimeProvider timeProvider,
-    PluginRegistry registry, IsolatedPluginRunner runner, ExecutionCoordinator coordinator, ScopedHttpGateway gateway, PluginRuntime runtime,
+    PluginRegistry registry, IsolatedPluginRunner runner, ExecutionCoordinator coordinator, ScopedHttpGateway gateway, PluginRuntime runtime, Sentinel.Evidence.EvidenceArtifactStore artifacts,
     RabbitMqConnectionProvider connectionProvider, IOptions<RabbitMqOptions> options,
     ILogger<AuditWorker> logger) : BackgroundService
 {
@@ -96,9 +96,10 @@ public sealed class AuditWorker(
                 }, gatewaySession.SendAsync);
                 childStopped = true;
                 executionCts.Token.ThrowIfCancellationRequested();
-                var controls = result.Checks.Select(check => new AuditControlResult(check.ControlId, check.State, check.Summary,
+                var controls = result.Checks.Select(check => new AuditControlResult(check.ControlId, check.State, Sentinel.Evidence.EvidenceSanitizer.Apply(check.Summary).Value,
                     check.Confidence, check.Severity, manifest.Metadata.Id, manifest.Metadata.Version)).ToArray();
-                var evidence = result.Evidence.Select(item => BuildEvidence(manifest.Metadata.Id, payload.AuditId, target, now, item)).ToArray();
+                var evidence = new List<AuditEvidence>();
+                foreach (var item in result.Evidence) evidence.Add(await artifacts.SaveAsync(payload.AuditId, payload.ProjectId, target, manifest, item, executionCts.Token));
                 if (!coordinator.Checkpoint(lease, manifest.Metadata.Id, controls, evidence)) return;
                 if (result.Outcome is PluginExecutionOutcome.TimedOut or PluginExecutionOutcome.Cancelled or PluginExecutionOutcome.Failed)
                 {
@@ -145,10 +146,4 @@ public sealed class AuditWorker(
         }
     }
 
-    private static AuditEvidence BuildEvidence(string pluginId, Guid auditId, Uri target, DateTimeOffset now, PluginEvidenceRef item)
-    {
-        var content = $"{pluginId}|{auditId:N}|{target}|{now:O}|{item.EvidenceSummary}";
-        var hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(content))).ToLowerInvariant();
-        return new(Guid.NewGuid().ToString("N"), hash, item.Summary, now);
-    }
 }

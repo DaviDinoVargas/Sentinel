@@ -28,6 +28,38 @@ export interface AuditEvidence {
   sha256: string;
   summary: string;
   collectedAtUtc: string;
+  artifact?: EvidenceArtifactMetadata | null;
+}
+export interface EvidenceArtifactMetadata {
+  reference: string;
+  contentType: string;
+  sourcePluginId: string;
+  sourcePluginVersion: string;
+  classification: string;
+  retainUntilUtc: string;
+  redactionStrategy: string;
+  redacted: boolean;
+  truncated: boolean;
+  purgedAtUtc: string | null;
+  storageId?: string | null;
+}
+export interface VerifiedEvidenceArtifact {
+  sha256: string;
+  content: string;
+  integrityVerified: boolean;
+  metadata: EvidenceArtifactMetadata;
+}
+export interface EvidencePolicy {
+  projectId: string;
+  retentionDays: number;
+  classification: string;
+  redactionStrategy: string;
+  maximumArtifactBytes: number;
+  storage: string;
+  storageId?: string;
+  evidencePolicyUpdatedAtUtc: string | null;
+  evidencePolicyUpdatedBy: string | null;
+  limitations: string[];
 }
 // A auditoria nasce em 'Queued' e é processada de forma assíncrona pelo AuditWorker
 // (núcleo de execução real, D11); o cliente consulta getAudit até sair de 'Queued'.
@@ -298,6 +330,19 @@ export class SentinelApiService {
   }
   getAudit(auditId: string) {
     return this.http.get<Audit>(`${this.baseUrl}/audits/${auditId}`);
+  }
+  evidenceArtifact(auditId: string, evidenceId: string) {
+    return this.http.get<VerifiedEvidenceArtifact>(
+      `${this.baseUrl}/audits/${auditId}/evidence/${evidenceId}/artifact`,
+    );
+  }
+  evidencePolicy(projectId: string) {
+    return this.http.get<EvidencePolicy>(`${this.baseUrl}/projects/${projectId}/evidence-policy`);
+  }
+  configureEvidencePolicy(projectId: string, retentionDays: number) {
+    return this.http.put<EvidencePolicy>(`${this.baseUrl}/projects/${projectId}/evidence-policy`, {
+      retentionDays,
+    });
   }
   execution(auditId: string) {
     return this.http.get<ExecutionSnapshot>(`${this.baseUrl}/audits/${auditId}/execution`);

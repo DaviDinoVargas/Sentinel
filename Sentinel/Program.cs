@@ -21,6 +21,9 @@ if (builder.Configuration["TargetCredentials:ProtectionCertificateThumbprint"] i
 else if (OperatingSystem.IsWindows()) protection.ProtectKeysWithDpapi();
 else throw new InvalidOperationException("Configure certificado para proteger as chaves das credenciais fora do laboratório Windows.");
 builder.Services.AddSingleton<TargetCredentialVault>();
+builder.Services.AddSingleton<Sentinel.Evidence.EvidenceArtifactStore>();
+builder.Services.AddSingleton<Sentinel.Evidence.EvidenceRetentionService>();
+builder.Services.AddHostedService<Sentinel.Evidence.EvidenceRetentionWorker>();
 builder.Services.AddSentinelIdentity(builder.Configuration, builder.Environment);
 // Resolve a configuração final do host no momento de criar as opções. Capturar a
 // connection string antes de Build ignora substituições do WebApplicationFactory

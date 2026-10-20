@@ -74,6 +74,7 @@ public sealed class SentinelDbContext : DbContext
         {
             entity.ToTable("projects");
             entity.Property(row => row.OrganizationId).HasDefaultValue(TenantAccess.LegacyOrganizationId);
+            entity.Property(row => row.EvidenceRetentionDays).HasDefaultValue(30);
             entity.HasOne<OrganizationRow>().WithMany().HasForeignKey(row => row.OrganizationId).OnDelete(DeleteBehavior.Restrict);
             entity.HasQueryFilter(row => IsSystem || row.OrganizationId == CurrentOrganizationId);
             entity.HasKey(project => project.Id);
@@ -145,6 +146,10 @@ public sealed class SentinelDbContext : DbContext
             entity.Property(evidence => evidence.Sha256).HasMaxLength(64).IsRequired();
             entity.Property(evidence => evidence.Summary).HasMaxLength(4_000).IsRequired();
             entity.Property(evidence => evidence.CollectedAtUtc).IsRequired();
+            entity.Property(evidence => evidence.ArtifactMetadataJson).HasColumnType("jsonb");
+            entity.Property(evidence => evidence.ArtifactReference).HasMaxLength(100);
+            entity.Property(evidence => evidence.ArtifactStorageId).HasMaxLength(100);
+            entity.HasIndex(evidence => evidence.RetainUntilUtc);
             entity.HasIndex(evidence => new { evidence.AuditId, evidence.EvidenceReference }).IsUnique();
             entity.HasOne(evidence => evidence.Audit)
                 .WithMany(audit => audit.Evidence)
@@ -223,6 +228,9 @@ public sealed class ExecutionEventRow
 public sealed class ProjectRow
 {
     public Guid OrganizationId { get; set; } = TenantAccess.LegacyOrganizationId;
+    public int EvidenceRetentionDays { get; set; } = 30;
+    public DateTimeOffset? EvidencePolicyUpdatedAtUtc { get; set; }
+    public string? EvidencePolicyUpdatedBy { get; set; }
     public Guid Id { get; set; }
     public string Name { get; set; } = string.Empty;
     public string? Description { get; set; }
@@ -299,5 +307,10 @@ public sealed class AuditEvidenceRow
     public string Sha256 { get; set; } = string.Empty;
     public string Summary { get; set; } = string.Empty;
     public DateTimeOffset CollectedAtUtc { get; set; }
+    public string? ArtifactReference { get; set; }
+    public string? ArtifactStorageId { get; set; }
+    public string? ArtifactMetadataJson { get; set; }
+    public DateTimeOffset? RetainUntilUtc { get; set; }
+    public DateTimeOffset? PurgedAtUtc { get; set; }
     public AuditRow Audit { get; set; } = null!;
 }

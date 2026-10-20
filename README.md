@@ -69,7 +69,7 @@ Os cinco últimos fazem requisições HTTP reais. O nome de ação `simulated` p
 - `LAB-AUTH-01`: quando o baseline exige autenticação, tenta dois tokens de laboratório (inválido e JWT sem assinatura). Acesso 2xx após recusa anônima exige revisão de possível bypass.
 - `LAB-INP-01`: duas entradas GET na query da URL autorizada, procurando vazamento de stack trace em 5xx. Ausência de vazamento é inconclusiva quanto a SQL injection/XSS.
 
-Os dois plugins ativos não executam no perfil padrão. Métricas aparecem em Performance Lab; controles e evidências nas telas de investigação e no relatório. O orçamento é compartilhado no PostgreSQL entre workers, projetos e perfis do mesmo host/porta. Ainda não há cenários autenticados contra os alvos auditados.
+Os dois plugins ativos não executam no perfil padrão. Métricas aparecem em Performance Lab; controles e evidências nas telas de investigação e no relatório. O orçamento é compartilhado no PostgreSQL entre workers, projetos e perfis do mesmo host/porta. Cenários autenticados para contas sintéticas estão disponíveis no perfil de laboratório descrito abaixo.
 
 Para uma cópia da Locadora já preparada fora do diretório original, `scripts/start-locadora-lab.ps1 -LabPath <caminho-da-copia>` inicia SQL Server com banco/volume próprios e processos locais nas portas 14200, 15079/17064 e 18000. Requer dependências instaladas e build Release da cópia. Não modifica o TCC original; o proxy valida TLS com o certificado público local e não exporta chave privada. Logs/relatórios ficam em `.local/locadora/`, fora do Git. Consulte [scripts/README.md](scripts/README.md).
 
@@ -113,6 +113,16 @@ O cenário `authenticated-lab` valida primeiro uma URL protegida sem credencial 
 Opcionalmente, um acesso permitido confirmado pode executar até 40 GETs adicionais, concorrência 2 e orçamento global de até 10/s. Carga para em perda de acesso, 429, 5xx, redirect, timeout ou latência alta. Isso avalia URLs explícitas; não enumera recursos, escreve dados, renova login nem comprova toda a autorização do alvo. Identidade/versão/referência aparecem no detalhe da auditoria e métricas no Performance Lab.
 
 Endpoints: `GET/POST /api/v1/projects/{id}/target-credentials`, `PUT .../target-credentials/{credentialId}` e `POST .../target-credentials/{credentialId}/revoke`. Nenhum endpoint retorna o token.
+
+## Evidências privadas
+
+Novas evidências preservam um documento JSON redigido, com origem/versão do plugin, controles, alvo, horário e prazo. O SHA-256 corresponde exatamente aos bytes UTF-8 exportados. O conteúdo fica cifrado em filesystem privado; PostgreSQL guarda metadados e referência. A proteção criptográfica vincula projeto e auditoria. O keyring protegido em `.local/target-keys` atende credenciais e evidências e deve ser preservado junto dos dados. `Evidence:RootDirectory` permite configurar o diretório (padrão local `.local/evidence`). Workers que compartilham os mesmos arquivos precisam configurar o mesmo `Evidence:StorageId` e compartilhar keyring/proteção. Sem configuração explícita, a identidade é derivada da máquina e diretório; um worker em volume diferente recebe indisponibilidade e não pode excluir arquivos do volume original.
+
+O visualizador na tela de evidências e no relatório verifica o hash na API e no navegador antes de exibir/exportar conteúdo. Consulta exige organização autorizada e retenção válida; adulteração, origem divergente e expiração são recusadas. Registros históricos preservam seus hashes, mas são identificados como resumos legados sem conteúdo verificável.
+
+Responsáveis por escopos podem configurar retenção de 1–30 dias para novas evidências na interface. A política anterior permanece nos registros já criados. Exclusão de conteúdo vencido ocorre em lotes de 100 a cada minuto; metadados/hash permanecem. O serviço também percorre arquivos órfãos em lotes limitados, removendo blobs não referenciados após 31 dias e temporários após um dia.
+
+O mascaramento `basic-v1` cobre padrões de credenciais em texto/JSON, com limite de 64 KiB por artefato. Não garante anonimização de dados pessoais. MinIO/S3, cota global e cadeia de custódia ampliada permanecem pendentes. Hash não equivale a assinatura digital nem confirma a conclusão do controle.
 
 ## Verificação
 

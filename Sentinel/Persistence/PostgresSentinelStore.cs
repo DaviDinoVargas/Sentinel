@@ -168,6 +168,7 @@ public sealed class PostgresSentinelStore : ISentinelStore
             Sha256 = evidence.Sha256,
             Summary = evidence.Summary,
             CollectedAtUtc = evidence.CollectedAtUtc,
+            ArtifactReference = evidence.Artifact?.Reference, ArtifactMetadataJson = evidence.Artifact is null ? null : System.Text.Json.JsonSerializer.Serialize(evidence.Artifact), RetainUntilUtc = evidence.Artifact?.RetainUntilUtc, ArtifactStorageId = evidence.Artifact?.StorageId,
         }).ToList(),
     };
 
@@ -202,7 +203,8 @@ public sealed class PostgresSentinelStore : ISentinelStore
             EvidenceReference = item.Id,
             Sha256 = item.Sha256,
             Summary = item.Summary,
-            CollectedAtUtc = item.CollectedAtUtc
+            CollectedAtUtc = item.CollectedAtUtc,
+            ArtifactReference = item.Artifact?.Reference, ArtifactMetadataJson = item.Artifact is null ? null : System.Text.Json.JsonSerializer.Serialize(item.Artifact), RetainUntilUtc = item.Artifact?.RetainUntilUtc, ArtifactStorageId = item.Artifact?.StorageId,
         }).ToList();
 
         db.AuditControls.AddRange(controlRows);
@@ -269,6 +271,12 @@ public sealed class PostgresSentinelStore : ISentinelStore
                 .Select(control => new AuditControlResult(control.ControlId, control.State, control.Summary, control.Confidence, control.Severity, control.PluginId, control.PluginVersion))
                 .ToArray(),
             row.Evidence.OrderBy(evidence => evidence.CollectedAtUtc)
-                .Select(evidence => new AuditEvidence(evidence.EvidenceReference, evidence.Sha256, evidence.Summary, evidence.CollectedAtUtc))
+                .Select(ToEvidence)
                 .ToArray());
+
+    internal static AuditEvidence ToEvidence(AuditEvidenceRow row)
+    {
+        var metadata = row.ArtifactMetadataJson is null ? null : System.Text.Json.JsonSerializer.Deserialize<Sentinel.Evidence.EvidenceArtifactMetadata>(row.ArtifactMetadataJson);
+        return new(row.EvidenceReference, row.Sha256, row.Summary, row.CollectedAtUtc, metadata is null ? null : metadata with { PurgedAtUtc = row.PurgedAtUtc, RetainUntilUtc = row.RetainUntilUtc ?? metadata.RetainUntilUtc, StorageId = row.ArtifactStorageId ?? metadata.StorageId });
+    }
 }

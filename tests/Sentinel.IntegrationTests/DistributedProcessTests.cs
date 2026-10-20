@@ -42,6 +42,12 @@ public sealed class DistributedProcessTests
         var completed = await WaitAudit(second.Client, queued.Id, audit => AuditStates.IsTerminal(audit.State));
         Assert.Equal(AuditState.Completed, completed.State);
         Assert.Equal(3, completed.Controls.Count);
+        var evidence = completed.Evidence.First(item => item.Artifact is not null);
+        var artifactPath = $"/api/v1/audits/{completed.Id}/evidence/{evidence.Id}/artifact";
+        var artifactFirst = await Read<Sentinel.Evidence.VerifiedEvidenceArtifact>(first.Client, artifactPath);
+        var artifactSecond = await Read<Sentinel.Evidence.VerifiedEvidenceArtifact>(second.Client, artifactPath);
+        Assert.True(artifactFirst.IntegrityVerified); Assert.True(artifactSecond.IntegrityVerified);
+        Assert.Equal(artifactFirst.Content, artifactSecond.Content); Assert.Equal(evidence.Sha256, artifactFirst.Sha256);
         var secondRun = await Read<ExecutionSnapshot>(second.Client, $"/api/v1/audits/{queued.Id}/execution");
         Assert.Equal(firstRun.TargetKey, secondRun.TargetKey);
         Assert.Equal(45, secondRun.GrantedRequests);
@@ -123,6 +129,7 @@ public sealed class DistributedProcessTests
             start.Environment["RabbitMq__TopologySuffix"] = topology;
             start.Environment["Identity__Authority"] = identity.Issuer;
             start.Environment["PluginRuntime__Mode"] = pluginMode;
+            start.Environment["Evidence__RootDirectory"] = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../.local/evidence-tests"));
             start.Environment["PluginRuntime__Image"] = Environment.GetEnvironmentVariable("SENTINEL_TEST_PLUGIN_IMAGE") ?? "";
             start.Environment["Logging__LogLevel__Default"] = "Warning";
             start.Environment["Logging__LogLevel__Microsoft.EntityFrameworkCore"] = "Warning";

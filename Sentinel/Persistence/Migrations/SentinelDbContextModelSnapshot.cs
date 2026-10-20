@@ -83,6 +83,17 @@ namespace Sentinel.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<string>("ArtifactMetadataJson")
+                        .HasColumnType("jsonb");
+
+                    b.Property<string>("ArtifactReference")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("ArtifactStorageId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
                     b.Property<Guid>("AuditId")
                         .HasColumnType("uuid");
 
@@ -93,6 +104,12 @@ namespace Sentinel.Persistence.Migrations
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
+
+                    b.Property<DateTimeOffset?>("PurgedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("RetainUntilUtc")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("Sha256")
                         .IsRequired()
@@ -105,6 +122,8 @@ namespace Sentinel.Persistence.Migrations
                         .HasColumnType("character varying(4000)");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("RetainUntilUtc");
 
                     b.HasIndex("AuditId", "EvidenceReference")
                         .IsUnique();
@@ -316,6 +335,17 @@ namespace Sentinel.Persistence.Migrations
                     b.Property<string>("Description")
                         .HasMaxLength(2000)
                         .HasColumnType("character varying(2000)");
+
+                    b.Property<DateTimeOffset?>("EvidencePolicyUpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("EvidencePolicyUpdatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<int>("EvidenceRetentionDays")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(30);
 
                     b.Property<string>("Name")
                         .IsRequired()

@@ -5,8 +5,18 @@ import { WorkspaceService } from '../core/workspace.service';
 import { EmptyState } from '../design-system/ui';
 import { HistoryPager } from '../design-system/history-pager';
 import { Icon } from '../design-system/icon';
+import { EvidenceViewer } from '../design-system/evidence-viewer';
+import { EvidencePolicyPanel } from '../design-system/evidence-policy';
 @Component({
-  imports: [CommonModule, RouterLink, EmptyState, HistoryPager, Icon],
+  imports: [
+    CommonModule,
+    RouterLink,
+    EmptyState,
+    HistoryPager,
+    Icon,
+    EvidenceViewer,
+    EvidencePolicyPanel,
+  ],
   template: `
     <div class="page-heading">
       <div>
@@ -14,7 +24,7 @@ import { Icon } from '../design-system/icon';
         <h1>Evidências e relatórios</h1>
         <p>Consulte os registros coletados e abra o relatório de cada execução.</p>
       </div>
-      <span class="tag">SHA-256 / POSTGRESQL</span>
+      <span class="tag">SHA-256 / ARTEFATOS PRIVADOS</span>
     </div>
     <section class="panel">
       <div class="panel-header">
@@ -50,6 +60,7 @@ import { Icon } from '../design-system/icon';
               </div>
               <p class="url">{{ evidence.summary }}</p>
               <code class="break-code">{{ evidence.sha256 }}</code>
+              <s-evidence-viewer [auditId]="evidence.auditId" [evidence]="evidence" />
               <p class="help url">
                 Alvo: {{ evidence.targetUri }} · Auditoria {{ evidence.auditId.slice(0, 8) }}
               </p>
@@ -65,10 +76,13 @@ import { Icon } from '../design-system/icon';
       }
       <s-history-pager />
     </section>
+    @if (ws.projectId()) {
+      <s-evidence-policy [projectId]="ws.projectId()" />
+    }
     <p class="help">
-      O hash identifica o conteúdo registrado pelo plugin. Ele não representa assinatura digital ou
-      validação independente. Armazenamento em MinIO/S3 e cadeia de custódia ampliada estão
-      pendentes.
+      Novos artefatos têm conteúdo cifrado e SHA-256 verificável. Registros legados preservam resumo
+      e hash histórico, com limitações explícitas. Armazenamento em MinIO/S3 e cadeia de custódia
+      ampliada estão pendentes.
     </p>
   `,
   styles: `

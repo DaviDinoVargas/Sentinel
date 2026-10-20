@@ -32,7 +32,7 @@ public static class AuditStates
     public static bool IsTerminal(AuditState state) => state is AuditState.Completed or AuditState.Blocked or AuditState.Failed or AuditState.Cancelled or AuditState.Interrupted;
 }
 
-public sealed record AuditEvidence(string Id, string Sha256, string Summary, DateTimeOffset CollectedAtUtc);
+public sealed record AuditEvidence(string Id, string Sha256, string Summary, DateTimeOffset CollectedAtUtc, Evidence.EvidenceArtifactMetadata? Artifact = null);
 
 public sealed record AuditControlResult(
     string ControlId,

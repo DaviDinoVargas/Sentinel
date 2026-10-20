@@ -11,6 +11,7 @@ Workspace Angular para acompanhar a segurança de aplicações autorizadas. A in
 - Central de auditorias: início de verificações HTTP reais, histórico paginado e detalhe por identificador.
 - Resultados e achados: filtros por resultado, severidade, controle, alvo e resumo.
 - Evidências e relatórios: registros SHA-256, relatório por auditoria e exportação JSON no detalhe.
+- Artefatos privados: visualizador com verificação SHA-256 na API/navegador, exportação de bytes verificados, origem/classificação, indicação de legado e política de retenção de novos registros.
 - Security Score: fórmula, componentes, cobertura, confiança e limitações.
 - Performance Lab: percentis, distribuição HTTP, taxa observada e motivos de interrupção do perfil ativo local.
 - Plugins e controles: catálogo real, versões, permissões, sandbox, recursos aplicados e monitor de limpeza.
