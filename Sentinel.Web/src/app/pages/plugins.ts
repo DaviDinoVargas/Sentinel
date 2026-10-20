@@ -45,6 +45,8 @@ import { Icon } from '../design-system/icon';
             <dd class="mono url">{{ runtime.image || 'Sem container' }}</dd>
             <dt>Rede</dt>
             <dd>{{ runtime.network }}</dd>
+            <dt>TLS / HTTP</dt>
+            <dd>Certificado e SNI do alvo autorizado, inclusive nos probes de Host · HTTP/1.1</dd>
             <dt>Filesystem / usuário</dt>
             <dd>
               {{ runtime.readOnlyRoot ? 'Somente leitura' : 'Sem isolamento' }} · {{ runtime.user }}

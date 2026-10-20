@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
+using System.Net.Security;
 using Sentinel.Contracts;
 using Sentinel.Core;
 
@@ -137,10 +138,32 @@ public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine po
             foreach (var address in _approvedAddresses!)
             {
                 var socket = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
-                try { await socket.ConnectAsync(new IPEndPoint(address, _target.Port), cancellationToken); return new NetworkStream(socket, true); }
+                try
+                {
+                    await socket.ConnectAsync(new IPEndPoint(address, _target.Port), cancellationToken);
+                    var stream = new NetworkStream(socket, true);
+                    // Return an authenticated stream (.NET 7+) so a Host-header probe
+                    // cannot change SNI or the certificate name being validated.
+                    return _target.Scheme == Uri.UriSchemeHttps
+                        ? await AuthenticateTlsAsync(stream, _target.IdnHost.Trim('[', ']'), cancellationToken) : stream;
+                }
                 catch (Exception exception) { socket.Dispose(); last = exception; }
             }
             throw new HttpRequestException("Não foi possível conectar ao endereço aprovado.", last);
+        }
+
+        internal static async Task<SslStream> AuthenticateTlsAsync(Stream network, string host, CancellationToken cancellationToken)
+        {
+            var tls = new SslStream(network, leaveInnerStreamOpen: false);
+            try
+            {
+                await tls.AuthenticateAsClientAsync(new SslClientAuthenticationOptions
+                {
+                    TargetHost = host, ApplicationProtocols = [SslApplicationProtocol.Http11],
+                }, cancellationToken);
+                return tls;
+            }
+            catch { await tls.DisposeAsync(); throw; }
         }
 
         public static HttpRelayResponse Denied(Guid id, string reason) => new("http-response", id, 0, [], "", 0, reason);

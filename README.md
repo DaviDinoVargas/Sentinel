@@ -106,7 +106,8 @@ O histórico aceita limite 1–100 e offset não negativo, com ordenação recen
 
 ```powershell
 dotnet build Sentinel.sln -c Release
-# Com as duas senhas nas variáveis de ambiente:
+# Com as duas senhas nas variáveis de ambiente e a sandbox construída:
+$env:SENTINEL_TEST_PLUGIN_IMAGE = (Get-Content .local/plugin-runtime.json -Raw | ConvertFrom-Json).image
 dotnet test tests/Sentinel.IntegrationTests/Sentinel.IntegrationTests.csproj -c Integration
 # Em Sentinel.Web:
 npm test -- --watch=false
@@ -115,6 +116,8 @@ npm run build
 ```
 
 Os testes de integração usam `sentinel_test`, aplicam migrações sem apagar dados existentes e usam filas com sufixo `integration-tests`. Todos os hosts de teste competem nessas filas, isoladas da aplicação local; a suíte exige explicitamente que o banco efetivo seja `sentinel_test`. O alvo HTTP dos testes é um servidor de laboratório em loopback.
+
+Os testes TLS locais usam o certificado HTTPS de desenvolvimento válido/confiável do usuário (`dotnet dev-certs https --trust`). Não instalam certificados de teste na confiança do sistema. O gateway usa HTTP/1.1 e autentica TLS com o nome do alvo autorizado antes de entregar o stream ao HttpClient; alterar Host no controle WEB-CFG-06 não altera SNI nem desabilita a validação de certificado. Certificados não confiáveis ou nomes divergentes geram resultado inconclusivo.
 
 O score `P0-1.0` expõe fórmula, componentes, cobertura, confiança e limitações. A fixture ainda participa do cálculo; cobertura observada é a proporção de auditorias que produziram controles. A nota não certifica segurança nem ausência de vulnerabilidades.
 

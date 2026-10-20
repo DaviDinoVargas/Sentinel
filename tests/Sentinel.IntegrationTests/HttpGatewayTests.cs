@@ -22,6 +22,18 @@ public sealed class HttpGatewayTests
     }
 
     [Fact]
+    public async Task Endereco_de_metadados_e_recusado_antes_de_orcamento_ou_transporte()
+    {
+        var request = Request() with { TargetUri = "http://169.254.169.254/latest/meta-data" };
+        var manifest = new PluginManifest(); manifest.Spec.Capabilities.Network = "scoped-egress";
+        // Dependencies intentionally absent: reaching policy/budget is itself a test
+        // failure, so this negative case cannot send traffic to a metadata service.
+        using var session = new ScopedHttpGateway(null!, null!, null!, TimeProvider.System).Open(new(Guid.NewGuid(), Guid.NewGuid(), "test"), request, manifest);
+        var response = await session.SendAsync(new("http-request", Guid.NewGuid(), "GET", request.TargetUri, []), CancellationToken.None);
+        Assert.Equal(0, response.StatusCode); Assert.NotNull(response.Error);
+    }
+
+    [Fact]
     public void Consulta_variavel_exige_laboratorio_e_capacidade_de_rede()
     {
         var manifest = new PluginManifest(); manifest.Spec.Capabilities.Network = "scoped-egress";
