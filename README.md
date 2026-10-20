@@ -59,7 +59,7 @@ Doze módulos: visão geral, projetos, escopos/políticas, auditorias e detalhe,
 - `WEB-CFG-06`: confiança em Host/X-Forwarded-Host e reflexo em resposta/redirecionamento.
 - `WEB-CFG-09`: exposição de tecnologia/versão em cabeçalhos.
 
-Os cinco últimos fazem requisições HTTP reais. O nome de ação `simulated` permanece por compatibilidade do contrato. Redirecionamentos automáticos, cookies compartilhados e proxies do ambiente estão desabilitados nos clientes dos plugins. Cada manifesto YAML e os schemas JSON são validados; o host aplica timeout e mata a árvore de processos se necessário. Memória/egress são declarações do manifesto, sem sandbox por container ainda.
+Os cinco últimos fazem requisições HTTP reais. O nome de ação `simulated` permanece por compatibilidade do contrato. Redirecionamentos automáticos, cookies compartilhados e proxies do ambiente estão desabilitados nos clientes dos plugins. Cada manifesto YAML e os schemas JSON são validados; o host aplica timeout e mata a árvore de processos se necessário. O ambiente dos filhos contém somente uma allowlist de variáveis do runtime, sem senhas/configurações herdadas da API. Memória/egress ainda são declarações do manifesto, sem sandbox por container.
 
 ## Perfil ativo de laboratório
 

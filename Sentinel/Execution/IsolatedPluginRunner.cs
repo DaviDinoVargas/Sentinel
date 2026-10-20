@@ -64,6 +64,7 @@ public sealed class IsolatedPluginRunner
             StandardInputEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
             StandardOutputEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
         };
+        RestrictEnvironment(startInfo);
 
         using var process = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
         var stdout = new StringBuilder();
@@ -156,6 +157,19 @@ public sealed class IsolatedPluginRunner
         {
             builder.AppendLine(line);
         }
+    }
+
+    internal static void RestrictEnvironment(ProcessStartInfo startInfo)
+    {
+        // ProcessStartInfo inherits the API environment by default, including its
+        // database/broker credentials. Explicitly copy only runtime essentials.
+        var allowed = new[] { "PATH", "SystemRoot", "WINDIR", "TEMP", "TMP", "DOTNET_ROOT" };
+        var values = allowed.Select(name => (Name: name, Value: Environment.GetEnvironmentVariable(name))).ToArray();
+        startInfo.Environment.Clear();
+        foreach (var item in values) if (item.Value is not null) startInfo.Environment[item.Name] = item.Value;
+        startInfo.Environment["DOTNET_CLI_TELEMETRY_OPTOUT"] = "1";
+        startInfo.Environment["DOTNET_NOLOGO"] = "1";
+        startInfo.Environment["DOTNET_EnableDiagnostics"] = "0";
     }
 
     private static void TryKill(Process process)
