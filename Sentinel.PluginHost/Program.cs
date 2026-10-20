@@ -20,6 +20,7 @@ public static class Program
         ["sentinel.source.inventory"] = () => new SourceInventoryCheck(),
         ["sentinel.source.secrets"] = () => new SourceSecretsCheck(),
         ["sentinel.source.dependencies"] = () => new SourceDependenciesCheck(),
+        ["sentinel.source.openapi"] = () => new SourceOpenApiCheck(),
         ["sentinel.http.security-headers"] = () => new HttpSecurityHeadersCheck(),
         ["sentinel.http.cors-reflection"] = () => new CorsReflectionCheck(),
         ["sentinel.http.error-disclosure"] = () => new ErrorDisclosureCheck(),
