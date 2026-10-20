@@ -30,6 +30,7 @@ public sealed class SourceSnapshotsController(SourceSnapshotStore snapshots, IDb
                 "Inventário identifica extensões e dependências declaradas em package.json/csproj. Trivy offline analisa manifestos/lockfiles suportados com base fixada (idade máxima 7 dias), até 8 MiB de entradas; nenhum build/restore ou confirmação de uso em runtime.",
                 "Dependências/CVEs/licenças e exportação de SBOM parcial estão na tela Dependências. Relatórios têm limites explícitos de exportação; ausência de candidatos não aprova o projeto. Não executa AST/fluxo de dados nem confirma exploração.",
                 "Fontes de mesma chave estável compartilham histórico. Resultado sem padrões de segredo é Informational, nunca Passed ou resolução automática.",
+                "OpenAPI JSON 3.0/3.1 em openapi.json/swagger.json/*.openapi.json gera inventário declarado na tela Superfície de APIs. Sem resolução de referências ou requisições automáticas; YAML/Swagger2/OAS3.2/callbacks não avaliados. Até 20 contratos/8 MiB/60 operações, com recortes explícitos.",
                 "Volumes/chaves e SourceSnapshots:StorageId devem ser compartilhados por workers; identidade padrão deriva de máquina/diretório. Falha de volume interrompe sem aprovar o alvo." } });
     }
     [HttpPost]

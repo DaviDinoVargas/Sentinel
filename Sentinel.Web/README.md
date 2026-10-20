@@ -81,3 +81,5 @@ OIDC com Authorization Code + PKCE S256. Tokens somente em memória; estado temp
 - Fontes e segredos: 14º módulo com upload ZIP autorizado, hash/revisão/prazo, inventário npm/NuGet, Gitleaks isolado e links à execução, cancelamento, evidências e achados. AST e histórico Git ainda não avaliados. Dependências/CVEs estão no módulo específico abaixo.
 
 - Dependências: 15º módulo com seleção de snapshot, Trivy offline por digest/base verificada, versões e licenças declaradas, correspondências de vulnerabilidades e cobertura/recortes explícitos. O navegador verifica SHA-256 e origem antes de exibir o resultado ou exportar SBOM CycloneDX1.6 parcial. Sem restore, exploração ou confirmação de uso em runtime; zero candidatos não aprova o projeto.
+
+- Superfície de APIs: 16º módulo com inventário OpenAPI JSON3.0/3.1 em snapshots, evidência verificada, filtros de método/caminho e base explícita para reconciliar escopos vigentes e histórico GET. Templates, métodos sem adaptador e recortes permanecem visíveis. Sem requisições automáticas, autorização implícita ou promessa de descoberta/cobertura completa. Troca de base/projeto/identidade cancela consultas e limpa a prévia.
