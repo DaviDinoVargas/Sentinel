@@ -15,6 +15,8 @@ export interface AuthorizedScope {
   expiresAtUtc: string;
 }
 export interface AuditControlResult {
+  location?: string | null;
+  sourceRuleId?: string | null;
   controlId: string;
   state: string;
   summary: string;
@@ -101,6 +103,14 @@ export interface TargetBudget {
   concurrentAudits: number;
 }
 export interface ExecutionSnapshot {
+  source?: {
+    id: string;
+    sha256: string;
+    sourceKey: string;
+    storageId: string;
+    expiresAtUtc: string;
+    revisionLabel?: string | null;
+  } | null;
   auditId: string;
   targetKey: string;
   workerId: string | null;

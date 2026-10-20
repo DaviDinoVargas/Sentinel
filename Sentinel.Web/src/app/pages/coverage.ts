@@ -19,9 +19,9 @@ import { Icon } from '../design-system/icon';
       <p class="kicker">PRIMEIRO ALVO: SUA APLICAÇÃO</p>
       <h2>Uma plataforma extensível, com cobertura explícita.</h2>
       <p class="help">
-        Projetos e escopos são configuráveis. Hoje os plugins implementados avaliam URLs HTTP/HTTPS.
-        O objetivo de atender diferentes softwares depende de novos adaptadores, controles e
-        ambientes de execução.
+        Projetos e escopos são configuráveis. Hoje os plugins avaliam URLs HTTP/HTTPS e snapshots
+        ZIP autorizados. O objetivo de atender diferentes softwares depende de novos adaptadores,
+        controles e ambientes de execução.
       </p>
       <div class="status-line">
         <span>Verificações HTTP carregadas da API</span><strong>{{ realCount() ?? '—' }}</strong>
@@ -105,12 +105,20 @@ import { Icon } from '../design-system/icon';
 export class CoveragePage {
   readonly ws = inject(WorkspaceService);
   readonly realCount = computed(
-    () => this.ws.catalog()?.plugins.filter((p) => !p.isFixture).length,
+    () =>
+      this.ws.catalog()?.plugins.filter((p) => !p.isFixture && !p.capabilities.sourceRead).length,
   );
   readonly fixtureCount = computed(
     () => this.ws.catalog()?.plugins.filter((p) => p.isFixture).length,
   );
   readonly available = [
+    {
+      title: 'Fontes e segredos',
+      description:
+        'Snapshot ZIP autorizado, inventário e dependências declaradas, candidatos a segredos com Gitleaks isolado',
+      path: '/source-analysis',
+      screen: 'Fontes e segredos',
+    },
     {
       title: 'Acessos do alvo',
       description:
@@ -186,8 +194,9 @@ export class CoveragePage {
   ];
   readonly planned = [
     {
-      title: 'Código e dependências',
-      description: 'Adaptadores de repositórios, Gitleaks, Trivy e análise de artefatos.',
+      title: 'Análise de código e dependências ampliada',
+      description:
+        'AST/fluxo de dados, Trivy, vulnerabilidades transitivas, SBOM, licenças e histórico Git.',
     },
     {
       title: 'DAST ampliado',

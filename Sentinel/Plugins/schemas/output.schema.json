@@ -17,7 +17,9 @@
           "state": { "enum": ["Passed", "Failed", "Inconclusive", "NotTested", "Blocked", "Pending", "Informational", "ScriptError"] },
           "summary": { "type": "string" },
           "confidence": { "enum": ["Reproduced", "Confirmed-by-inspection", "Inferred", "Hypothesis", "NotAssessed", "DemonstrationOnly"] },
-          "severity": { "enum": ["Critical", "High", "Medium", "Low", "Info"] }
+          "severity": { "enum": ["Critical", "High", "Medium", "Low", "Info"] },
+          "location": { "type": ["null", "string"], "maxLength": 768 },
+          "sourceRuleId": { "type": ["null", "string"], "maxLength": 128 }
         }
       }
     },

@@ -27,7 +27,7 @@ import {
           {{
             metadata.redacted
               ? 'Segredos identificados foram mascarados'
-              : 'Nenhum padrão de segredo identificado'
+              : 'O artefato não exigiu mascaramento adicional'
           }}{{ metadata.truncated ? ' · conteúdo limitado' : '' }}
         </dd>
       </dl>

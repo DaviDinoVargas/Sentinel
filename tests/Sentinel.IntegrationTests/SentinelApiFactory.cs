@@ -13,6 +13,7 @@ public sealed class SentinelApiFactory : WebApplicationFactory<Program>
     public string PluginMode { get; init; } = "process";
     public string PluginImage { get; init; } = "";
     public string? EvidenceDirectory { get; init; }
+    public string? SourceDirectory { get; init; }
     public TestIdentityProvider Identity { get; } = new();
     public new HttpClient CreateClient()
     {
@@ -43,6 +44,7 @@ public sealed class SentinelApiFactory : WebApplicationFactory<Program>
                 ["PluginRuntime:Mode"] = PluginMode,
                 ["PluginRuntime:Image"] = PluginImage,
                 ["Evidence:RootDirectory"] = EvidenceDirectory ?? Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../.local/evidence-tests")),
+                ["SourceSnapshots:RootDirectory"] = SourceDirectory ?? Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../.local/source-tests")),
             });
         });
     }

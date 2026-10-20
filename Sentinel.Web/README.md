@@ -77,3 +77,5 @@ O detalhe da auditoria mostra orçamento global, worker, lease/heartbeat, reserv
 ## Identidade e sessão
 
 OIDC com Authorization Code + PKCE S256. Tokens somente em memória; estado temporário do fluxo em sessionStorage. A API verifica assinatura, emissor, audiência, validade, papel e organização existente. Identidade e acesso exibe permissões efetivas e organizações; cadastro de organizações e configurações globais exigem PlatformAdmin. Requisições antigas são canceladas e o workspace é limpo ao trocar/encerrar a identidade. Recarregar exige entrar novamente, podendo reutilizar a sessão do provedor. O bootstrap local usa Keycloak no loopback, com credencial DPAPI fora do Git. Permissões por projeto e aprovação de produção permanecem no roadmap.
+
+- Fontes e segredos: 14º módulo com upload ZIP autorizado, hash/revisão/prazo, inventário npm/NuGet, Gitleaks isolado e links à execução, cancelamento, evidências e achados. CVEs/AST/histórico Git ainda não avaliados.

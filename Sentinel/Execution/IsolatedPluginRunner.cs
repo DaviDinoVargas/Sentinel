@@ -31,7 +31,7 @@ public sealed class IsolatedPluginRunner
 
     public async Task<PluginExecutionResult> RunAsync(PluginManifest manifest, PluginExecutionRequest request, CancellationToken cancellationToken,
         Func<CancellationToken, Task<bool>>? permit = null,
-        Func<HttpRelayRequest, CancellationToken, Task<HttpRelayResponse>>? relay = null)
+        Func<HttpRelayRequest, CancellationToken, Task<HttpRelayResponse>>? relay = null, string? sourceDirectory = null)
     {
         var inputValidation = _validator.ValidateInput(request);
         if (!inputValidation.IsValid)
@@ -52,9 +52,10 @@ public sealed class IsolatedPluginRunner
 
         var containerName = "sentinel-plugin-" + Guid.NewGuid().ToString("N");
         ProcessStartInfo startInfo;
-        try { startInfo = _runtime.Start(_pluginHostDllPath, manifest, containerName, request.DeadlineUtc); }
+        try { startInfo = _runtime.Start(_pluginHostDllPath, manifest, containerName, request.DeadlineUtc, sourceDirectory); }
         catch (Exception exception) { return ScriptError(request, exception.Message); }
-        if (_runtime.Container && !request.UseHttpRelay) return ScriptError(request, "Sandbox exige gateway HTTP; acesso direto é negado.");
+        if (sourceDirectory is not null && (!_runtime.Container || !manifest.Spec.Capabilities.SourceRead || manifest.Spec.Capabilities.Network != "false" || request.SourceRoot != "/source" || request.UseHttpRelay)) return ScriptError(request, "Snapshot exige container sem rede/gateway e montagem autorizada.");
+        if (_runtime.Container && !request.UseHttpRelay && sourceDirectory is null) return ScriptError(request, "Sandbox exige gateway HTTP ou snapshot explicitamente autorizado.");
         startInfo.RedirectStandardInput = true;
         startInfo.RedirectStandardOutput = true;
         startInfo.RedirectStandardError = true;

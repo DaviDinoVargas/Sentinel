@@ -18,6 +18,8 @@
     "requireRequestPermits": { "type": "boolean" },
     "useHttpRelay": { "type": "boolean" },
     "expectedAccess": { "enum": [null, "allow", "deny"] },
-    "baselineUri": { "type": ["null", "string"], "format": "uri" }
+    "baselineUri": { "type": ["null", "string"], "format": "uri" },
+    "sourceRoot": { "enum": [null, "/source"] },
+    "sourceSha256": { "type": ["null", "string"], "pattern": "^[a-f0-9]{64}$" }
   }
 }

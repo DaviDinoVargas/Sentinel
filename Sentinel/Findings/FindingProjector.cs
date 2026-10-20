@@ -37,9 +37,9 @@ public sealed class FindingProjector(IDbContextFactory<SentinelDbContext> factor
             if (control.ControlId.StartsWith("SIM-", StringComparison.Ordinal) || control.Confidence == "DemonstrationOnly") continue;
             var uri = new Uri(audit.TargetUrl);
             var normalized = uri.GetComponents(UriComponents.SchemeAndServer | UriComponents.PathAndQuery, UriFormat.UriEscaped);
-            var fingerprint = Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(new object?[] {
-                audit.ProjectId, normalized, control.ControlId, control.PluginId, payload?.Action ?? "legacy", payload?.Credential?.Id, payload?.ExpectedAccess, payload?.IncludeAuthenticatedLoad ?? false
-            }))).ToLowerInvariant();
+            var identity = new List<object?> { audit.ProjectId, normalized, control.ControlId, control.PluginId, payload?.Action ?? "legacy", payload?.Credential?.Id, payload?.ExpectedAccess, payload?.IncludeAuthenticatedLoad ?? false };
+            if (control.Location is not null || control.SourceRuleId is not null) { identity.Add(control.Location); identity.Add(control.SourceRuleId); }
+            var fingerprint = Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(identity))).ToLowerInvariant();
             var checkpoint = checkpoints.FirstOrDefault(e => e.Detail == control.PluginId);
             var observation = new FindingObservationRow { Id = Guid.NewGuid(), ProjectId = audit.ProjectId, AuditId = auditId, Sequence = control.Sequence,
                 Fingerprint = fingerprint, AtUtc = checkpoint?.AtUtc ?? audit.CreatedAtUtc, TimeSource = checkpoint is null ? "AuditCreated" : "Checkpoint",
@@ -55,7 +55,7 @@ public sealed class FindingProjector(IDbContextFactory<SentinelDbContext> factor
             var finding = await db.Set<FindingRow>().SingleOrDefaultAsync(r => r.ProjectId == audit.ProjectId && r.Fingerprint == fingerprint, ct);
             var isNew = finding is null;
             finding ??= new FindingRow { Id = Guid.NewGuid(), ProjectId = audit.ProjectId, Fingerprint = fingerprint, ControlId = control.ControlId,
-                PluginId = control.PluginId, Location = EvidenceSanitizer.Apply(normalized, 2048).Value };
+                PluginId = control.PluginId, Location = EvidenceSanitizer.Apply(control.Location is null ? normalized : normalized + " · " + control.Location + " · " + control.SourceRuleId, 2048).Value };
             if (isNew) db.Add(finding);
             var previousFailure = finding.LatestFailureId;
             finding.FirstSeenAtUtc = failures[0].AtUtc; finding.LastSeenAtUtc = failure.AtUtc; finding.LatestFailureId = failure.Id;

@@ -5,6 +5,8 @@ $localDirectory = Join-Path $repoRoot '.local'
 New-Item -ItemType Directory -Path $localDirectory -Force | Out-Null
 $sources = @(Get-ChildItem (Join-Path $repoRoot 'Sentinel.PluginHost'), (Join-Path $repoRoot 'Sentinel.Contracts') -Recurse -File | Where-Object { $_.FullName -notmatch '[\\/](bin|obj)[\\/]' })
 $sources += Get-Item (Join-Path $repoRoot 'infra/plugins/Dockerfile')
+$sources += Get-Item (Join-Path $repoRoot 'infra/plugins/gitleaks.toml')
+$sources += Get-Item (Join-Path $repoRoot 'infra/plugins/GITLEAKS-LICENSE')
 $fingerprint = ($sources | Sort-Object FullName | ForEach-Object { (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash }) -join ''
 $recordPath = Join-Path $localDirectory 'plugin-runtime.json'
 if (-not $Force -and (Test-Path -LiteralPath $recordPath)) {

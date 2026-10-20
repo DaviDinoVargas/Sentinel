@@ -37,23 +37,30 @@ public sealed class PluginRuntime(IOptions<PluginRuntimeOptions> options, IHostE
         }
     };
 
-    public ProcessStartInfo Start(string dll, PluginManifest manifest, string name, DateTimeOffset deadline)
+    public ProcessStartInfo Start(string dll, PluginManifest manifest, string name, DateTimeOffset deadline, string? sourceDirectory = null)
     {
         var start = new ProcessStartInfo(Container ? "docker" : "dotnet");
         if (!Container)
         {
+            if (sourceDirectory is not null || manifest.Spec.Capabilities.SourceRead) throw new InvalidOperationException("Análise de fontes exige sandbox Docker.");
             if (Options.Mode != "process" || !environment.IsDevelopment()) throw new InvalidOperationException("Processo permitido somente no desenvolvimento explícito.");
             start.ArgumentList.Add(dll); start.ArgumentList.Add(manifest.Metadata.Id);
             return start;
         }
         if (!Regex.IsMatch(Options.Image, "^sha256:[a-f0-9]{64}$")) throw new InvalidOperationException("Sandbox exige uma imagem local fixada por digest SHA-256.");
         var memory = Math.Clamp(manifest.Spec.Resources.MemoryMiB, 64, 512).ToString(CultureInfo.InvariantCulture) + "m";
-        var arguments = new[] { "run", "--rm", "-i", "--name", name, "--label", "sentinel.sandbox=true",
+        var arguments = new List<string> { "run", "--rm", "-i", "--name", name, "--label", "sentinel.sandbox=true",
             "--label", "sentinel.deadline=" + deadline.ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture),
             "--network", "none", "--read-only", "--user", "65532:65532", "--cap-drop", "ALL",
             "--security-opt", "no-new-privileges:true", "--memory", memory, "--memory-swap", memory,
             "--cpus", "0.5", "--pids-limit", "64", "--tmpfs", "/tmp:rw,noexec,nosuid,size=16m",
-            "--log-driver", "none", Options.Image, manifest.Metadata.Id };
+            "--log-driver", "none" };
+        if (sourceDirectory is not null)
+        {
+            if (!manifest.Spec.Capabilities.SourceRead || sourceDirectory.Contains(',') || !Regex.IsMatch(Path.GetFileName(sourceDirectory), "^[a-f0-9]{32}$") || !Directory.Exists(sourceDirectory)) throw new InvalidOperationException("Snapshot não autorizado para montagem.");
+            arguments.Add("--mount"); arguments.Add("type=bind,source=" + Path.GetFullPath(sourceDirectory) + ",target=/source,readonly");
+        }
+        arguments.Add(Options.Image); arguments.Add(manifest.Metadata.Id);
         foreach (var argument in arguments) start.ArgumentList.Add(argument);
         return start;
     }

@@ -12,6 +12,20 @@ namespace Sentinel.IntegrationTests;
 
 public sealed class ContainerSandboxTests
 {
+    [Fact]
+    public async Task Montagem_de_snapshot_real_e_somente_leitura_sem_outros_diretorios_do_host()
+    {
+        var root=Path.GetFullPath(Path.Combine(AppContext.BaseDirectory,"../../../../../.local/source-tests/work"));
+        var directory=Path.Combine(root,Guid.NewGuid().ToString("N"));Directory.CreateDirectory(directory);await File.WriteAllTextAsync(Path.Combine(directory,"probe.txt"),"synthetic");
+        using var workspace=new Sentinel.Source.SourceWorkspace(directory,root);
+        var runtime=new PluginRuntime(Options.Create(new PluginRuntimeOptions{Image=Image}),new TestEnvironment());
+        var manifest=new PluginManifest();manifest.Metadata.Id="sentinel.source.inventory";manifest.Spec.Capabilities.SourceRead=true;manifest.Spec.Capabilities.Network="false";
+        var name="sentinel-plugin-"+Guid.NewGuid().ToString("N");var start=runtime.Start("unused",manifest,name,DateTimeOffset.UtcNow.AddSeconds(30),directory);
+        start.ArgumentList.RemoveAt(start.ArgumentList.Count-1);start.ArgumentList.RemoveAt(start.ArgumentList.Count-1);
+        foreach(var arg in new[]{"--entrypoint","/bin/sh",Image,"-c","test $(cat /source/probe.txt) = synthetic && ! touch /source/not-allowed 2>/dev/null && test ! -e /var/run/docker.sock && test $(ls /sys/class/net | wc -l) = 1"})start.ArgumentList.Add(arg);
+        start.UseShellExecute=false;start.CreateNoWindow=true;start.RedirectStandardOutput=true;start.RedirectStandardError=true;
+        using var process=Process.Start(start)!;await process.WaitForExitAsync();Assert.Equal(0,process.ExitCode);Assert.False(File.Exists(Path.Combine(directory,"not-allowed")));
+    }
     private static string Image => Environment.GetEnvironmentVariable("SENTINEL_TEST_PLUGIN_IMAGE") ?? throw new InvalidOperationException("Defina SENTINEL_TEST_PLUGIN_IMAGE com o digest gerado pelo build-plugin-sandbox.ps1.");
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { Converters = { new JsonStringEnumConverter() } };
 

@@ -438,36 +438,54 @@ export class AuditsPage {
               <dt>Referência protegida</dt>
               <dd class="url">{{ context.credential.baselineUri || item.targetUri }}</dd>
             }
-          </dl>
-          <form
-            class="form-stack section-gap"
-            [formGroup]="budgetForm"
-            (ngSubmit)="saveBudget(item.id)"
-          >
-            <label
-              >Limite global de permissões HTTP por segundo
-              <input type="number" min="1" max="10" step="1" formControlName="requestsPerSecond" />
-            </label>
-            <p class="help">
-              Atual: {{ run.budget.requestsPerSecond }}/s ·
-              {{ run.budget.concurrentAudits }} auditoria por host/porta. Alterar afeta todos os
-              projetos e perfis que usam esse alvo. Taxas menores podem interromper testes pelo
-              prazo do plugin.
-            </p>
-            @if (!auth.can('platform.manage')) {
-              <p class="help">
-                Somente administradores da plataforma alteram o orçamento global, pois ele afeta
-                projetos de várias organizações.
-              </p>
+            @if (run.source; as source) {
+              <dt>Snapshot / revisão</dt>
+              <dd>{{ source.sourceKey }} · {{ source.revisionLabel || source.id }}</dd>
+              <dt>Hash do arquivo enviado</dt>
+              <dd class="mono url">{{ source.sha256 }}</dd>
+              <dt>Autorização do snapshot até</dt>
+              <dd>{{ source.expiresAtUtc | date: 'dd/MM/yyyy HH:mm' }}</dd>
+              <dt>Volume do snapshot</dt>
+              <dd class="mono url">{{ source.storageId }}</dd>
             }
-            <button
-              class="button small"
-              type="submit"
-              [disabled]="savingBudget() || budgetForm.invalid || !auth.can('platform.manage')"
+          </dl>
+          @if (!run.source) {
+            <form
+              class="form-stack section-gap"
+              [formGroup]="budgetForm"
+              (ngSubmit)="saveBudget(item.id)"
             >
-              Salvar limite global
-            </button>
-          </form>
+              <label
+                >Limite global de permissões HTTP por segundo
+                <input
+                  type="number"
+                  min="1"
+                  max="10"
+                  step="1"
+                  formControlName="requestsPerSecond"
+                />
+              </label>
+              <p class="help">
+                Atual: {{ run.budget.requestsPerSecond }}/s ·
+                {{ run.budget.concurrentAudits }} auditoria por host/porta. Alterar afeta todos os
+                projetos e perfis que usam esse alvo. Taxas menores podem interromper testes pelo
+                prazo do plugin.
+              </p>
+              @if (!auth.can('platform.manage')) {
+                <p class="help">
+                  Somente administradores da plataforma alteram o orçamento global, pois ele afeta
+                  projetos de várias organizações.
+                </p>
+              }
+              <button
+                class="button small"
+                type="submit"
+                [disabled]="savingBudget() || budgetForm.invalid || !auth.can('platform.manage')"
+              >
+                Salvar limite global
+              </button>
+            </form>
+          }
           @if (executionNotice()) {
             <p role="status" class="help">{{ executionNotice() }}</p>
           }
@@ -518,7 +536,7 @@ export class AuditsPage {
                 </tr>
               </thead>
               <tbody>
-                @for (control of item.controls; track control.controlId) {
+                @for (control of item.controls; track $index) {
                   <tr>
                     <td>
                       <strong class="mono">{{ control.controlId }}</strong
@@ -526,6 +544,11 @@ export class AuditsPage {
                         >{{ control.pluginId }} · v{{ control.pluginVersion }}</span
                       >
                       <p class="help url">{{ control.summary }}</p>
+                      @if (control.location) {
+                        <span class="subline mono url"
+                          >{{ control.location }} · {{ control.sourceRuleId }}</span
+                        >
+                      }
                     </td>
                     <td><s-badge [value]="control.state" /></td>
                     <td><s-badge [value]="control.severity" /></td>

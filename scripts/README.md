@@ -38,3 +38,5 @@ O perfil `lab-active` é uma bateria inicial e limitada de GETs, selecionada e c
 ## Identidade local
 
 start-identity.ps1 inicia/reutiliza Keycloak 26.8.1 com imagem pinada por digest, volume sentinel-keycloak-data e porta loopback 18080. Configura realm/cliente público PKCE a partir de infra/keycloak/realm.json, sem password grant ou implicit para o frontend. O operador sentinel.local é criado uma única vez; senha sintética fica criptografada por DPAPI em .local/identity/operator.credential.xml. Usuários existentes não têm senha redefinida. Credenciais não aparecem em argumentos, logs ou Git. O start-local.ps1 chama esse bootstrap; -SkipIdentitySetup serve para reutilizar uma identidade já preparada. O modo H2/HTTP é exclusivo do laboratório local; produção exige configuração própria.
+
+A sandbox inclui Gitleaks 8.30.1 pinado por digest e licença MIT. Plugins de fontes usam somente snapshots ZIP autorizados em /source (bind readonly), sem rede e sem build do alvo. O script inclui o arquivo de regras e a licença no fingerprint da imagem. Armazenamento de snapshots e keyring devem ser preservados/configurados conforme README; originais expiram em uma hora.

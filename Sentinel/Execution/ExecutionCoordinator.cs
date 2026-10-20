@@ -14,7 +14,7 @@ public sealed record ExecutionSnapshot(Guid AuditId, string TargetKey, string? W
     DateTimeOffset? HeartbeatAtUtc, DateTimeOffset? LeaseUntilUtc, DateTimeOffset? SafetyUntilUtc,
     DateTimeOffset? CancelRequestedAtUtc, DateTimeOffset? FinishedAtUtc, string? CurrentPluginId,
     IReadOnlyList<string> CompletedPlugins, int GrantedRequests, TargetBudget Budget,
-    IReadOnlyList<ExecutionEvent> Events, IReadOnlyList<string> Limitations, AuthenticatedExecutionContext? Authentication = null);
+    IReadOnlyList<ExecutionEvent> Events, IReadOnlyList<string> Limitations, AuthenticatedExecutionContext? Authentication = null, Source.SourceSnapshotBinding? Source = null);
 public sealed record AuthenticatedExecutionContext(CredentialBinding Credential, string ExpectedAccess, bool IncludeLoad);
 
 // All mutations for an origin use one PostgreSQL transaction/advisory lock. The key
@@ -31,6 +31,7 @@ public sealed class ExecutionCoordinator(IDbContextFactory<SentinelDbContext> fa
     }
     public static string TargetKey(Uri target)
     {
+        if (target.Scheme == "source") return "source:" + target.Host.ToLowerInvariant();
         var host = target.IdnHost.Trim('[', ']').ToLowerInvariant();
         if (host == "localhost" || IPAddress.TryParse(host, out var ip) && IPAddress.IsLoopback(ip)) host = "loopback";
         return $"{host}:{target.Port}";
@@ -133,6 +134,7 @@ public sealed class ExecutionCoordinator(IDbContextFactory<SentinelDbContext> fa
             Id = Guid.NewGuid(), AuditId = lease.AuditId, Sequence = sequence + index, ControlId = control.ControlId,
             State = control.State, Summary = control.Summary, Confidence = control.Confidence, Severity = control.Severity,
             PluginId = control.PluginId, PluginVersion = control.PluginVersion,
+            Location = control.Location, SourceRuleId = control.SourceRuleId,
         }));
         db.AuditEvidence.AddRange(evidence.Select(item => new AuditEvidenceRow
         {
@@ -214,15 +216,19 @@ public sealed class ExecutionCoordinator(IDbContextFactory<SentinelDbContext> fa
             row.GrantedRequests, new(row.TargetKey, budget?.RequestsPerSecond ?? 10),
             db.ExecutionEvents.AsNoTracking().Where(item => item.AuditId == auditId).OrderByDescending(item => item.Id).Take(100)
                 .Select(item => new ExecutionEvent(item.Id, item.AtUtc, item.Kind, item.Detail)).ToArray().Reverse().ToArray(),
-            new[] { "Uma auditoria por origem (host/porta), compartilhada entre projetos e perfis; localhost e IPs de loopback usam a mesma chave.",
+            payload?.Source is not null ? new[] { "Uma análise de fonte por projeto; snapshots em escopos exatos, com validade/hash revalidados antes de cada plugin.",
+                "Sem requisições HTTP nem execução de código do alvo; container sem rede com snapshot transitório somente leitura.",
+                "Cancelamento encerra o container; falha durante plugin preserva checkpoints e interrompe sem presumir conclusão. Eventos: últimos 100.",
+                "Conteúdo original cifrado retido por uma hora; evidências seguem política do projeto. .gitleaksignore não é materializado." } : new[] { "Uma auditoria por origem (host/porta), compartilhada entre projetos e perfis; localhost e IPs de loopback usam a mesma chave.",
                 "Aliases DNS externos que apontam ao mesmo serviço ainda exigem agrupamento explícito futuro.",
                 "Queda durante plugin produz Interrupted e preserva checkpoints; efeitos externos incertos não são repetidos automaticamente.",
                 "Permissões controlam início de requisições dos plugins internos; não substituem sandbox de plugins de terceiros. Eventos exibidos: últimos 100." },
-            payload?.Credential is { } credential ? new(credential, payload.ExpectedAccess ?? "", payload.IncludeAuthenticatedLoad) : null);
+            payload?.Credential is { } credential ? new(credential, payload.ExpectedAccess ?? "", payload.IncludeAuthenticatedLoad) : null, payload?.Source);
     }
 
     public TargetBudget ConfigureBudget(Guid auditId, int requestsPerSecond)
     {
+        if (Payload(auditId)?.Source is not null) throw new ArgumentException("Análise de fontes não usa orçamento HTTP.");
         if (requestsPerSecond is < 1 or > 10) throw new ArgumentException("A taxa global deve estar entre 1 e 10 requisições/s.");
         return Locked(auditId, (db, execution, audit, now) =>
         {

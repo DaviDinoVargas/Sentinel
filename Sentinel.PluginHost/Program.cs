@@ -17,6 +17,8 @@ public static class Program
     private static readonly Dictionary<string, Func<IIsolatedCheck>> Checks = new()
     {
         ["sentinel.fixture.sim-001"] = () => new Sim001FixtureCheck(),
+        ["sentinel.source.inventory"] = () => new SourceInventoryCheck(),
+        ["sentinel.source.secrets"] = () => new SourceSecretsCheck(),
         ["sentinel.http.security-headers"] = () => new HttpSecurityHeadersCheck(),
         ["sentinel.http.cors-reflection"] = () => new CorsReflectionCheck(),
         ["sentinel.http.error-disclosure"] = () => new ErrorDisclosureCheck(),

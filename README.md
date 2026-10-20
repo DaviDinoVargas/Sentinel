@@ -48,7 +48,7 @@ A configuração local HTTP/H2 é exclusiva de desenvolvimento. Produção exige
 
 ## Interface
 
-Treze módulos: visão geral, projetos, escopos/políticas, acessos do alvo, auditorias e detalhe, resultados/achados, evidências/relatórios, score, Performance Lab, plugins/controles, infraestrutura/filas, capacidades e identidade/acesso. O estado vem da API; gráficos e contadores informam o recorte consultado. Veja [Sentinel.Web/README.md](Sentinel.Web/README.md).
+Quatorze módulos: visão geral, projetos, escopos/políticas, acessos do alvo, auditorias e detalhe, resultados/achados, fontes/segredos, evidências/relatórios, score, Performance Lab, plugins/controles, infraestrutura/filas, capacidades e identidade/acesso. O estado vem da API; gráficos e contadores informam o recorte consultado. Veja [Sentinel.Web/README.md](Sentinel.Web/README.md).
 
 ## Controles atuais
 
@@ -155,6 +155,24 @@ O score `P0-1.0` expõe fórmula, componentes, cobertura, confiança e limitaç�
 
 ## Cobertura e continuidade
 
-Hoje os adaptadores implementados avaliam URLs HTTP/HTTPS. O objetivo de atender diferentes softwares exige novos adaptadores de alvo e plugins. A tela Capacidades explicita pendências como análise de código/dependências, banco e RabbitMQ do alvo, desktop/mobile, carga autenticada/ampliada, grafo/fluxos, MinIO/S3, aprovação humana de plugins e remediação ampliada.
+Hoje os adaptadores implementados avaliam URLs HTTP/HTTPS e snapshots ZIP autorizados. O objetivo de atender diferentes softwares exige novos adaptadores de alvo e plugins. A tela Capacidades explicita pendências como análise profunda de código/CVEs de dependências, banco e RabbitMQ do alvo, desktop/mobile, carga autenticada/ampliada, grafo/fluxos, MinIO/S3, aprovação humana de plugins e remediação ampliada.
 
 Uso atual: ambiente local/laboratório autorizado. Ainda não há aprovação humana de produção ou revogação de escopo ou guardas completas de produção.
+
+## Fontes e segredos
+
+Em **Fontes e segredos**, envie um ZIP do snapshot autorizado, com chave estável da fonte e rótulo de revisão. O original fica cifrado por Data Protection durante uma hora; o servidor valida SHA-256 e escopo exato antes de cada plugin. Não existe leitura arbitrária de caminhos do servidor, clone remoto, build, restore nem execução do código enviado. O conteúdo do ZIP não entra no outbox: somente identificador, hash, revisão, volume e validade.
+
+Limites: 20 MiB compactados, 100 MiB expandidos, 5000 arquivos e 2 MiB por arquivo; dois uploads simultâneos por processo, dez snapshots retidos por projeto e cem na instalação. São recusados links, arquivos especiais, caminhos absolutos/relativos perigosos, nomes não portáveis, colisões e diretórios `.git`/`.local`. Remova artefatos de build/dependências locais da exportação quando excederem o limite; o relatório representa somente o recorte enviado.
+
+O perfil `source-analysis` reutiliza outbox/RabbitMQ, orçamento exclusivo por projeto, lease/heartbeat/checkpoints, cancelamento e containers sem rede. Apenas o diretório temporário desse snapshot é montado em `/source`, somente leitura. O container não recebe diretórios do projeto original, socket Docker nem credenciais do Sentinel. Expiração/revogação bloqueiam novos plugins; revogação solicita cancelamento das execuções em aberto. Queda durante plugin interrompe conservadoramente sem repetir checkpoint incerto.
+
+Plugins iniciais: `sentinel.source.inventory` (`SRC-INV-01`) classifica extensões e lê declarações de npm/NuGet em package.json/csproj, sem resolver versões, MSBuild, entidades XML ou dependências transitivas. O relatório tem até cem declarações e limite de tamanho, com contadores e indicação de recorte. Outros manifestos são identificados como não analisados. `sentinel.source.secrets` (`SUP-04`) usa Gitleaks **8.30.1**, imagem oficial fixada por digest e binário incorporado à sandbox; licença MIT em `infra/plugins/GITLEAKS-LICENSE`. Configuração da plataforma, comentários de dispensa ignorados e `.gitleaksignore` não materializado impedem o repositório de dispensar seus próprios achados.
+
+Candidatos são agrupados por arquivo/regra, com linhas e confiança `Hypothesis`; valores, trechos, entropia e relatório bruto são descartados. Até 16 grupos por execução; excesso gera resultado parcial explícito. O scanner não valida nem utiliza credenciais e não acessa a rede. Ausência de candidatos é `Informational`, nunca `Passed` ou fechamento automático de achados. Não cobre histórico Git, arquivos compactados aninhados, decodificação e todos os binários/linguagens. AST, Semgrep, Trivy, CVEs, SBOM, licenças dos alvos e regressão com cobertura comparável continuam pendentes.
+
+Rotas: `GET/POST /api/v1/projects/{id}/source-snapshots` (POST binário `application/zip`, query sourceKey/revision), `POST .../{snapshotId}/audits` e `POST .../{snapshotId}/revoke`. Envio/revogação exigem `scopes.manage`; execução exige `audits.execute`. Tela mostra revisão, autor, hash, validade e volume; central mostra execução/cancelamento, controles com arquivo/regra e evidências verificáveis. Ocorrências alimentam achados canônicos por fonte/localização/regra, preservando histórico entre snapshots.
+
+Configuração: `SourceSnapshots:RootDirectory` (padrão `.local/source-inputs`) e `SourceSnapshots:StorageId`; workers precisam compartilhar volume lógico, identidade explícita e keyring/proteção de `.local/target-keys`. Identidade padrão deriva da máquina/diretório. Outro volume não expurga arquivos alheios e interrompe a execução se não puder materializar. Conteúdo cifrado vencido é expurgado em lotes de dez/minuto; temporários após falha são removidos após duas horas e blobs órfãos após setenta minutos. Metadados/hash permanecem. Filesystem local e cotas simples exigem evolução para grandes instalações.
+
+O diretório dedicado de snapshots recebe ACL privada no Windows (usuário do serviço, SYSTEM e administradores) ou modo 0700 no Unix. Workers precisam de identidade/permissões compatíveis no volume compartilhado. O código extraído é transitório; a raiz privada impede acesso por outros usuários do host. A implantação fora do laboratório Windows exige provisionar permissões de leitura da montagem para UID 65532 e proteção do keyring por certificado.

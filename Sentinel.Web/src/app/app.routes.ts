@@ -2,6 +2,11 @@ import { Routes } from '@angular/router';
 
 export const routes: Routes = [
   {
+    path: 'source-analysis',
+    title: 'Fontes e segredos · Sentinel',
+    loadComponent: () => import('./pages/source-analysis').then((m) => m.SourceAnalysisPage),
+  },
+  {
     path: 'target-access',
     title: 'Acessos do alvo · Sentinel',
     loadComponent: () => import('./pages/target-access').then((m) => m.TargetAccessPage),

@@ -1,0 +1,22 @@
+apiVersion: sentinel.dev/v1
+kind: PluginManifest
+metadata:
+  id: sentinel.source.inventory
+  version: 1.0.0
+  name: Inventário de snapshot e dependências declaradas (SRC-INV-01)
+spec:
+  type: source-analyzer
+  contractVersion: "1.0"
+  mode: passive
+  controls: [SRC-INV-01]
+  capabilities:
+    network: "false"
+    sourceRead: true
+    artifactWrite: false
+  resources:
+    timeoutSeconds: 30
+    memoryMiB: 256
+  permissions: [target.source.read]
+  execution:
+    isolation: container
+  riskClass: low

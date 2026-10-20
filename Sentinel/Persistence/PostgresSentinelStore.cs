@@ -159,7 +159,7 @@ public sealed class PostgresSentinelStore : ISentinelStore
             Confidence = control.Confidence,
             Severity = control.Severity,
             PluginId = control.PluginId,
-            PluginVersion = control.PluginVersion,
+            PluginVersion = control.PluginVersion, Location = control.Location, SourceRuleId = control.SourceRuleId,
         }).ToList(),
         Evidence = audit.Evidence.Select(evidence => new AuditEvidenceRow
         {
@@ -194,7 +194,7 @@ public sealed class PostgresSentinelStore : ISentinelStore
             Confidence = control.Confidence,
             Severity = control.Severity,
             PluginId = control.PluginId,
-            PluginVersion = control.PluginVersion
+            PluginVersion = control.PluginVersion, Location = control.Location, SourceRuleId = control.SourceRuleId
         }).ToList();
         var evidenceRows = evidence.Select(item => new AuditEvidenceRow
         {
@@ -268,7 +268,7 @@ public sealed class PostgresSentinelStore : ISentinelStore
             row.PolicyReason,
             row.CreatedAtUtc,
             row.Controls.OrderBy(control => control.Sequence)
-                .Select(control => new AuditControlResult(control.ControlId, control.State, control.Summary, control.Confidence, control.Severity, control.PluginId, control.PluginVersion))
+                .Select(control => new AuditControlResult(control.ControlId, control.State, control.Summary, control.Confidence, control.Severity, control.PluginId, control.PluginVersion, control.Location, control.SourceRuleId))
                 .ToArray(),
             row.Evidence.OrderBy(evidence => evidence.CollectedAtUtc)
                 .Select(ToEvidence)

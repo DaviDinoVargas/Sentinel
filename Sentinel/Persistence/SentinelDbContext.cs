@@ -28,6 +28,7 @@ public sealed class SentinelDbContext : DbContext
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         Sentinel.Findings.FindingModel.Configure(modelBuilder, this);
+        Sentinel.Source.SourceSnapshotRow.Configure(modelBuilder, this);
         modelBuilder.Entity<TargetCredentialRow>(entity =>
         {
             entity.ToTable("target_credentials"); entity.HasKey(row => row.Id);
@@ -269,6 +270,8 @@ public sealed class AuditRow
 
 public sealed class AuditControlRow
 {
+    public string? Location { get; set; }
+    public string? SourceRuleId { get; set; }
     public Guid Id { get; set; }
     public Guid AuditId { get; set; }
     public int Sequence { get; set; }

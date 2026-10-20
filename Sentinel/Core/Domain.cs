@@ -41,7 +41,9 @@ public sealed record AuditControlResult(
     string Confidence,
     string Severity = "Info",
     string PluginId = "unknown",
-    string PluginVersion = "0.0.0");
+    string PluginVersion = "0.0.0",
+    string? Location = null,
+    string? SourceRuleId = null);
 
 public sealed record AuditJobLease(Guid AuditId, Guid ProjectId, Guid ScopeId, Uri TargetUri, string Action, int Attempts);
 

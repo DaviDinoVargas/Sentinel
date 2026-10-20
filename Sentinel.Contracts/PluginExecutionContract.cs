@@ -17,7 +17,9 @@ public sealed record PluginExecutionRequest(
     bool RequireRequestPermits = false,
     bool UseHttpRelay = false,
     string? ExpectedAccess = null,
-    string? BaselineUri = null);
+    string? BaselineUri = null,
+    string? SourceRoot = null,
+    string? SourceSha256 = null);
 
 public sealed record HttpRelayRequest(string Kind, Guid RequestId, string Method, string Uri, Dictionary<string, string[]> Headers, bool Anonymous = false);
 public sealed record HttpRelayResponse(string Kind, Guid RequestId, int StatusCode, Dictionary<string, string[]> Headers, string BodyBase64, double ElapsedMs, string? Error);
@@ -39,7 +41,9 @@ public sealed record PluginCheckResult(
     string State,
     string Summary,
     string Confidence,
-    string Severity);
+    string Severity,
+    string? Location = null,
+    string? SourceRuleId = null);
 
 public sealed record PluginEvidenceRef(string Summary, string EvidenceSummary);
 

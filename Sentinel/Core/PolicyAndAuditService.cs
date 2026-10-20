@@ -11,7 +11,13 @@ public sealed class ScopePolicyEngine
     public static bool IsActive(string action) => action.Equals("lab-active", StringComparison.OrdinalIgnoreCase) || action.Equals("authenticated-lab", StringComparison.OrdinalIgnoreCase);
     public PolicyDecision Evaluate(IReadOnlyList<AuthorizedScope> scopes, Uri targetUri, string action, DateTimeOffset nowUtc, bool confirmActive = false)
     {
+        if (action == "source-analysis")
+        {
+            var sourceScope = scopes.FirstOrDefault(s => s.Environment == "source-analysis" && s.ExpiresAtUtc > nowUtc && s.TargetBaseUri == targetUri);
+            return targetUri.Scheme == "source" && sourceScope is not null ? PolicyDecision.Allow(sourceScope) : PolicyDecision.Block("Snapshot sem escopo exato e válido para análise estática.");
+        }
         var active = IsActive(action);
+        if (targetUri.Scheme is not ("http" or "https")) return PolicyDecision.Block("O perfil HTTP não aceita este tipo de alvo.");
         if (!active && !string.Equals(action, "simulated", StringComparison.OrdinalIgnoreCase))
         {
             return PolicyDecision.Block("Ação bloqueada: perfil de execução não reconhecido.");

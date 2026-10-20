@@ -252,6 +252,9 @@ namespace Sentinel.Persistence.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
+                    b.Property<string>("Location")
+                        .HasColumnType("text");
+
                     b.Property<string>("PluginId")
                         .IsRequired()
                         .HasMaxLength(200)
@@ -269,6 +272,9 @@ namespace Sentinel.Persistence.Migrations
                         .IsRequired()
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
+
+                    b.Property<string>("SourceRuleId")
+                        .HasColumnType("text");
 
                     b.Property<string>("State")
                         .IsRequired()
@@ -677,6 +683,75 @@ namespace Sentinel.Persistence.Migrations
                     b.ToTable("target_credentials", (string)null);
                 });
 
+            modelBuilder.Entity("Sentinel.Source.SourceSnapshotRow", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("Bytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<long>("ExpandedBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTimeOffset>("ExpiresAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("FileCount")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("PurgedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("RevisionLabel")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset?>("RevokedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("RevokedBy")
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ScopeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Sha256")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("SourceKey")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<string>("StorageId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ScopeId");
+
+                    b.HasIndex("ProjectId", "CreatedAtUtc");
+
+                    b.HasIndex("StorageId", "ExpiresAtUtc");
+
+                    b.ToTable("source_snapshots", (string)null);
+                });
+
             modelBuilder.Entity("Sentinel.Findings.FindingEventRow", b =>
                 {
                     b.HasOne("Sentinel.Findings.FindingRow", "Finding")
@@ -810,6 +885,23 @@ namespace Sentinel.Persistence.Migrations
                 });
 
             modelBuilder.Entity("Sentinel.Persistence.TargetCredentialRow", b =>
+                {
+                    b.HasOne("Sentinel.Persistence.ProjectRow", "Project")
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Sentinel.Persistence.ScopeRow", null)
+                        .WithMany()
+                        .HasForeignKey("ScopeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Project");
+                });
+
+            modelBuilder.Entity("Sentinel.Source.SourceSnapshotRow", b =>
                 {
                     b.HasOne("Sentinel.Persistence.ProjectRow", "Project")
                         .WithMany()

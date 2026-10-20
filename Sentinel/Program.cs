@@ -23,6 +23,8 @@ else throw new InvalidOperationException("Configure certificado para proteger as
 builder.Services.AddSingleton<TargetCredentialVault>();
 builder.Services.AddSingleton<Sentinel.Evidence.EvidenceArtifactStore>();
 builder.Services.AddSingleton<Sentinel.Findings.FindingProjector>();
+builder.Services.AddSingleton<Sentinel.Source.SourceSnapshotStore>();
+builder.Services.AddHostedService<Sentinel.Source.SourceRetentionWorker>();
 builder.Services.AddHostedService<Sentinel.Findings.FindingProjectionWorker>();
 builder.Services.AddSingleton<Sentinel.Evidence.EvidenceRetentionService>();
 builder.Services.AddHostedService<Sentinel.Evidence.EvidenceRetentionWorker>();

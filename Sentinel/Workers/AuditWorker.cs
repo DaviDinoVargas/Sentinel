@@ -10,7 +10,7 @@ namespace Sentinel.Workers;
 
 public sealed class AuditWorker(
     ISentinelStore store, ScopePolicyEngine policy, TimeProvider timeProvider,
-    PluginRegistry registry, IsolatedPluginRunner runner, ExecutionCoordinator coordinator, ScopedHttpGateway gateway, PluginRuntime runtime, Sentinel.Evidence.EvidenceArtifactStore artifacts,
+    PluginRegistry registry, IsolatedPluginRunner runner, ExecutionCoordinator coordinator, ScopedHttpGateway gateway, PluginRuntime runtime, Sentinel.Evidence.EvidenceArtifactStore artifacts, Sentinel.Source.SourceSnapshotStore sources,
     RabbitMqConnectionProvider connectionProvider, IOptions<RabbitMqOptions> options,
     ILogger<AuditWorker> logger) : BackgroundService
 {
@@ -62,9 +62,11 @@ public sealed class AuditWorker(
             var completed = coordinator.Snapshot(payload.AuditId)!.CompletedPlugins;
             var mode = payload.Action.Equals("lab-active", StringComparison.OrdinalIgnoreCase) ? "active" : "passive";
             var authenticated = payload.Action == "authenticated-lab";
-            var selected = registry.Approved.Where(item => authenticated
+            var source = payload.Action == "source-analysis";
+            if (source && (payload.Source is null || !runtime.Container)) { coordinator.Finish(lease, AuditState.Blocked, "Análise de fontes exige snapshot persistido e sandbox Docker."); return; }
+            var selected = registry.Approved.Where(item => source ? item.Spec.Capabilities.SourceRead && item.Spec.Capabilities.Network == "false" : !item.Spec.Capabilities.SourceRead && (authenticated
                 ? item.Metadata.Id == "sentinel.lab.authenticated-access" || payload.IncludeAuthenticatedLoad && item.Metadata.Id == "sentinel.lab.bounded-http-load"
-                : item.Spec.Mode == mode && item.Metadata.Id != "sentinel.lab.authenticated-access");
+                : item.Spec.Mode == mode && item.Metadata.Id != "sentinel.lab.authenticated-access"));
             foreach (var manifest in selected.OrderBy(item => item.Metadata.Id == "sentinel.lab.authenticated-access" ? 0 : 1))
             {
                 executionCts.Token.ThrowIfCancellationRequested();
@@ -73,15 +75,16 @@ public sealed class AuditWorker(
                 var decision = policy.Evaluate(store.GetScopes(payload.ProjectId).Where(scope => scope.Id == payload.ScopeId).ToArray(),
                     target, payload.Action, now, payload.ConfirmActive);
                 if (!decision.IsAllowed) { coordinator.Finish(lease, AuditState.Blocked, decision.Reason); return; }
+                using var sourceWorkspace = source ? await sources.MaterializeAsync(payload.ProjectId, payload.ScopeId, payload.Source!, executionCts.Token) : null;
                 var timeout = now.AddSeconds(manifest.Spec.Resources.TimeoutSeconds);
                 var deadline = timeout < decision.Scope!.ExpiresAtUtc ? timeout : decision.Scope.ExpiresAtUtc;
                 var runtimeDetail = runtime.Container
-                    ? $"container {runtime.Options.Image}; {Math.Clamp(manifest.Spec.Resources.MemoryMiB, 64, 512)} MiB; CPU 0.5; PIDs 64; rede none; HTTP via gateway"
+                    ? $"container {runtime.Options.Image}; {Math.Clamp(manifest.Spec.Resources.MemoryMiB, 64, 512)} MiB; CPU 0.5; PIDs 64; rede none; {(source ? "snapshot somente leitura; sem gateway" : "HTTP via gateway")}"
                     : "processo de desenvolvimento; HTTP via gateway; sem sandbox de filesystem";
                 if (!coordinator.BeginPlugin(lease, manifest.Metadata.Id, deadline, runtimeDetail)) return;
                 var request = new PluginExecutionRequest(manifest.Spec.ContractVersion, Guid.NewGuid(), payload.AuditId, payload.ProjectId,
-                    payload.ScopeId, existing.CorrelationId, target.AbsoluteUri, payload.Action, deadline, now, RequireRequestPermits: true, UseHttpRelay: true, ExpectedAccess: payload.ExpectedAccess, BaselineUri: payload.Credential?.BaselineUri ?? target.AbsoluteUri);
-                using var gatewaySession = gateway.Open(lease, request, manifest, payload.Credential);
+                    payload.ScopeId, existing.CorrelationId, target.AbsoluteUri, payload.Action, deadline, now, RequireRequestPermits: !source, UseHttpRelay: !source, ExpectedAccess: payload.ExpectedAccess, BaselineUri: payload.Credential?.BaselineUri ?? target.AbsoluteUri, SourceRoot: source ? "/source" : null, SourceSha256: payload.Source?.Sha256);
+                using var gatewaySession = source ? null : gateway.Open(lease, request, manifest, payload.Credential);
                 childStopped = false;
                 var result = await runner.RunAsync(manifest, request, executionCts.Token, async token =>
                 {
@@ -93,11 +96,13 @@ public sealed class AuditWorker(
                         if (permit.RetryAfterMs == 0) return false;
                         await Task.Delay(Math.Min(permit.RetryAfterMs, 200), token);
                     }
-                }, gatewaySession.SendAsync);
+                }, source ? null : gatewaySession!.SendAsync, sourceWorkspace?.DirectoryPath);
                 childStopped = true;
                 executionCts.Token.ThrowIfCancellationRequested();
                 var controls = result.Checks.Select(check => new AuditControlResult(check.ControlId, check.State, Sentinel.Evidence.EvidenceSanitizer.Apply(check.Summary).Value,
-                    check.Confidence, check.Severity, manifest.Metadata.Id, manifest.Metadata.Version)).ToArray();
+                    check.Confidence, check.Severity, manifest.Metadata.Id, manifest.Metadata.Version,
+                    check.Location is null ? null : Sentinel.Evidence.EvidenceSanitizer.Apply(check.Location, 768).Value,
+                    check.SourceRuleId is null ? null : Sentinel.Evidence.EvidenceSanitizer.Apply(check.SourceRuleId, 128).Value)).ToArray();
                 var evidence = new List<AuditEvidence>();
                 foreach (var item in result.Evidence) evidence.Add(await artifacts.SaveAsync(payload.AuditId, payload.ProjectId, target, manifest, item, executionCts.Token));
                 if (!coordinator.Checkpoint(lease, manifest.Metadata.Id, controls, evidence)) return;
@@ -117,6 +122,11 @@ public sealed class AuditWorker(
         catch (OperationCanceledException)
         {
             coordinator.Finish(lease, AuditState.Interrupted, "Execução interrompida; processos encerrados e checkpoints preservados.");
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or System.IO.IOException or System.Security.Cryptography.CryptographicException)
+        {
+            logger.LogWarning("Falha na preparação/execução da auditoria {AuditId}: {Kind}.", payload.AuditId, exception.GetType().Name);
+            coordinator.Finish(lease, AuditState.Interrupted, "Não foi possível preparar/validar o recurso autorizado. Verifique snapshot, volume, chaves e sandbox; nenhuma aprovação inferida.");
         }
         finally
         {

@@ -74,13 +74,18 @@ import { FindingRegister } from '../design-system/finding-register';
               </tr>
             </thead>
             <tbody>
-              @for (control of filtered(); track control.auditId + control.controlId) {
+              @for (control of filtered(); track control.auditId + ':' + $index) {
                 <tr>
                   <td>
                     <a class="text-link mono" [routerLink]="['/audits', control.auditId]"
                       >{{ control.controlId }} <s-icon name="arrow"
                     /></a>
                     <p class="help url">{{ control.summary }}</p>
+                    @if (control.location) {
+                      <span class="subline mono url"
+                        >{{ control.location }} · {{ control.sourceRuleId }}</span
+                      >
+                    }
                     <span class="subline" [title]="control.targetUri">{{ control.targetUri }}</span>
                   </td>
                   <td><s-badge [value]="control.state" /></td>
