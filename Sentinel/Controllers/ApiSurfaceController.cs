@@ -39,7 +39,9 @@ public sealed class ApiSurfaceController(ISentinelStore store, EvidenceArtifactS
             if (document.Truncated || document.Redacted) return Problem(statusCode: 409, detail: "Artefato cortado ou mascarado não pode orientar a reconciliação de URLs.");
             report = JsonSerializer.Deserialize<SourceOpenApiCheck.Report>(document.Details, Json)!;
             if (report is null || report.Kind != SourceOpenApiCheck.ReportKind || report.Operations is null || report.Operations.Length > 60
-                || report.Operations.Any(o => !SourceOpenApiCheck.SafePath(o.Path)))
+                || report.OperationCount < report.Operations.Length
+                || report.Operations.Any(o => o is null || !SourceOpenApiCheck.SafePath(o.Path)
+                    || !new[] { "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "TRACE" }.Contains(o.Method, StringComparer.Ordinal)))
                 return Problem(statusCode: 409, detail: "Inventário incompatível ou inválido.");
         }
         catch (EvidenceExpiredException) { return Problem(statusCode: 410, detail: "Evidência expirada; metadados e hash permanecem."); }

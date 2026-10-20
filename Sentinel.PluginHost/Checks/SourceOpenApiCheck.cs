@@ -21,7 +21,7 @@ public sealed class SourceOpenApiCheck : IIsolatedCheck
         return new[] { "openapi.json", "swagger.json", "openapi.yaml", "openapi.yml", "swagger.yaml", "swagger.yml" }.Contains(name, StringComparer.OrdinalIgnoreCase)
             || name.EndsWith(".openapi.json", StringComparison.OrdinalIgnoreCase);
     }
-    public static bool SafePath(string path) => path.Length <= 300 && !path.StartsWith("//", StringComparison.Ordinal)
+    public static bool SafePath(string? path) => path is { Length: > 0 and <= 300 } && !path.StartsWith("//", StringComparison.Ordinal)
         && Regex.IsMatch(path, @"\A/(?:[A-Za-z0-9._~!$&'()+,;=:@/-]|\{[A-Za-z_][A-Za-z0-9_]*\})*\z")
         && !path.Split('/').Any(segment => segment is "." or "..");
 

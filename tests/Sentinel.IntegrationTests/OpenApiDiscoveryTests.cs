@@ -65,6 +65,7 @@ public sealed class OpenApiDiscoveryTests
     [Fact]
     public void Previa_exige_base_explicita_sem_credenciais_e_preserva_templates()
     {
+        Assert.False(SourceOpenApiCheck.SafePath(null));
         foreach (var invalid in new[] { "file:///etc/passwd", "https://u:p@example.invalid", "https://example.invalid?q=x", "https://example.invalid#token", "https://example.invalid/%2fapi" })
             Assert.False(ApiSurfaceController.TryBase(invalid, out _));
         Assert.True(ApiSurfaceController.TryBase("http://localhost:15079/api/", out var uri));

@@ -58,7 +58,7 @@ import { Badge } from '../design-system/ui';
           >
             <option value="">Selecione uma revisão</option>
             @for (s of sources()?.items; track s.id) {
-              @if (active(s.expiresAtUtc) && !s.purgedAtUtc) {
+              @if (active(s.expiresAtUtc) && !s.purgedAtUtc && !s.revokedAtUtc) {
                 <option [value]="s.id">{{ s.sourceKey }} · {{ s.revisionLabel }}</option>
               }
             }
@@ -367,6 +367,7 @@ export class DependenciesPage {
     if (
       this.busy() ||
       !s ||
+      s.revokedAtUtc ||
       s.purgedAtUtc ||
       !this.active(s.expiresAtUtc) ||
       !this.auth.can('audits.execute')
