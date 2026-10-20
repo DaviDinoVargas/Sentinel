@@ -60,7 +60,13 @@ public sealed class ExecutionCoordinator(IDbContextFactory<SentinelDbContext> fa
 
     public ExecutionLease? TryAcquire(Guid auditId, string workerId) => Locked<ExecutionLease?>(auditId, (db, execution, audit, now) =>
     {
-        if (AuditStates.IsTerminal(Enum.Parse<AuditState>(audit.State)) || execution.CancelRequestedAtUtc is not null || execution.LeaseToken is not null) return null;
+        if (AuditStates.IsTerminal(Enum.Parse<AuditState>(audit.State))) return null;
+        if (StopForRevokedScope(db, execution, audit, now))
+        {
+            if (execution.LeaseToken is null) FinishRow(db, execution, audit, now, AuditState.Cancelled, "Escopo revogado antes da execução.");
+            return null;
+        }
+        if (execution.CancelRequestedAtUtc is not null || execution.LeaseToken is not null) return null;
         if (db.AuditExecutions.Any(row => row.AuditId != auditId && row.TargetKey == execution.TargetKey && row.SafetyUntilUtc > now))
         {
             if (audit.State != nameof(AuditState.WaitingForBudget))

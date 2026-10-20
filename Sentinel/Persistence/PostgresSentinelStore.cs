@@ -61,7 +61,7 @@ public sealed class PostgresSentinelStore : ISentinelStore
 
         using var db = _dbContextFactory.CreateDbContext();
         db.Scopes.Add(row);
-        if (createdBy is not null) db.ScopeEvents.Add(new ScopeEventRow { Id = Guid.NewGuid(), ScopeId = row.Id, Kind = "ScopeGranted", Actor = createdBy, Reason = "Escopo HTTP registrado pelo operador autorizado.", CreatedAtUtc = createdAtUtc });
+        if (createdBy is not null) db.ScopeEvents.Add(new ScopeEventRow { Id = Guid.NewGuid(), ScopeId = row.Id, Kind = "ScopeGranted", Actor = createdBy, Reason = "Escopo HTTP registrado pelo operador autorizado.", CreatedAtUtc = createdAtUtc, AuthorizedUntilUtc = expiresAtUtc });
         db.SaveChanges();
         return ToScope(row);
     }

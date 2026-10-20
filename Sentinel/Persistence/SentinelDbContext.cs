@@ -280,6 +280,7 @@ public sealed class ScopeEventRow
     public string Actor { get; set; } = "";
     public string Reason { get; set; } = "";
     public DateTimeOffset CreatedAtUtc { get; set; }
+    public DateTimeOffset? AuthorizedUntilUtc { get; set; }
     public ScopeRow Scope { get; set; } = null!;
 }
 

@@ -14,6 +14,34 @@ public sealed class DistributedProcessTests
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { Converters = { new JsonStringEnumConverter() } };
 
+    [Fact]
+    public async Task Revogar_escopo_por_outro_processo_cancela_worker_e_fila_sem_novas_requisicoes()
+    {
+        using var target = new LabTargetServer(); using var identity = new TestIdentityProvider();
+        var topology = "process-" + Guid.NewGuid().ToString("N");
+        using var first = await ApiProcess.Start(topology, identity, "container");
+        using var second = await ApiProcess.Start(topology, identity, "container");
+        var url = new Uri(target.BaseUri, "aplicacao/protegido").AbsoluteUri;
+        var active = await Enqueue(first.Client, url);
+        var running = await WaitExecution(first.Client, active.Id, e => e.GrantedRequests >= 3);
+        var owner = running.WorkerId!.Contains($":{first.ProcessId}:", StringComparison.Ordinal) ? first : second;
+        var revoker = ReferenceEquals(owner, first) ? second : first;
+        var queuedResponse = await revoker.Client.PostAsJsonAsync($"/api/v1/projects/{active.ProjectId}/audits", new RequestAuditRequest(url, "lab-active", true));
+        queuedResponse.EnsureSuccessStatusCode(); var queued = (await queuedResponse.Content.ReadFromJsonAsync<Audit>(Json))!;
+        await WaitAudit(revoker.Client, queued.Id, a => a.State == AuditState.WaitingForBudget);
+        var response = await revoker.Client.PostAsJsonAsync($"/api/v1/projects/{active.ProjectId}/scopes/{active.ScopeId}/revoke", new { reason = "Encerrar laboratório distribuído sintético" });
+        response.EnsureSuccessStatusCode();
+        await WaitAudit(owner.Client, active.Id, a => a.State == AuditState.Cancelled);
+        await WaitAudit(revoker.Client, queued.Id, a => a.State == AuditState.Cancelled);
+        var permits = await Read<ExecutionSnapshot>(revoker.Client, $"/api/v1/audits/{active.Id}/execution");
+        var requests = target.RequestsFor("/aplicacao/protegido"); await Task.Delay(700);
+        Assert.Equal(requests, target.RequestsFor("/aplicacao/protegido"));
+        Assert.Equal(permits.GrantedRequests, (await Read<ExecutionSnapshot>(owner.Client, $"/api/v1/audits/{active.Id}/execution")).GrantedRequests);
+        Assert.Equal(HttpStatusCode.Forbidden, (await owner.Client.PostAsJsonAsync($"/api/v1/projects/{active.ProjectId}/audits", new RequestAuditRequest(url, "lab-active", true))).StatusCode);
+        var scopes = await Read<AuthorizedScope[]>(owner.Client, $"/api/v1/projects/{active.ProjectId}/scopes");
+        Assert.NotNull(Assert.Single(scopes).RevokedAtUtc);
+    }
+
     [Theory]
     [InlineData("process")]
     [InlineData("container")]

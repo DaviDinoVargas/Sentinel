@@ -23,10 +23,11 @@ public sealed class ScopeLifecycle(IDbContextFactory<SentinelDbContext> factory,
             if (new Uri(scope.TargetBaseUrl).Scheme is not ("http" or "https")) throw new SourceScopeLifecycleException();
             var now = await db.Database.SqlQuery<DateTimeOffset>($"SELECT clock_timestamp() AS \"Value\"").SingleAsync(ct);
             var changed = await db.Scopes.Where(s => s.Id == scopeId && s.ProjectId == projectId && s.RevokedAtUtc == null)
-                .ExecuteUpdateAsync(setters => setters.SetProperty(s => s.RevokedAtUtc, now).SetProperty(s => s.RevokedBy, actor).SetProperty(s => s.RevocationReason, reason), ct);
+                .ExecuteUpdateAsync(setters => setters.SetProperty(s => s.RevokedAtUtc, now).SetProperty(s => s.RevokedBy, actor).SetProperty(s => s.RevocationReason, reason)
+                    .SetProperty(s => s.ExpiresAtUtc, s => s.ExpiresAtUtc > now ? now : s.ExpiresAtUtc), ct);
             if (changed == 1)
             {
-                db.ScopeEvents.Add(new ScopeEventRow { Id = Guid.NewGuid(), ScopeId = scopeId, Kind = "ScopeRevoked", Actor = actor, Reason = reason, CreatedAtUtc = now });
+                db.ScopeEvents.Add(new ScopeEventRow { Id = Guid.NewGuid(), ScopeId = scopeId, Kind = "ScopeRevoked", Actor = actor, Reason = reason, CreatedAtUtc = now, AuthorizedUntilUtc = scope.ExpiresAtUtc });
                 await db.SaveChangesAsync(ct);
             }
             await tx.CommitAsync(ct);

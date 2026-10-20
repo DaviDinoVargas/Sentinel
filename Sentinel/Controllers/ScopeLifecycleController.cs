@@ -24,7 +24,7 @@ public sealed class ScopeLifecycleController(ScopeLifecycle lifecycle, IDbContex
         var active = db.Audits.AsNoTracking().Where(a => a.ProjectId == projectId && a.ScopeId == scopeId
             && new[] { "Queued", "Running", "WaitingForBudget", "Cancelling" }.Contains(a.State));
         return Ok(new { scope = scope.ToDomain(), items = await query.OrderByDescending(e => e.CreatedAtUtc).ThenByDescending(e => e.Id).Skip(offset).Take(25)
-            .Select(e => new { e.Id, e.Kind, e.Actor, e.Reason, e.CreatedAtUtc }).ToArrayAsync(ct), totalCount = await query.CountAsync(ct), offset, limit = 25,
+            .Select(e => new { e.Id, e.Kind, e.Actor, e.Reason, e.CreatedAtUtc, e.AuthorizedUntilUtc }).ToArrayAsync(ct), totalCount = await query.CountAsync(ct), offset, limit = 25,
             sampledAtUtc = DateTimeOffset.UtcNow, activeAudits = await active.OrderBy(a => a.CreatedAtUtc).Select(a => new ScopeAuditStatus(a.Id, a.State)).Take(25).ToArrayAsync(ct), activeAuditCount = await active.CountAsync(ct),
             managedBy = new Uri(scope.TargetBaseUrl).Scheme == "source" ? "source-snapshots" : "http-scopes",
             limitations = new[] { "Registros antigos podem não identificar o criador; ele não é inferido retroativamente.", "Revogar não desfaz requisições já admitidas ou transmitidas. O estado da auditoria confirma o encerramento dos processos.", "Sem reativação automática. Outras autorizações válidas continuam independentes; uma nova autorização exige novo escopo.", "Cancelamento direto limitado a 100 trabalhos por chamada; o reconciliador continua os lotes persistidos após falha da API. Lista de auditorias em andamento limitada a 25 nesta amostra." } });

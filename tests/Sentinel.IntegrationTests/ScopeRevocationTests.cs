@@ -36,14 +36,18 @@ public sealed class ScopeRevocationTests
         Assert.All(responses, r => Assert.Equal(HttpStatusCode.OK, r.StatusCode));
         var updated = host.Services.GetRequiredService<ISentinelStore>().GetScopes(project.Id).Single();
         Assert.NotNull(updated.RevokedAtUtc); Assert.Equal("integration-user", updated.RevokedBy);
+        Assert.True(updated.ExpiresAtUtc <= updated.RevokedAtUtc);
         Assert.Equal(AuditState.Cancelled, host.Services.GetRequiredService<ISentinelStore>().FindAudit(audit.Id)!.State);
         Assert.False(new ScopePolicyEngine().Evaluate([updated], updated.TargetBaseUri, "simulated", DateTimeOffset.UtcNow).IsAllowed);
+        var legacyProjection = new AuthorizedScope(updated.Id, updated.ProjectId, updated.TargetBaseUri, updated.Environment, updated.ExpiresAtUtc, updated.CreatedAtUtc);
+        Assert.False(new ScopePolicyEngine().Evaluate([legacyProjection], updated.TargetBaseUri, "simulated", DateTimeOffset.UtcNow).IsAllowed);
         Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsJsonAsync($"/api/v1/projects/{project.Id}/audits", new RequestAuditRequest(host.LabTarget.BaseUri.AbsoluteUri))).StatusCode);
         Assert.Equal(0, host.LabTarget.RequestsFor("/"));
         using var db = host.Services.GetRequiredService<IDbContextFactory<SentinelDbContext>>().CreateDbContext();
         Assert.Equal(2, await db.ScopeEvents.CountAsync(e => e.ScopeId == scope.Id));
         var original = await db.ScopeEvents.SingleAsync(e => e.ScopeId == scope.Id && e.Kind == "ScopeRevoked");
         Assert.Equal(updated.RevocationReason, original.Reason);
+        Assert.Equal(scope.ExpiresAtUtc.ToUnixTimeMilliseconds(), original.AuthorizedUntilUtc!.Value.ToUnixTimeMilliseconds());
         await Assert.ThrowsAnyAsync<DbException>(() => db.ScopeEvents.Where(e => e.Id == original.Id).ExecuteUpdateAsync(s => s.SetProperty(e => e.Reason, "alterado")));
         await Assert.ThrowsAnyAsync<DbException>(() => db.ScopeEvents.Where(e => e.Id == original.Id).ExecuteDeleteAsync());
         using var history = JsonDocument.Parse(await client.GetStringAsync(url + "/events"));
@@ -87,5 +91,23 @@ public sealed class ScopeRevocationTests
         coordinator.Finish(lease, AuditState.Interrupted); coordinator.ReleaseStoppedChild(lease);
         Assert.Equal(AuditState.Cancelled, host.Services.GetRequiredService<ISentinelStore>().FindAudit(audit.Id)!.State);
         Assert.Single(await db.ExecutionEvents.Where(e => e.AuditId == audit.Id && e.Kind == "RequestGranted").ToArrayAsync());
+    }
+    [Fact]
+    public async Task Outro_worker_nega_posse_e_reconciliador_cancela_fila_apos_revogacao_persistida()
+    {
+        using var host = new SentinelApiFactory { StartWorkers = false }; using var client = host.CreateClient();
+        var (project, scope) = await Granted(host, client);
+        var first = await Queued(client, project.Id, new Uri(host.LabTarget.BaseUri, "one").AbsoluteUri);
+        var second = await Queued(client, project.Id, new Uri(host.LabTarget.BaseUri, "two").AbsoluteUri);
+        var factory = host.Services.GetRequiredService<IDbContextFactory<SentinelDbContext>>();
+        using var db = factory.CreateDbContext();
+        await db.Scopes.Where(s => s.Id == scope.Id).ExecuteUpdateAsync(s => s.SetProperty(x => x.RevokedAtUtc, DateTimeOffset.UtcNow));
+        var worker = new ExecutionCoordinator(factory);
+        Assert.Null(worker.TryAcquire(first.Id, "other-worker"));
+        worker.Reconcile();
+        var store = host.Services.GetRequiredService<ISentinelStore>();
+        Assert.Equal(AuditState.Cancelled, store.FindAudit(first.Id)!.State);
+        Assert.Equal(AuditState.Cancelled, store.FindAudit(second.Id)!.State);
+        Assert.Equal(0, host.LabTarget.RequestsFor("/one")); Assert.Equal(0, host.LabTarget.RequestsFor("/two"));
     }
 }

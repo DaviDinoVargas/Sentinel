@@ -59,16 +59,21 @@ public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine po
         public async Task<HttpRelayResponse> SendAsync(HttpRelayRequest call, CancellationToken cancellationToken)
         {
             if (!IsValid(call)) return Denied(call.RequestId, "Gateway recusou método, destino, capacidade ou cabeçalhos fora do contrato.");
+            var host = _target.IdnHost.Trim('[', ']');
+            if (IPAddress.TryParse(host, out var literal) && IsForbiddenAddress(literal, host))
+                return Denied(call.RequestId, "Gateway recusou endereço de rede protegido.");
             await _concurrency.WaitAsync(cancellationToken);
             try
             {
                 string? bearer = null;
+                var dnsValidated = false;
                 while (true)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
                     var scopes = _gateway._store.GetScopes(_request.ProjectId).Where(scope => scope.Id == _request.ScopeId).ToArray();
                     var decision = _gateway._policy.Evaluate(scopes, new Uri(call.Uri), _request.Action, _gateway._time.GetUtcNow(), ScopePolicyEngine.IsActive(_request.Action));
                     if (!decision.IsAllowed || _gateway._time.GetUtcNow() >= _request.DeadlineUtc) return Denied(call.RequestId, "Gateway recusou escopo, consentimento ou prazo de execução.");
+                    if (!dnsValidated) { await ValidateDns(cancellationToken); dnsValidated = true; }
                     if (_request.Action == "authenticated-lab")
                     {
                         if (_credential is null || call.Headers.Keys.Any(header => header.Equals("Authorization", StringComparison.OrdinalIgnoreCase)))
@@ -82,7 +87,6 @@ public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine po
                     if (permit.RetryAfterMs == 0) return Denied(call.RequestId, "Gateway recusou posse, orçamento ou cancelamento.");
                     await Task.Delay(Math.Min(permit.RetryAfterMs, 200), cancellationToken);
                 }
-                await ValidateDns(cancellationToken);
                 cancellationToken.ThrowIfCancellationRequested();
                 using var message = new HttpRequestMessage(HttpMethod.Get, call.Uri);
                 foreach (var header in call.Headers) message.Headers.TryAddWithoutValidation(header.Key, header.Value);
