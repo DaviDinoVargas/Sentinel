@@ -31,7 +31,7 @@ public sealed class PluginRuntime(IOptions<PluginRuntimeOptions> options, IHostE
         configuration = "PluginRuntime:Mode/Image na inicialização; memória e timeout dos manifestos aprovados",
         limitations = new[] {
             "Manifestos válidos locais ainda são aprovados automaticamente; plugins de terceiros não são admitidos.",
-            "Gateway atual: GET no caminho autorizado, sem corpo, até 8 KiB de resposta; consultas variáveis somente no laboratório ativo.",
+            "Gateway atual: GET na URL do cenário e referência protegida autorizada, sem corpo, até 8 KiB de resposta; consultas variáveis somente no laboratório ativo. Respostas autenticadas expõem apenas status/tempo ao plugin.",
             "DNS fixado por plugin; aliases DNS de um mesmo alvo ainda não compartilham uma chave de orçamento.",
             "Containers compartilham o kernel da VM Docker; a API mantém a confiança no daemon local."
         }

@@ -95,7 +95,7 @@ public sealed class ProjectsController : ControllerBase
     [ProducesResponseType(typeof(Audit), StatusCodes.Status403Forbidden)]
     public ActionResult<Audit> RequestAudit(Guid projectId, [FromBody] RequestAuditRequest request)
     {
-        if (string.Equals(request.Action, "lab-active", StringComparison.OrdinalIgnoreCase) &&
+        if (ScopePolicyEngine.IsActive(request.Action) &&
             !Permissions.Roles[Permissions.ExecuteActive].Any(User.IsInRole)) return Forbid();
         var correlationId = HttpContext.TraceIdentifier;
         try

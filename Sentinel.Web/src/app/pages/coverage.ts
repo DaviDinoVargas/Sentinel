@@ -112,6 +112,13 @@ export class CoveragePage {
   );
   readonly available = [
     {
+      title: 'Acessos do alvo',
+      description:
+        'Perfis Bearer cifrados, expiração/rotação/revogação e cenários autenticados de laboratório',
+      path: '/target-access',
+      screen: 'Acessos do alvo',
+    },
+    {
       title: 'Identidade e organizações',
       description:
         'OIDC/PKCE, papéis, isolamento por organização e permissões verificadas no backend',

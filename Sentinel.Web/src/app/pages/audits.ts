@@ -279,6 +279,7 @@ export class AuditsPage {
         ?.plugins.filter(
           (plugin) =>
             !plugin.isFixture &&
+            plugin.id !== 'sentinel.lab.authenticated-access' &&
             plugin.mode === (this.profile() === 'lab-active' ? 'active' : 'passive'),
         ).length ?? 0,
   );
@@ -418,6 +419,24 @@ export class AuditsPage {
             <dd>{{ (run.cancelRequestedAtUtc | date: 'dd/MM HH:mm:ss') || 'Não' }}</dd>
             <dt>Encerramento</dt>
             <dd>{{ (run.finishedAtUtc | date: 'dd/MM HH:mm:ss') || 'Pendente' }}</dd>
+            @if (run.authentication; as context) {
+              <dt>Identidade do alvo</dt>
+              <dd>
+                {{ context.credential.name }} · v{{ context.credential.version }} ·
+                {{ context.credential.persona }} · {{ context.credential.tenantLabel }}
+              </dd>
+              <dt>Expectativa / carga</dt>
+              <dd>
+                {{ context.expectedAccess === 'allow' ? 'Acesso permitido' : 'Acesso negado' }} ·
+                {{
+                  context.includeLoad
+                    ? 'Carga limitada solicitada'
+                    : 'Verificação com referência protegida'
+                }}
+              </dd>
+              <dt>Referência protegida</dt>
+              <dd class="url">{{ context.credential.baselineUri || item.targetUri }}</dd>
+            }
           </dl>
           <form
             class="form-stack section-gap"

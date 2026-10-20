@@ -11,7 +11,7 @@ public sealed class BoundedHttpLoadCheck : IIsolatedCheck
     public async Task<PluginExecutionResult> RunAsync(PluginExecutionRequest request, CancellationToken cancellationToken)
     {
         var target = new Uri(request.TargetUri);
-        if (!request.Action.Equals("lab-active", StringComparison.OrdinalIgnoreCase) || !ScopedHttp.IsLoopback(target))
+        if (request.Action is not "lab-active" and not "authenticated-lab" || !ScopedHttp.IsLoopback(target))
             return PluginExecutionResult.Failed(request.ContractVersion, "Perfil de laboratório não autorizado.");
         using var client = ScopedHttp.CreateLabClient(target);
         const int planned = 40;
@@ -27,6 +27,7 @@ public sealed class BoundedHttpLoadCheck : IIsolatedCheck
             samples.AddRange(batch);
             if (batch.Any(sample => sample.Status == 429)) abortedReason = "O alvo limitou a taxa (429); carga interrompida sem contornar a defesa.";
             else if (batch.Any(sample => sample.Status >= 500)) abortedReason = "O alvo retornou 5xx; carga interrompida.";
+            else if (request.Action == "authenticated-lab" && batch.Any(sample => sample.Status is >= 400 and < 500)) abortedReason = "O alvo recusou acesso autenticado; carga interrompida.";
             else if (batch.Any(sample => sample.Status == 0)) abortedReason = "Falha de transporte/timeout; carga interrompida.";
             else if (batch.Any(sample => sample.ElapsedMs > 1500)) abortedReason = "Latência acima de 1500 ms; carga interrompida.";
             else if (batch.Any(sample => sample.Status is >= 300 and < 400)) abortedReason = "Redirecionamento recebido e não seguido; carga interrompida.";
@@ -49,11 +50,11 @@ public sealed class BoundedHttpLoadCheck : IIsolatedCheck
             p50Ms = Percentile(ordered, .50), p95Ms = Percentile(ordered, .95), p99Ms = Percentile(ordered, .99),
             statusCounts = samples.GroupBy(sample => sample.Status).ToDictionary(group => group.Key.ToString(), group => group.Count()),
             abortedReason,
-            measurement = "GET até cabeçalhos; sem credenciais e sem leitura do corpo",
+            measurement = request.Action == "authenticated-lab" ? "GET autenticado pelo gateway até cabeçalhos; sem leitura do corpo" : "GET até cabeçalhos; sem credenciais e sem leitura do corpo",
         };
         var json = JsonSerializer.Serialize(report);
         var summary = $"Carga limitada: {samples.Count}/{planned} GETs, concorrência 2, p95={report.p95Ms?.ToString("F2") ?? "n/a"} ms, taxa observada={report.requestsPerSecond:F2} req/s. " +
-            (abortedReason ?? "Cenário concluído; os códigos HTTP e o recorte não autenticado devem ser considerados na interpretação.");
+            (abortedReason ?? (request.Action == "authenticated-lab" ? "Cenário autenticado concluído; considere identidade, URL e códigos HTTP na interpretação." : "Cenário concluído; os códigos HTTP e o recorte não autenticado devem ser considerados na interpretação."));
         var state = samples.Any(sample => sample.Status >= 500) ? "Failed" : abortedReason is null ? "Informational" : "Inconclusive";
         return new(request.ContractVersion, PluginExecutionOutcome.Succeeded,
             new[] { new PluginCheckResult("LAB-PERF-01", state, summary, samples.Count > 0 ? "Reproduced" : "NotAssessed", state == "Failed" ? "Medium" : "Info") },

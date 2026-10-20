@@ -23,9 +23,19 @@ public sealed class SentinelDbContext : DbContext
     public DbSet<AuditExecutionRow> AuditExecutions => Set<AuditExecutionRow>();
     public DbSet<TargetBudgetRow> TargetBudgets => Set<TargetBudgetRow>();
     public DbSet<ExecutionEventRow> ExecutionEvents => Set<ExecutionEventRow>();
+    public DbSet<TargetCredentialRow> TargetCredentials => Set<TargetCredentialRow>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<TargetCredentialRow>(entity =>
+        {
+            entity.ToTable("target_credentials"); entity.HasKey(row => row.Id);
+            entity.Property(row => row.Name).HasMaxLength(100); entity.Property(row => row.Persona).HasMaxLength(100); entity.Property(row => row.TenantLabel).HasMaxLength(100);
+            entity.Property(row => row.ProtectedToken).HasMaxLength(32_000); entity.Property(row => row.Version).IsConcurrencyToken();
+            entity.HasOne(row => row.Project).WithMany().HasForeignKey(row => row.ProjectId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<ScopeRow>().WithMany().HasForeignKey(row => row.ScopeId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasQueryFilter(row => IsSystem || row.Project.OrganizationId == CurrentOrganizationId);
+        });
         modelBuilder.Entity<OrganizationRow>(entity =>
         {
             entity.ToTable("organizations"); entity.HasKey(row => row.Id);
@@ -156,6 +166,22 @@ public sealed class SentinelDbContext : DbContext
             entity.HasIndex(message => new { message.Status, message.CreatedAtUtc });
         });
     }
+}
+
+public sealed class TargetCredentialRow
+{
+    public Guid Id { get; set; }
+    public Guid ProjectId { get; set; }
+    public ProjectRow Project { get; set; } = null!;
+    public Guid ScopeId { get; set; }
+    public string Name { get; set; } = "";
+    public string Persona { get; set; } = "";
+    public string TenantLabel { get; set; } = "";
+    public string? ProtectedToken { get; set; }
+    public int Version { get; set; }
+    public DateTimeOffset CreatedAtUtc { get; set; }
+    public DateTimeOffset ExpiresAtUtc { get; set; }
+    public DateTimeOffset? RevokedAtUtc { get; set; }
 }
 
 public sealed class AuditExecutionRow

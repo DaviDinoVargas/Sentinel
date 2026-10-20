@@ -8,9 +8,10 @@ public sealed record PolicyDecision(bool IsAllowed, AuthorizedScope? Scope, stri
 
 public sealed class ScopePolicyEngine
 {
+    public static bool IsActive(string action) => action.Equals("lab-active", StringComparison.OrdinalIgnoreCase) || action.Equals("authenticated-lab", StringComparison.OrdinalIgnoreCase);
     public PolicyDecision Evaluate(IReadOnlyList<AuthorizedScope> scopes, Uri targetUri, string action, DateTimeOffset nowUtc, bool confirmActive = false)
     {
-        var active = string.Equals(action, "lab-active", StringComparison.OrdinalIgnoreCase);
+        var active = IsActive(action);
         if (!active && !string.Equals(action, "simulated", StringComparison.OrdinalIgnoreCase))
         {
             return PolicyDecision.Block("Ação bloqueada: perfil de execução não reconhecido.");
@@ -50,12 +51,14 @@ public sealed class AuditService
     private readonly ISentinelStore _store;
     private readonly ScopePolicyEngine _policy;
     private readonly TimeProvider _timeProvider;
+    private readonly Execution.TargetCredentialVault _credentials;
 
-    public AuditService(ISentinelStore store, ScopePolicyEngine policy, TimeProvider timeProvider)
+    public AuditService(ISentinelStore store, ScopePolicyEngine policy, TimeProvider timeProvider, Execution.TargetCredentialVault credentials)
     {
         _store = store;
         _policy = policy;
         _timeProvider = timeProvider;
+        _credentials = credentials;
     }
 
     public SentinelProject CreateProject(CreateProjectRequest request)
@@ -109,7 +112,13 @@ public sealed class AuditService
         }
 
         var nowUtc = _timeProvider.GetUtcNow();
-        var decision = _policy.Evaluate(_store.GetScopes(projectId), targetUri, request.Action, nowUtc, request.ConfirmActive);
+        var scopes = _store.GetScopes(projectId);
+        if (request.Action.Equals("authenticated-lab", StringComparison.OrdinalIgnoreCase) && request.CredentialProfileId is { } profileId)
+        {
+            var scopeId = _credentials.ScopeId(projectId, profileId);
+            scopes = scopes.Where(scope => scope.Id == scopeId).ToArray();
+        }
+        var decision = _policy.Evaluate(scopes, targetUri, request.Action, nowUtc, request.ConfirmActive);
         if (!decision.IsAllowed)
         {
             return _store.SaveBlockedAudit(new Audit(
@@ -123,7 +132,17 @@ public sealed class AuditService
         // estado em GET /api/v1/audits/{auditId}. A mensagem do outbox é gravada na mesma
         // transação que a auditoria — nunca existe uma auditoria Queued sem job pendente.
         var auditId = Guid.NewGuid();
-        var outboxPayload = new Execution.OutboxMessagePayload(auditId, projectId, decision.Scope!.Id, targetUri.AbsoluteUri, request.Action, request.ConfirmActive);
+        Execution.CredentialBinding? credential = null;
+        if (request.Action.Equals("authenticated-lab", StringComparison.OrdinalIgnoreCase))
+        {
+            if (request.CredentialProfileId is null || request.ExpectedAccess is not "allow" and not "deny" || request.IncludeAuthenticatedLoad && request.ExpectedAccess != "allow")
+                throw new ArgumentException("Cenário autenticado exige perfil e expectativa allow/deny; carga somente no acesso permitido.");
+            credential = _credentials.Bind(projectId, decision.Scope!.Id, request.CredentialProfileId.Value, request.ExpectedAccess);
+        }
+        else if (request.CredentialProfileId is not null || request.ExpectedAccess is not null || request.IncludeAuthenticatedLoad)
+            throw new ArgumentException("Credenciais e expectativas exigem perfil authenticated-lab.");
+        var outboxPayload = new Execution.OutboxMessagePayload(auditId, projectId, decision.Scope!.Id, targetUri.AbsoluteUri, request.Action.ToLowerInvariant(), request.ConfirmActive,
+            credential, request.ExpectedAccess, request.IncludeAuthenticatedLoad);
         var outboxPayloadJson = System.Text.Json.JsonSerializer.Serialize(outboxPayload, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
         return _store.SaveQueuedAuditWithOutbox(
             new Audit(auditId, projectId, decision.Scope.Id, targetUri, AuditState.Queued, correlationId, null, nowUtc, Array.Empty<AuditControlResult>(), Array.Empty<AuditEvidence>()),

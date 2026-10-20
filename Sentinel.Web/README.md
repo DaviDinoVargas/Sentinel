@@ -7,14 +7,16 @@ Workspace Angular para acompanhar a segurança de aplicações autorizadas. A in
 - Visão geral: histórico e indicadores do projeto, com recorte explicitado.
 - Projetos: criação, busca local e seleção dos 100 projetos mais recentes.
 - Escopos e políticas: URL base, ambiente, validade local e confirmação de autorização.
+- Acessos do alvo: perfis Bearer cifrados, rotação/revogação e cenários autenticados com referência protegida.
 - Central de auditorias: início de verificações HTTP reais, histórico paginado e detalhe por identificador.
 - Resultados e achados: filtros por resultado, severidade, controle, alvo e resumo.
 - Evidências e relatórios: registros SHA-256, relatório por auditoria e exportação JSON no detalhe.
 - Security Score: fórmula, componentes, cobertura, confiança e limitações.
 - Performance Lab: percentis, distribuição HTTP, taxa observada e motivos de interrupção do perfil ativo local.
-- Plugins e controles: catálogo real da API, versões, permissões e recursos declarados.
+- Plugins e controles: catálogo real, versões, permissões, sandbox, recursos aplicados e monitor de limpeza.
 - Infraestrutura e filas: PostgreSQL, outbox, RabbitMQ, mensagens prontas e consumidores conectados.
 - Capacidades: mapa do que está implementado e das expansões previstas.
+- Identidade e acesso: OIDC, organização, papéis e permissões efetivas.
 
 Os resultados e as evidências usam a página de auditorias carregada (25 por página); o score agrega todo o histórico do projeto. A interface atualiza o contexto a cada 5 segundos e o detalhe da auditoria a cada 3 segundos. Não converte espera prolongada em falha ou bloqueio.
 
@@ -45,7 +47,7 @@ npm run test:contrast
 npm run build
 ```
 
-Os testes incluem troca de projeto sem mistura de respostas, tratamento de bloqueio HTTP 403, confirmação de tráfego real, horário local de validade, escape de conteúdo de plugins e axe nas doze telas em ambos os temas. Axe/jsdom verifica semântica e nomes acessíveis; o teste de contraste lê os tokens CSS e exige 4.5:1 para 20 pares de texto. Layout e comportamento de teclado também precisam de revisão no navegador.
+Os testes incluem troca de projeto sem mistura de respostas, tratamento de bloqueio HTTP 403, confirmação de tráfego real, horário local de validade, escape de conteúdo de plugins e axe nas treze telas em ambos os temas. Axe/jsdom verifica semântica e nomes acessíveis; o teste de contraste lê os tokens CSS e exige 4.5:1 para 20 pares de texto. Layout e comportamento de teclado também precisam de revisão no navegador.
 
 ## Design system
 
@@ -57,7 +59,7 @@ O tema e o identificador do projeto selecionado podem ser salvos no navegador; c
 
 Os cinco plugins HTTP atuais fazem requisições reais de baixo risco; a fixture não testa o alvo. O campo de ação `simulated` é mantido no contrato da API por compatibilidade. O score atual inclui a fixture, e sua cobertura observada mede auditorias com controles, não cobertura de vulnerabilidades. A interface apresenta essas limitações.
 
-Outros protocolos, análise de repositórios, carga autenticada/ampliada, aprovação humana de produção, containers para plugins e armazenamento de artefatos externo permanecem pendentes. A plataforma deve ser usada localmente, em laboratório autorizado, enquanto essas guardas não forem implementadas.
+Outros protocolos, análise de repositórios, carga ampliada, aprovação humana de produção e armazenamento de artefatos externo permanecem pendentes. A plataforma deve ser usada localmente, em laboratório autorizado, enquanto essas guardas não forem implementadas.
 
 ## Laboratório ativo local
 

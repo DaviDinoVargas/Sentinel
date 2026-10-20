@@ -98,6 +98,30 @@ public sealed class ContainerSandboxTests
         Assert.Equal(count, factory.LabTarget.RequestsFor("/aplicacao/protegido"));
     }
 
+    [Fact]
+    public async Task Carga_autenticada_real_em_container_recebe_apenas_status_e_tempos()
+    {
+        using var factory = new SentinelApiFactory { PluginMode = "container", PluginImage = Image };
+        using var client = factory.CreateClient();
+        var response = await client.PostAsJsonAsync("/api/v1/projects", new CreateProjectRequest("Identidade em sandbox " + Guid.NewGuid().ToString("N"), null));
+        response.EnsureSuccessStatusCode(); var project = (await response.Content.ReadFromJsonAsync<SentinelProject>(Json))!;
+        var url = new Uri(factory.LabTarget.BaseUri, "authenticated/tenant-a").AbsoluteUri;
+        response = await client.PostAsJsonAsync($"/api/v1/projects/{project.Id}/scopes", new CreateScopeRequest(url, "laboratorio", DateTimeOffset.UtcNow.AddMinutes(3)));
+        response.EnsureSuccessStatusCode(); var scope = (await response.Content.ReadFromJsonAsync<AuthorizedScope>(Json))!;
+        response = await client.PostAsJsonAsync($"/api/v1/projects/{project.Id}/target-credentials", new CreateTargetCredential(scope.Id, "Sandbox A", "Empresa", "A", "sentinel-tenant-a", DateTimeOffset.UtcNow.AddMinutes(2)));
+        response.EnsureSuccessStatusCode(); var credential = (await response.Content.ReadFromJsonAsync<TargetCredentialInfo>())!;
+        response = await client.PostAsJsonAsync($"/api/v1/projects/{project.Id}/audits", new RequestAuditRequest(url, "authenticated-lab", true, credential.Id, "allow", true));
+        response.EnsureSuccessStatusCode(); var audit = (await response.Content.ReadFromJsonAsync<Audit>(Json))!;
+        audit = await Wait(client, audit.Id, item => AuditStates.IsTerminal(item.State));
+        Assert.True(audit.State == AuditState.Completed, audit.PolicyReason); Assert.Equal(2, audit.Controls.Count);
+        Assert.Equal("Passed", Assert.Single(audit.Controls, item => item.ControlId == "LAB-ACCESS-01").State);
+        Assert.DoesNotContain("sentinel-tenant-a", JsonSerializer.Serialize(audit, Json));
+        Assert.Equal(42, factory.LabTarget.RequestsFor("/authenticated/tenant-a"));
+        var execution = (await client.GetFromJsonAsync<ExecutionSnapshot>($"/api/v1/audits/{audit.Id}/execution", Json))!;
+        Assert.Equal(2, execution.Events.Count(item => item.Kind == "PluginStarted"));
+        Assert.All(execution.Events.Where(item => item.Kind == "PluginStarted"), item => Assert.Contains("container " + Image, item.Detail));
+    }
+
     private static async Task<Audit> Wait(HttpClient client, Guid id, Func<Audit, bool> condition)
     {
         var deadline = DateTime.UtcNow.AddSeconds(40);

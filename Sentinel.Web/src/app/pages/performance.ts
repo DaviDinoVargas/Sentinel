@@ -87,8 +87,10 @@ export function parseLoadObservation(summary: string): LoadObservation | null {
     </div>
     <div class="banner">
       <s-icon name="clock" /><span
-        >Até 40 GETs, concorrência 2 e orçamento global de até 10 permissões HTTP/s por host/porta. Uma auditoria por alvo. Mede chegada dos cabeçalhos,
-        sem credenciais. Respostas 401/403 não representam desempenho dos fluxos autenticados ou do
+        >Até 40 GETs, concorrência 2 e orçamento global de até 10 permissões HTTP/s por host/porta.
+        Uma auditoria por alvo. Mede chegada dos cabeçalhos, sem leitura do corpo. Cenários
+        autenticados são configurados em Acessos do alvo e identificados na medição e no detalhe da
+        auditoria. Respostas 401/403 não representam desempenho dos fluxos autenticados ou do
         banco.</span
       >
     </div>
@@ -110,7 +112,7 @@ export function parseLoadObservation(summary: string): LoadObservation | null {
           <div class="panel-pad">
             <div class="metric-grid">
               <article class="metric">
-                  <div class="metric-top">Requisições tentadas</div>
+                <div class="metric-top">Requisições tentadas</div>
                 <strong
                   >{{ run.data.completedRequests
                   }}<small> / {{ run.data.plannedRequests }}</small></strong

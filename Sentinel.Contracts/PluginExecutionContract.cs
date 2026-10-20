@@ -15,9 +15,11 @@ public sealed record PluginExecutionRequest(
     DateTimeOffset DeadlineUtc,
     DateTimeOffset NowUtc,
     bool RequireRequestPermits = false,
-    bool UseHttpRelay = false);
+    bool UseHttpRelay = false,
+    string? ExpectedAccess = null,
+    string? BaselineUri = null);
 
-public sealed record HttpRelayRequest(string Kind, Guid RequestId, string Method, string Uri, Dictionary<string, string[]> Headers);
+public sealed record HttpRelayRequest(string Kind, Guid RequestId, string Method, string Uri, Dictionary<string, string[]> Headers, bool Anonymous = false);
 public sealed record HttpRelayResponse(string Kind, Guid RequestId, int StatusCode, Dictionary<string, string[]> Headers, string BodyBase64, double ElapsedMs, string? Error);
 
 // Estados de saída que um plugin pode devolver (Plugins.md). Um plugin que não conseguiu

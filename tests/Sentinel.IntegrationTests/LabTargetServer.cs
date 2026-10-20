@@ -48,6 +48,16 @@ public sealed class LabTargetServer : IDisposable
     {
         var path = context.Request.Url?.AbsolutePath ?? "/";
         _requests.AddOrUpdate(path, 1, (_, count) => count + 1);
+        if (path.Contains("authenticated/", StringComparison.Ordinal))
+        {
+            var token = context.Request.Headers["Authorization"] ?? "";
+            var persona = token == "Bearer sentinel-tenant-a" ? "tenant-a" : token == "Bearer sentinel-tenant-b" ? "tenant-b" : null;
+            context.Response.StatusCode = path.Contains("public-baseline", StringComparison.Ordinal) ? 200 : path.Contains("reject-identity", StringComparison.Ordinal) || persona is null ? 401 : path.Contains("broken-authz", StringComparison.Ordinal) || path.EndsWith('/' + persona, StringComparison.Ordinal) ? 200 : 404;
+            // Deliberately reflect a credential: the gateway must not forward it to
+            // authenticated plugins or persist it in results/evidence.
+            context.Response.Headers.Add("X-Reflected-Secret", token);
+            WriteBody(context, token); return;
+        }
         if (path.Contains("redirect-fora", StringComparison.Ordinal))
         {
             context.Response.StatusCode = 302;

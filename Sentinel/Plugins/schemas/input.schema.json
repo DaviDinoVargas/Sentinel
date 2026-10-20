@@ -16,6 +16,8 @@
     "deadlineUtc": { "type": "string", "format": "date-time" },
     "nowUtc": { "type": "string", "format": "date-time" },
     "requireRequestPermits": { "type": "boolean" },
-    "useHttpRelay": { "type": "boolean" }
+    "useHttpRelay": { "type": "boolean" },
+    "expectedAccess": { "enum": [null, "allow", "deny"] },
+    "baselineUri": { "type": ["null", "string"], "format": "uri" }
   }
 }

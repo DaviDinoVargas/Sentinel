@@ -14,7 +14,8 @@ public sealed record ExecutionSnapshot(Guid AuditId, string TargetKey, string? W
     DateTimeOffset? HeartbeatAtUtc, DateTimeOffset? LeaseUntilUtc, DateTimeOffset? SafetyUntilUtc,
     DateTimeOffset? CancelRequestedAtUtc, DateTimeOffset? FinishedAtUtc, string? CurrentPluginId,
     IReadOnlyList<string> CompletedPlugins, int GrantedRequests, TargetBudget Budget,
-    IReadOnlyList<ExecutionEvent> Events, IReadOnlyList<string> Limitations);
+    IReadOnlyList<ExecutionEvent> Events, IReadOnlyList<string> Limitations, AuthenticatedExecutionContext? Authentication = null);
+public sealed record AuthenticatedExecutionContext(CredentialBinding Credential, string ExpectedAccess, bool IncludeLoad);
 
 // All mutations for an origin use one PostgreSQL transaction/advisory lock. The key
 // intentionally excludes project, path and scheme: overlapping scopes cannot multiply
@@ -206,6 +207,7 @@ public sealed class ExecutionCoordinator(IDbContextFactory<SentinelDbContext> fa
         var row = db.AuditExecutions.AsNoTracking().SingleOrDefault(row => row.AuditId == auditId);
         if (row is null) return null;
         var budget = db.TargetBudgets.AsNoTracking().SingleOrDefault(item => item.TargetKey == row.TargetKey);
+        var payload = Payload(auditId);
         return new(auditId, row.TargetKey, row.WorkerId, row.Attempts, row.HeartbeatAtUtc, row.LeaseUntilUtc, row.SafetyUntilUtc,
             row.CancelRequestedAtUtc, row.FinishedAtUtc, row.CurrentPluginId, JsonSerializer.Deserialize<string[]>(row.CompletedPluginsJson)!,
             row.GrantedRequests, new(row.TargetKey, budget?.RequestsPerSecond ?? 10),
@@ -214,7 +216,8 @@ public sealed class ExecutionCoordinator(IDbContextFactory<SentinelDbContext> fa
             new[] { "Uma auditoria por origem (host/porta), compartilhada entre projetos e perfis; localhost e IPs de loopback usam a mesma chave.",
                 "Aliases DNS externos que apontam ao mesmo serviço ainda exigem agrupamento explícito futuro.",
                 "Queda durante plugin produz Interrupted e preserva checkpoints; efeitos externos incertos não são repetidos automaticamente.",
-                "Permissões controlam início de requisições dos plugins internos; não substituem sandbox de plugins de terceiros. Eventos exibidos: últimos 100." });
+                "Permissões controlam início de requisições dos plugins internos; não substituem sandbox de plugins de terceiros. Eventos exibidos: últimos 100." },
+            payload?.Credential is { } credential ? new(credential, payload.ExpectedAccess ?? "", payload.IncludeAuthenticatedLoad) : null);
     }
 
     public TargetBudget ConfigureBudget(Guid auditId, int requestsPerSecond)

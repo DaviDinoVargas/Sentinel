@@ -7,4 +7,7 @@ public sealed record OutboxMessagePayload(
     Guid ScopeId,
     string TargetUrl,
     string Action,
-    bool ConfirmActive = false);
+    bool ConfirmActive = false,
+    CredentialBinding? Credential = null,
+    string? ExpectedAccess = null,
+    bool IncludeAuthenticatedLoad = false);

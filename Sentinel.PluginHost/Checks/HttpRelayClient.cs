@@ -53,7 +53,7 @@ internal sealed class HttpRelayClient : HttpMessageHandler
         try
         {
             var frame = new HttpRelayRequest("http-request", id, request.Method.Method, request.RequestUri.AbsoluteUri,
-                request.Headers.ToDictionary(item => item.Key, item => item.Value.ToArray()));
+                request.Headers.ToDictionary(item => item.Key, item => item.Value.ToArray()), request.Options.TryGetValue(new HttpRequestOptionsKey<bool>("sentinel.http.anonymous"), out var anonymous) && anonymous);
             var json = JsonSerializer.Serialize(frame, Json);
             if (json.Length > 16_000) throw new HttpRequestException("Requisição de gateway excedeu o limite.");
             await Writer.WaitAsync(cancellationToken);

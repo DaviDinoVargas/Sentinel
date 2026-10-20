@@ -2,6 +2,11 @@ import { Routes } from '@angular/router';
 
 export const routes: Routes = [
   {
+    path: 'target-access',
+    title: 'Acessos do alvo · Sentinel',
+    loadComponent: () => import('./pages/target-access').then((m) => m.TargetAccessPage),
+  },
+  {
     path: 'identity',
     title: 'Identidade e acesso · Sentinel',
     loadComponent: () => import('./pages/identity').then((m) => m.IdentityPage),

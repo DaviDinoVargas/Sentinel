@@ -61,7 +61,11 @@ public sealed class AuditWorker(
             var target = new Uri(payload.TargetUrl);
             var completed = coordinator.Snapshot(payload.AuditId)!.CompletedPlugins;
             var mode = payload.Action.Equals("lab-active", StringComparison.OrdinalIgnoreCase) ? "active" : "passive";
-            foreach (var manifest in registry.Approved.Where(item => item.Spec.Mode == mode))
+            var authenticated = payload.Action == "authenticated-lab";
+            var selected = registry.Approved.Where(item => authenticated
+                ? item.Metadata.Id == "sentinel.lab.authenticated-access" || payload.IncludeAuthenticatedLoad && item.Metadata.Id == "sentinel.lab.bounded-http-load"
+                : item.Spec.Mode == mode && item.Metadata.Id != "sentinel.lab.authenticated-access");
+            foreach (var manifest in selected.OrderBy(item => item.Metadata.Id == "sentinel.lab.authenticated-access" ? 0 : 1))
             {
                 executionCts.Token.ThrowIfCancellationRequested();
                 if (completed.Contains(manifest.Metadata.Id)) continue;
@@ -76,8 +80,8 @@ public sealed class AuditWorker(
                     : "processo de desenvolvimento; HTTP via gateway; sem sandbox de filesystem";
                 if (!coordinator.BeginPlugin(lease, manifest.Metadata.Id, deadline, runtimeDetail)) return;
                 var request = new PluginExecutionRequest(manifest.Spec.ContractVersion, Guid.NewGuid(), payload.AuditId, payload.ProjectId,
-                    payload.ScopeId, existing.CorrelationId, target.AbsoluteUri, payload.Action, deadline, now, RequireRequestPermits: true, UseHttpRelay: true);
-                using var gatewaySession = gateway.Open(lease, request, manifest);
+                    payload.ScopeId, existing.CorrelationId, target.AbsoluteUri, payload.Action, deadline, now, RequireRequestPermits: true, UseHttpRelay: true, ExpectedAccess: payload.ExpectedAccess, BaselineUri: payload.Credential?.BaselineUri ?? target.AbsoluteUri);
+                using var gatewaySession = gateway.Open(lease, request, manifest, payload.Credential);
                 childStopped = false;
                 var result = await runner.RunAsync(manifest, request, executionCts.Token, async token =>
                 {
@@ -99,6 +103,11 @@ public sealed class AuditWorker(
                 if (result.Outcome is PluginExecutionOutcome.TimedOut or PluginExecutionOutcome.Cancelled or PluginExecutionOutcome.Failed)
                 {
                     coordinator.Finish(lease, AuditState.Interrupted, $"Plugin {manifest.Metadata.Id}: {result.Outcome}. Resultados parciais preservados; nenhuma aprovação inferida.");
+                    return;
+                }
+                if (authenticated && manifest.Metadata.Id == "sentinel.lab.authenticated-access" && !result.Checks.Any(check => check.State == "Passed"))
+                {
+                    coordinator.Finish(lease, AuditState.Completed, "Expectativa de acesso não confirmada; carga autenticada não iniciada.");
                     return;
                 }
             }

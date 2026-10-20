@@ -24,6 +24,7 @@ public static class Program
         ["sentinel.http.host-header-trust"] = () => new HostHeaderTrustCheck(),
         ["sentinel.lab.input-probes"] = () => new LabInputProbesCheck(),
         ["sentinel.lab.bounded-http-load"] = () => new BoundedHttpLoadCheck(),
+        ["sentinel.lab.authenticated-access"] = () => new AuthenticatedAccessCheck(),
     };
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)

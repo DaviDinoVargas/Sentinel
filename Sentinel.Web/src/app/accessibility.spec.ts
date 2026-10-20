@@ -184,6 +184,7 @@ describe('Acessibilidade das telas', () => {
     'operations',
     'coverage',
     'identity',
+    'target-access',
   ])('verifica semântica e nomes acessíveis em /%s nos dois temas', async (path) => {
     await TestBed.inject(Router).navigateByUrl(`/${path}`);
     fixture.detectChanges();

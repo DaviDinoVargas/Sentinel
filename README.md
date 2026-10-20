@@ -48,7 +48,7 @@ A configuração local HTTP/H2 é exclusiva de desenvolvimento. Produção exige
 
 ## Interface
 
-Doze módulos: visão geral, projetos, escopos/políticas, auditorias e detalhe, resultados/achados, evidências/relatórios, score, Performance Lab, plugins/controles, infraestrutura/filas, capacidades e identidade/acesso. O estado vem da API; gráficos e contadores informam o recorte consultado. Veja [Sentinel.Web/README.md](Sentinel.Web/README.md).
+Treze módulos: visão geral, projetos, escopos/políticas, acessos do alvo, auditorias e detalhe, resultados/achados, evidências/relatórios, score, Performance Lab, plugins/controles, infraestrutura/filas, capacidades e identidade/acesso. O estado vem da API; gráficos e contadores informam o recorte consultado. Veja [Sentinel.Web/README.md](Sentinel.Web/README.md).
 
 ## Controles atuais
 
@@ -101,6 +101,18 @@ Implantação desta versão exige atualizar todos os workers antes de liberar no
 | Saúde | `GET /api/v1/health` |
 
 O histórico aceita limite 1–100 e offset não negativo, com ordenação recente estável e total do projeto. A consulta operacional lê outbox/PostgreSQL e as duas filas por AMQP passivo, sem consumir mensagens. Não retorna credenciais nem payloads. Mensagens prontas não incluem mensagens em processamento; consumidores conectados não substituem heartbeat de execução.
+
+## Acessos autenticados do alvo
+
+Em **Acessos do alvo**, cadastre perfis Bearer de contas sintéticas, vinculados a projeto e escopo de laboratório em loopback. O backend cifra o segredo com Data Protection; no Windows, o keyring local em `.local/target-keys` usa DPAPI. Outros hosts exigem `TargetCredentials:ProtectionCertificateThumbprint` e diretório de chaves configurado. Workers precisam compartilhar keyring/proteção. A consulta retorna apenas metadados; tokens nunca entram no outbox, envelope do plugin ou relatório.
+
+Perfis expiram em até 24 horas e dentro do escopo. Rotação incrementa a versão; revogação apaga o segredo cifrado. Ambas impedem novos usos da versão anterior. Requisições já autorizadas podem concluir. Cadastrar/rotacionar/revogar exige permissão de escopo; executar exige permissão de laboratório ativo.
+
+O cenário `authenticated-lab` valida primeiro uma URL protegida sem credencial (401/403/404) e com credencial (2xx). Uma URL pública ou token recusado gera resultado inconclusivo. Para testar negação em outro recurso/papel/empresa, execute antes um cenário permitido com o mesmo perfil/versão: a referência vale cinco minutos e é validada novamente antes do teste. Somente 403/404 confirmam a negação esperada; 401 permanece inconclusivo. O plugin recebe status/tempo, sem corpo ou cabeçalhos autenticados.
+
+Opcionalmente, um acesso permitido confirmado pode executar até 40 GETs adicionais, concorrência 2 e orçamento global de até 10/s. Carga para em perda de acesso, 429, 5xx, redirect, timeout ou latência alta. Isso avalia URLs explícitas; não enumera recursos, escreve dados, renova login nem comprova toda a autorização do alvo. Identidade/versão/referência aparecem no detalhe da auditoria e métricas no Performance Lab.
+
+Endpoints: `GET/POST /api/v1/projects/{id}/target-credentials`, `PUT .../target-credentials/{credentialId}` e `POST .../target-credentials/{credentialId}/revoke`. Nenhum endpoint retorna o token.
 
 ## Verificação
 

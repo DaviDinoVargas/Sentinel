@@ -84,6 +84,31 @@ export interface ExecutionSnapshot {
   budget: TargetBudget;
   events: { id: number; atUtc: string; kind: string; detail: string }[];
   limitations: string[];
+  authentication?: {
+    credential: {
+      id: string;
+      version: number;
+      name: string;
+      persona: string;
+      tenantLabel: string;
+      baselineUri?: string | null;
+    };
+    expectedAccess: string;
+    includeLoad: boolean;
+  } | null;
+}
+export interface TargetCredential {
+  id: string;
+  projectId: string;
+  scopeId: string;
+  name: string;
+  persona: string;
+  tenantLabel: string;
+  version: number;
+  createdAtUtc: string;
+  expiresAtUtc: string;
+  revokedAtUtc: string | null;
+  baselineVerifiedAtUtc?: string | null;
 }
 export interface SecurityScoreComponent {
   id: string;
@@ -216,11 +241,59 @@ export class SentinelApiService {
       expiresAtUtc,
     });
   }
-  requestAudit(projectId: string, targetUrl: string, action = 'simulated', confirmActive = false) {
+  targetCredentials(projectId: string) {
+    return this.http.get<TargetCredential[]>(
+      `${this.baseUrl}/projects/${projectId}/target-credentials`,
+    );
+  }
+  createTargetCredential(
+    projectId: string,
+    request: {
+      scopeId: string;
+      name: string;
+      persona: string;
+      tenantLabel: string;
+      token: string;
+      expiresAtUtc: string;
+    },
+  ) {
+    return this.http.post<TargetCredential>(
+      `${this.baseUrl}/projects/${projectId}/target-credentials`,
+      request,
+    );
+  }
+  rotateTargetCredential(
+    projectId: string,
+    id: string,
+    request: { expectedVersion: number; token: string; expiresAtUtc: string },
+  ) {
+    return this.http.put<TargetCredential>(
+      `${this.baseUrl}/projects/${projectId}/target-credentials/${id}`,
+      request,
+    );
+  }
+  revokeTargetCredential(projectId: string, id: string) {
+    return this.http.post<TargetCredential>(
+      `${this.baseUrl}/projects/${projectId}/target-credentials/${id}/revoke`,
+      {},
+    );
+  }
+  requestAudit(
+    projectId: string,
+    targetUrl: string,
+    action = 'simulated',
+    confirmActive = false,
+    authentication?: {
+      credentialProfileId: string;
+      expectedAccess: string;
+      includeAuthenticatedLoad: boolean;
+    },
+  ) {
     return this.http.post<Audit>(`${this.baseUrl}/projects/${projectId}/audits`, {
       targetUrl,
       action,
       confirmActive,
+      ...authentication,
     });
   }
   getAudit(auditId: string) {

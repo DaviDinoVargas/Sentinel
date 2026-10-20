@@ -7,6 +7,7 @@ using Sentinel.Persistence;
 using Sentinel.Workers;
 using Sentinel.Identity;
 using System.Text.Json.Serialization;
+using Microsoft.AspNetCore.DataProtection;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddControllers().AddJsonOptions(options =>
@@ -14,6 +15,12 @@ builder.Services.AddControllers().AddJsonOptions(options =>
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddSingleton<TimeProvider>(TimeProvider.System);
+var keyDirectory = Path.GetFullPath(builder.Configuration["TargetCredentials:KeyDirectory"] ?? "../.local/target-keys", builder.Environment.ContentRootPath);
+var protection = builder.Services.AddDataProtection().SetApplicationName("Sentinel.TargetCredentials").PersistKeysToFileSystem(new DirectoryInfo(keyDirectory));
+if (builder.Configuration["TargetCredentials:ProtectionCertificateThumbprint"] is { Length: > 0 } certificate) protection.ProtectKeysWithCertificate(certificate);
+else if (OperatingSystem.IsWindows()) protection.ProtectKeysWithDpapi();
+else throw new InvalidOperationException("Configure certificado para proteger as chaves das credenciais fora do laboratório Windows.");
+builder.Services.AddSingleton<TargetCredentialVault>();
 builder.Services.AddSentinelIdentity(builder.Configuration, builder.Environment);
 // Resolve a configuração final do host no momento de criar as opções. Capturar a
 // connection string antes de Build ignora substituições do WebApplicationFactory

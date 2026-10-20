@@ -21,6 +21,7 @@ export class App {
     { path: '/overview', label: 'Visão geral', icon: 'grid', group: 'WORKSPACE' },
     { path: '/projects', label: 'Projetos', icon: 'folder', group: '' },
     { path: '/scopes', label: 'Escopos e políticas', icon: 'scope', group: '' },
+    { path: '/target-access', label: 'Acessos do alvo', icon: 'shield', group: '' },
     { path: '/audits', label: 'Central de auditorias', icon: 'play', group: 'INVESTIGAÇÃO' },
     { path: '/findings', label: 'Resultados e achados', icon: 'search', group: '' },
     { path: '/evidence', label: 'Evidências e relatórios', icon: 'document', group: '' },
