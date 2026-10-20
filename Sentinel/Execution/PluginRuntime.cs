@@ -68,6 +68,7 @@ public sealed class PluginRuntime(IOptions<PluginRuntimeOptions> options, IHostE
     public async Task RemoveAsync(string name)
     {
         if (!Container) return;
+        if (!Regex.IsMatch(name, "^sentinel-plugin-[a-f0-9]{32}$")) throw new InvalidOperationException("Nome de sandbox inválido.");
         var start = new ProcessStartInfo("docker") { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true };
         start.ArgumentList.Add("rm"); start.ArgumentList.Add("--force"); start.ArgumentList.Add(name);
         using var process = Process.Start(start) ?? throw new InvalidOperationException("Docker indisponível para limpar a sandbox.");
@@ -76,7 +77,18 @@ public sealed class PluginRuntime(IOptions<PluginRuntimeOptions> options, IHostE
         try { await process.WaitForExitAsync(timeout.Token); }
         catch { process.Kill(true); throw; }
         await output; var error = await errors;
-        if (process.ExitCode != 0 && !error.Contains("No such container", StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("Não foi possível confirmar o encerramento da sandbox.");
+        if (process.ExitCode == 0 || error.Contains("No such container", StringComparison.OrdinalIgnoreCase)) return;
+        // --rm, the runner and another worker's reaper may remove the same
+        // container concurrently. A rejected rm is not proof that it still runs.
+        // Confirm absence with a successful daemon query, never by swallowing errors.
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(2);
+        do
+        {
+            var present = await DockerAsync(CancellationToken.None, "ps", "-a", "--filter", "name=^/" + name + "$", "--format", "{{.Names}}");
+            if (string.IsNullOrWhiteSpace(present)) return;
+            await Task.Delay(100);
+        } while (DateTimeOffset.UtcNow < deadline);
+        throw new InvalidOperationException("Não foi possível confirmar o encerramento da sandbox.");
     }
 
     public async Task ReapAsync(CancellationToken cancellationToken)

@@ -56,6 +56,7 @@ public sealed class AuditWorker(
         using var executionCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
         var monitor = MonitorAsync(lease, executionCts);
         var childStopped = true;
+        var stage = "preparacao";
         try
         {
             var target = new Uri(payload.TargetUrl);
@@ -69,12 +70,14 @@ public sealed class AuditWorker(
                 : item.Spec.Mode == mode && item.Metadata.Id != "sentinel.lab.authenticated-access"));
             foreach (var manifest in selected.OrderBy(item => item.Metadata.Id == "sentinel.lab.authenticated-access" ? 0 : 1))
             {
+                stage = "politica";
                 executionCts.Token.ThrowIfCancellationRequested();
                 if (completed.Contains(manifest.Metadata.Id)) continue;
                 var now = timeProvider.GetUtcNow();
                 var decision = policy.Evaluate(store.GetScopes(payload.ProjectId).Where(scope => scope.Id == payload.ScopeId).ToArray(),
                     target, payload.Action, now, payload.ConfirmActive);
                 if (!decision.IsAllowed) { coordinator.Finish(lease, AuditState.Blocked, decision.Reason); return; }
+                stage = "snapshot";
                 using var sourceWorkspace = source ? await sources.MaterializeAsync(payload.ProjectId, payload.ScopeId, payload.Source!, executionCts.Token) : null;
                 var timeout = now.AddSeconds(manifest.Spec.Resources.TimeoutSeconds);
                 var deadline = timeout < decision.Scope!.ExpiresAtUtc ? timeout : decision.Scope.ExpiresAtUtc;
@@ -86,6 +89,7 @@ public sealed class AuditWorker(
                     payload.ScopeId, existing.CorrelationId, target.AbsoluteUri, payload.Action, deadline, now, RequireRequestPermits: !source, UseHttpRelay: !source, ExpectedAccess: payload.ExpectedAccess, BaselineUri: payload.Credential?.BaselineUri ?? target.AbsoluteUri, SourceRoot: source ? "/source" : null, SourceSha256: payload.Source?.Sha256);
                 using var gatewaySession = source ? null : gateway.Open(lease, request, manifest, payload.Credential);
                 childStopped = false;
+                stage = "sandbox";
                 var result = await runner.RunAsync(manifest, request, executionCts.Token, async token =>
                 {
                     while (true)
@@ -104,7 +108,9 @@ public sealed class AuditWorker(
                     check.Location is null ? null : Sentinel.Evidence.EvidenceSanitizer.Apply(check.Location, 768).Value,
                     check.SourceRuleId is null ? null : Sentinel.Evidence.EvidenceSanitizer.Apply(check.SourceRuleId, 128).Value)).ToArray();
                 var evidence = new List<AuditEvidence>();
+                stage = "evidencia";
                 foreach (var item in result.Evidence) evidence.Add(await artifacts.SaveAsync(payload.AuditId, payload.ProjectId, target, manifest, item, executionCts.Token));
+                stage = "checkpoint";
                 if (!coordinator.Checkpoint(lease, manifest.Metadata.Id, controls, evidence)) return;
                 if (result.Outcome is PluginExecutionOutcome.TimedOut or PluginExecutionOutcome.Cancelled or PluginExecutionOutcome.Failed)
                 {
@@ -125,8 +131,8 @@ public sealed class AuditWorker(
         }
         catch (Exception exception) when (exception is InvalidOperationException or System.IO.IOException or System.Security.Cryptography.CryptographicException)
         {
-            logger.LogWarning("Falha na preparação/execução da auditoria {AuditId}: {Kind}.", payload.AuditId, exception.GetType().Name);
-            coordinator.Finish(lease, AuditState.Interrupted, "Não foi possível preparar/validar o recurso autorizado. Verifique snapshot, volume, chaves e sandbox; nenhuma aprovação inferida.");
+            logger.LogWarning("Falha na etapa {Stage} da auditoria {AuditId}: {Kind}.", stage, payload.AuditId, exception.GetType().Name);
+            coordinator.Finish(lease, AuditState.Interrupted, $"Não foi possível preparar/validar o recurso autorizado. Etapa: {stage}; falha: {exception.GetType().Name}. Verifique snapshot, volume, chaves e sandbox; nenhuma aprovação inferida.");
         }
         finally
         {

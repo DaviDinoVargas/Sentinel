@@ -2,7 +2,7 @@ apiVersion: sentinel.dev/v1
 kind: PluginManifest
 metadata:
   id: sentinel.fixture.sim-001
-  version: 1.0.0
+  version: 1.0.1
   name: Fixture do pipeline (SIM-001)
 spec:
   type: security-test
@@ -14,7 +14,7 @@ spec:
     sourceRead: false
     artifactWrite: false
   resources:
-    timeoutSeconds: 5
+    timeoutSeconds: 15
     memoryMiB: 64
   permissions: []
   execution:

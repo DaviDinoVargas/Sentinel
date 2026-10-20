@@ -82,7 +82,7 @@ public sealed class ApiSurfacePreviewTests
         var deadline = DateTimeOffset.UtcNow.AddMinutes(3);
         Audit? audit = null;
         do { audit = (await client.GetFromJsonAsync<Audit>($"/api/v1/audits/{id}", Json))!; if (AuditStates.IsTerminal(audit.State)) break; await Task.Delay(250); } while (DateTimeOffset.UtcNow < deadline);
-        Assert.Equal(AuditState.Completed, audit!.State);
+        Assert.True(audit!.State == AuditState.Completed, audit.PolicyReason);
         return audit;
     }
 }

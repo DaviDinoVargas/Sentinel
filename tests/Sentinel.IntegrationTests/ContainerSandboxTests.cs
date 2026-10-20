@@ -13,6 +13,27 @@ namespace Sentinel.IntegrationTests;
 public sealed class ContainerSandboxTests
 {
     [Fact]
+    public async Task Limpeza_concorrente_confirma_ausencia_do_container_sem_falso_erro()
+    {
+        var runtime = new PluginRuntime(Options.Create(new PluginRuntimeOptions { Image = Image }), new TestEnvironment());
+        var name = "sentinel-plugin-" + Guid.NewGuid().ToString("N");
+        var manifest = new PluginManifest(); manifest.Metadata.Id = "sentinel.fixture.sim-001";
+        var start = runtime.Start("unused", manifest, name, DateTimeOffset.UtcNow.AddSeconds(40));
+        start.ArgumentList.RemoveAt(start.ArgumentList.Count - 1); start.ArgumentList.RemoveAt(start.ArgumentList.Count - 1);
+        foreach (var argument in new[] { "--entrypoint", "sleep", Image, "30" }) start.ArgumentList.Add(argument);
+        start.RedirectStandardOutput = true; start.RedirectStandardError = true; start.UseShellExecute = false; start.CreateNoWindow = true;
+        using var running = Process.Start(start)!;
+        try
+        {
+            for (var attempt = 0; attempt < 30; attempt++) { if ((await Docker("inspect", name)).Code == 0) break; await Task.Delay(100); }
+            await Task.WhenAll(runtime.RemoveAsync(name), runtime.RemoveAsync(name), runtime.RemoveAsync(name));
+            await running.WaitForExitAsync();
+            var remaining = await Docker("ps", "-a", "--filter", "name=^/" + name + "$", "--format", "{{.Names}}");
+            Assert.Equal(0, remaining.Code); Assert.True(string.IsNullOrWhiteSpace(remaining.Output));
+        }
+        finally { await runtime.RemoveAsync(name); }
+    }
+    [Fact]
     public async Task Montagem_de_snapshot_real_e_somente_leitura_sem_outros_diretorios_do_host()
     {
         var root=Path.GetFullPath(Path.Combine(AppContext.BaseDirectory,"../../../../../.local/source-tests/work"));
