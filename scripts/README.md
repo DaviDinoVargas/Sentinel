@@ -28,3 +28,7 @@ Credenciais do SQL e segredos sintéticos JWT/ML são gerados no primeiro iníci
 Os processos ficam em segundo plano, com logs em `.local/locadora/`. A cópia pode conter alterações locais do dono; não executar reset, clean, push ou atualizações de dependências no original. Resultados de segurança não devem ser publicados no repositório.
 
 O perfil `lab-active` é uma bateria inicial e limitada de GETs, selecionada e confirmada na Central de auditorias. Não inclui força bruta de contas reais, escrita de dados, carga autenticada de negócio, ZAP, captura de câmera ou testes biométricos. Novos cenários exigem implementação com escopo, limites e acompanhamento correspondentes.
+
+## Identidade local
+
+start-identity.ps1 inicia/reutiliza Keycloak 26.8.1 com imagem pinada por digest, volume sentinel-keycloak-data e porta loopback 18080. Configura realm/cliente público PKCE a partir de infra/keycloak/realm.json, sem password grant ou implicit para o frontend. O operador sentinel.local é criado uma única vez; senha sintética fica criptografada por DPAPI em .local/identity/operator.credential.xml. Usuários existentes não têm senha redefinida. Credenciais não aparecem em argumentos, logs ou Git. O start-local.ps1 chama esse bootstrap; -SkipIdentitySetup serve para reutilizar uma identidade já preparada. O modo H2/HTTP é exclusivo do laboratório local; produção exige configuração própria.

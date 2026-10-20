@@ -6,6 +6,8 @@ import axe from 'axe-core';
 import { App } from './app';
 import { routes } from './app.routes';
 import { WorkspaceService } from './core/workspace.service';
+import { AuthSessionService } from './core/auth-session.service';
+import { adminIdentity } from './testing/identity-fixture';
 
 describe('Acessibilidade das telas', () => {
   let fixture: ComponentFixture<App>;
@@ -16,6 +18,10 @@ describe('Acessibilidade das telas', () => {
       providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter(routes)],
     });
     const ws = TestBed.inject(WorkspaceService);
+    const auth = TestBed.inject(AuthSessionService);
+    auth.profile.set(adminIdentity);
+    auth.ready.set(true);
+    vi.spyOn(auth, 'start').mockResolvedValue(undefined);
     vi.spyOn(ws, 'start').mockImplementation(() => undefined);
     const project = {
       id: 'project',
@@ -177,6 +183,7 @@ describe('Acessibilidade das telas', () => {
     'plugins',
     'operations',
     'coverage',
+    'identity',
   ])('verifica semântica e nomes acessíveis em /%s nos dois temas', async (path) => {
     await TestBed.inject(Router).navigateByUrl(`/${path}`);
     fixture.detectChanges();

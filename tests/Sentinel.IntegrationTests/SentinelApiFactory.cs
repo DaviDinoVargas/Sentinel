@@ -10,6 +10,13 @@ namespace Sentinel.IntegrationTests;
 public sealed class SentinelApiFactory : WebApplicationFactory<Program>
 {
     public bool StartWorkers { get; init; } = true;
+    public TestIdentityProvider Identity { get; } = new();
+    public new HttpClient CreateClient()
+    {
+        var client = base.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", Identity.Token());
+        return client;
+    }
     public LabTargetServer LabTarget { get; } = new();
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -29,6 +36,7 @@ public sealed class SentinelApiFactory : WebApplicationFactory<Program>
                 // filas da aplicação local. Um worker de sentinel_dev nunca deve
                 // consumir e descartar mensagens destinadas a sentinel_test.
                 ["RabbitMq:TopologySuffix"] = "integration-tests",
+                ["Identity:Authority"] = Identity.Issuer,
             });
         });
     }
@@ -39,6 +47,7 @@ public sealed class SentinelApiFactory : WebApplicationFactory<Program>
         if (disposing)
         {
             LabTarget.Dispose();
+            Identity.Dispose();
         }
     }
 }

@@ -5,6 +5,7 @@ import { RouterLink } from '@angular/router';
 import { WorkspaceService } from '../core/workspace.service';
 import { Icon } from '../design-system/icon';
 import { EmptyState } from '../design-system/ui';
+import { AuthSessionService } from '../core/auth-session.service';
 
 @Component({
   imports: [CommonModule, ReactiveFormsModule, RouterLink, Icon, EmptyState],
@@ -70,6 +71,11 @@ import { EmptyState } from '../design-system/ui';
         <section class="panel panel-pad">
           <p class="kicker">NOVO CONTEXTO</p>
           <h2>Criar projeto</h2>
+          @if (!auth.can('projects.manage')) {
+            <p class="help">
+              Seu papel permite consultar projetos; cadastrar exige permissão de gerenciamento.
+            </p>
+          }
           <p class="help" style="margin:0 0 21px">
             Comece pelo nome da aplicação. O alvo será definido em um escopo autorizado.
           </p>
@@ -92,7 +98,11 @@ import { EmptyState } from '../design-system/ui';
                 maxlength="1000"
                 placeholder="Contexto da aplicação, sem credenciais ou segredos."
               ></textarea></label
-            ><button type="submit" class="button primary" [disabled]="saving()">
+            ><button
+              type="submit"
+              class="button primary"
+              [disabled]="saving() || !auth.can('projects.manage')"
+            >
               <s-icon name="plus" />{{ saving() ? 'Criando…' : 'Criar projeto' }}
             </button>
           </form>
@@ -168,6 +178,7 @@ import { EmptyState } from '../design-system/ui';
   `,
 })
 export class ProjectsPage {
+  readonly auth = inject(AuthSessionService);
   readonly ws = inject(WorkspaceService);
   readonly search = signal('');
   readonly saving = signal(false);

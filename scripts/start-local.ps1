@@ -1,8 +1,9 @@
-param([switch]$RestartApi, [switch]$SkipBuild)
+param([switch]$RestartApi, [switch]$SkipBuild, [switch]$SkipIdentitySetup)
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path $PSScriptRoot -Parent
 $logDirectory = Join-Path $repoRoot '.local'
 New-Item -ItemType Directory -Path $logDirectory -Force | Out-Null
+if (-not $SkipIdentitySetup) { & (Join-Path $PSScriptRoot 'start-identity.ps1'); if ($LASTEXITCODE -ne 0) { throw 'Inicialização da identidade falhou.' } }
 foreach ($name in @('sentinel-postgres', 'sentinel-rabbitmq')) {
     $container = docker inspect $name | ConvertFrom-Json
     if ($LASTEXITCODE -ne 0) { throw "Container local ausente: $name" }
@@ -50,9 +51,9 @@ $deadline = [DateTime]::UtcNow.AddSeconds(45)
 do {
     try {
         $health = Invoke-RestMethod 'http://localhost:5161/api/v1/health' -TimeoutSec 2
-        $catalog = Invoke-RestMethod 'http://localhost:5161/api/v1/plugins' -TimeoutSec 2
+        $identity = Invoke-RestMethod 'http://localhost:5161/api/v1/identity/configuration' -TimeoutSec 2
         $page = Invoke-WebRequest 'http://localhost:4200' -TimeoutSec 2
-        if ($health.status -eq 'healthy' -and $catalog.plugins.Count -gt 0 -and $page.StatusCode -eq 200) {
+        if ($health.status -eq 'healthy' -and $identity.authority -and $page.StatusCode -eq 200) {
             Write-Output 'Sentinel disponível: http://localhost:4200 | API: http://localhost:5161 | Logs: .local/'
             exit 0
         }

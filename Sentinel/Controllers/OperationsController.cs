@@ -3,11 +3,14 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Sentinel.Execution;
 using Sentinel.Persistence;
+using Sentinel.Identity;
+using Microsoft.AspNetCore.Authorization;
 
 namespace Sentinel.Controllers;
 
 [ApiController]
 [Route("api/v1/operations")]
+[Authorize(Policy = Permissions.Platform)]
 public sealed class OperationsController(
     IDbContextFactory<SentinelDbContext> dbFactory,
     RabbitMqConnectionProvider rabbitMq,
@@ -22,13 +25,13 @@ public sealed class OperationsController(
         try
         {
             await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-            var pending = db.AuditOutbox.Where(message => message.Status == "Pending");
+            var pending = db.AuditOutbox.IgnoreQueryFilters().Where(message => message.Status == "Pending");
             database = new("healthy",
-                await db.Projects.CountAsync(cancellationToken),
-                await db.Audits.CountAsync(audit => audit.State == "Queued", cancellationToken),
-                await db.Audits.CountAsync(audit => audit.State == "Failed", cancellationToken),
+                await db.Projects.IgnoreQueryFilters().CountAsync(cancellationToken),
+                await db.Audits.IgnoreQueryFilters().CountAsync(audit => audit.State == "Queued" || audit.State == "WaitingForBudget", cancellationToken),
+                await db.Audits.IgnoreQueryFilters().CountAsync(audit => audit.State == "Failed" || audit.State == "Interrupted", cancellationToken),
                 await pending.CountAsync(cancellationToken),
-                await db.AuditOutbox.CountAsync(message => message.Status == "Dispatched", cancellationToken),
+                await db.AuditOutbox.IgnoreQueryFilters().CountAsync(message => message.Status == "Dispatched", cancellationToken),
                 await pending.Select(message => (DateTimeOffset?)message.CreatedAtUtc).MinAsync(cancellationToken));
         }
         catch (Exception exception) when (exception is not OperationCanceledException)

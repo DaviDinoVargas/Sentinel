@@ -45,7 +45,7 @@ npm run test:contrast
 npm run build
 ```
 
-Os testes incluem troca de projeto sem mistura de respostas, tratamento de bloqueio HTTP 403, confirmação de tráfego real, horário local de validade, escape de conteúdo de plugins e axe nas onze telas em ambos os temas. Axe/jsdom verifica semântica e nomes acessíveis; o teste de contraste lê os tokens CSS e exige 4.5:1 para 20 pares de texto. Layout e comportamento de teclado também precisam de revisão no navegador.
+Os testes incluem troca de projeto sem mistura de respostas, tratamento de bloqueio HTTP 403, confirmação de tráfego real, horário local de validade, escape de conteúdo de plugins e axe nas doze telas em ambos os temas. Axe/jsdom verifica semântica e nomes acessíveis; o teste de contraste lê os tokens CSS e exige 4.5:1 para 20 pares de texto. Layout e comportamento de teclado também precisam de revisão no navegador.
 
 ## Design system
 
@@ -57,7 +57,7 @@ O tema e o identificador do projeto selecionado podem ser salvos no navegador; c
 
 Os cinco plugins HTTP atuais fazem requisições reais de baixo risco; a fixture não testa o alvo. O campo de ação `simulated` é mantido no contrato da API por compatibilidade. O score atual inclui a fixture, e sua cobertura observada mede auditorias com controles, não cobertura de vulnerabilidades. A interface apresenta essas limitações.
 
-Outros protocolos, análise de repositórios, carga autenticada/ampliada, aprovação humana, autenticação, containers para plugins e armazenamento de artefatos externo permanecem pendentes. A plataforma deve ser usada localmente, em laboratório autorizado, enquanto essas guardas não forem implementadas.
+Outros protocolos, análise de repositórios, carga autenticada/ampliada, aprovação humana de produção, containers para plugins e armazenamento de artefatos externo permanecem pendentes. A plataforma deve ser usada localmente, em laboratório autorizado, enquanto essas guardas não forem implementadas.
 
 ## Laboratório ativo local
 
@@ -70,3 +70,7 @@ As evidências JSON são validadas antes de exibir métricas. Resultados de carg
 ## Controle distribuído
 
 O detalhe da auditoria mostra orçamento global, worker, lease/heartbeat, reserva de segurança, plugin atual, checkpoints e últimos 100 eventos. Permite cancelar e alterar o limite global de 1 a 10 permissões/s. Cancelamento impede novas permissões e encerra o filho; requisições já em trânsito não podem ser desfeitas. Queda durante plugin fica interrompida, sem repetição automática de efeitos incertos. Relatórios podem ser consultados durante a execução para examinar checkpoints concluídos.
+
+## Identidade e sessão
+
+OIDC com Authorization Code + PKCE S256. Tokens somente em memória; estado temporário do fluxo em sessionStorage. A API verifica assinatura, emissor, audiência, validade, papel e organização existente. Identidade e acesso exibe permissões efetivas e organizações; cadastro de organizações e configurações globais exigem PlatformAdmin. Requisições antigas são canceladas e o workspace é limpo ao trocar/encerrar a identidade. Recarregar exige entrar novamente, podendo reutilizar a sessão do provedor. O bootstrap local usa Keycloak no loopback, com credencial DPAPI fora do Git. Permissões por projeto e aprovação de produção permanecem no roadmap.

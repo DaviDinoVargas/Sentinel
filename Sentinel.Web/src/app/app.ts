@@ -1,16 +1,19 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, effect, inject, signal, untracked } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { WorkspaceService } from './core/workspace.service';
 import { Icon } from './design-system/icon';
 import { Tooltip } from './design-system/ui';
+import { AuthSessionService } from './core/auth-session.service';
+import { IdentityPage } from './pages/identity';
 @Component({
   selector: 'app-root',
-  imports: [CommonModule, RouterOutlet, RouterLink, RouterLinkActive, Icon, Tooltip],
+  imports: [CommonModule, RouterOutlet, RouterLink, RouterLinkActive, Icon, Tooltip, IdentityPage],
   templateUrl: './app.html',
   styleUrl: './app.css',
 })
 export class App {
+  readonly auth = inject(AuthSessionService);
   readonly ws = inject(WorkspaceService);
   readonly mobileOpen = signal(false);
   readonly dark = signal(false);
@@ -26,6 +29,7 @@ export class App {
     { path: '/plugins', label: 'Plugins e controles', icon: 'plugin', group: 'PLATAFORMA' },
     { path: '/operations', label: 'Infraestrutura e filas', icon: 'server', group: '' },
     { path: '/coverage', label: 'Capacidades', icon: 'layers', group: '' },
+    { path: '/identity', label: 'Identidade e acesso', icon: 'shield', group: '' },
   ];
   constructor() {
     try {
@@ -34,7 +38,19 @@ export class App {
       /* Preferência opcional. */
     }
     document.documentElement.dataset['theme'] = this.dark() ? 'dark' : 'light';
-    this.ws.start();
+    let lastIdentity = '';
+    effect(() => {
+      const profile = this.auth.profile();
+      const identity = profile ? profile.subject + ':' + profile.organization.id : '';
+      untracked(() => {
+        if (identity !== lastIdentity) {
+          if (lastIdentity || !profile) this.ws.reset();
+          lastIdentity = identity;
+        }
+        if (profile) this.ws.start();
+      });
+    });
+    void this.auth.start();
   }
   toggleTheme(): void {
     this.dark.update((value) => !value);

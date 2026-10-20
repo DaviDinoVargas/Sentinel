@@ -23,6 +23,7 @@ public sealed class PostgresSentinelStore : ISentinelStore
         };
 
         using var db = _dbContextFactory.CreateDbContext();
+        row.OrganizationId = db.CurrentOrganizationId;
         db.Projects.Add(row);
         db.SaveChanges();
         return ToProject(row);

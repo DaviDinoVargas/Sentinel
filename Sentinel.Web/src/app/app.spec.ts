@@ -3,6 +3,8 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideRouter } from '@angular/router';
 import { App } from './app';
+import { AuthSessionService } from './core/auth-session.service';
+import { adminIdentity } from './testing/identity-fixture';
 
 describe('Central Sentinel', () => {
   beforeEach(() => {
@@ -11,6 +13,10 @@ describe('Central Sentinel', () => {
       imports: [App],
       providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([])],
     });
+    const auth = TestBed.inject(AuthSessionService);
+    auth.profile.set(adminIdentity);
+    auth.ready.set(true);
+    vi.spyOn(auth, 'start').mockResolvedValue(undefined);
   });
   afterEach(() => {
     TestBed.inject(HttpTestingController).verify();
@@ -36,7 +42,7 @@ describe('Central Sentinel', () => {
   it('apresenta navegação para todas as capacidades implementadas', () => {
     const fixture = render();
     const element = fixture.nativeElement as HTMLElement;
-    expect(element.querySelectorAll('nav a').length).toBe(11);
+    expect(element.querySelectorAll('nav a').length).toBe(12);
     expect(element.textContent).toContain('Infraestrutura e filas');
     expect(element.textContent).toContain('Evidências e relatórios');
     expect(element.querySelector('select')?.disabled).toBe(true);

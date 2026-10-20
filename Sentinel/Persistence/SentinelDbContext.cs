@@ -1,14 +1,20 @@
 using Microsoft.EntityFrameworkCore;
+using Sentinel.Identity;
 
 namespace Sentinel.Persistence;
 
 public sealed class SentinelDbContext : DbContext
 {
-    public SentinelDbContext(DbContextOptions<SentinelDbContext> options) : base(options)
+    private readonly TenantAccess? _tenant;
+    public Guid CurrentOrganizationId => _tenant?.OrganizationId ?? TenantAccess.LegacyOrganizationId;
+    public bool IsSystem => _tenant?.IsSystem ?? true;
+    public SentinelDbContext(DbContextOptions<SentinelDbContext> options, TenantAccess? tenant = null) : base(options)
     {
+        _tenant = tenant;
     }
 
     public DbSet<ProjectRow> Projects => Set<ProjectRow>();
+    public DbSet<OrganizationRow> Organizations => Set<OrganizationRow>();
     public DbSet<ScopeRow> Scopes => Set<ScopeRow>();
     public DbSet<AuditRow> Audits => Set<AuditRow>();
     public DbSet<AuditControlRow> AuditControls => Set<AuditControlRow>();
@@ -20,6 +26,12 @@ public sealed class SentinelDbContext : DbContext
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<OrganizationRow>(entity =>
+        {
+            entity.ToTable("organizations"); entity.HasKey(row => row.Id);
+            entity.Property(row => row.Name).HasMaxLength(200).IsRequired();
+            entity.HasData(new OrganizationRow { Id = TenantAccess.LegacyOrganizationId, Name = "Workspace Sentinel", CreatedAtUtc = new DateTimeOffset(2026, 10, 19, 0, 0, 0, TimeSpan.Zero) });
+        });
         modelBuilder.Entity<AuditExecutionRow>(entity =>
         {
             entity.ToTable("audit_executions");
@@ -29,7 +41,8 @@ public sealed class SentinelDbContext : DbContext
             entity.Property(row => row.CurrentPluginId).HasMaxLength(200);
             entity.Property(row => row.CompletedPluginsJson).HasColumnType("jsonb");
             entity.HasIndex(row => new { row.TargetKey, row.SafetyUntilUtc });
-            entity.HasOne<AuditRow>().WithOne().HasForeignKey<AuditExecutionRow>(row => row.AuditId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(row => row.Audit).WithOne().HasForeignKey<AuditExecutionRow>(row => row.AuditId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasQueryFilter(row => IsSystem || row.Audit.Project.OrganizationId == CurrentOrganizationId);
         });
         modelBuilder.Entity<TargetBudgetRow>(entity =>
         {
@@ -44,11 +57,15 @@ public sealed class SentinelDbContext : DbContext
             entity.Property(row => row.Kind).HasMaxLength(100);
             entity.Property(row => row.Detail).HasMaxLength(2000);
             entity.HasIndex(row => new { row.AuditId, row.Id });
-            entity.HasOne<AuditRow>().WithMany().HasForeignKey(row => row.AuditId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(row => row.Audit).WithMany().HasForeignKey(row => row.AuditId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasQueryFilter(row => IsSystem || row.Audit.Project.OrganizationId == CurrentOrganizationId);
         });
         modelBuilder.Entity<ProjectRow>(entity =>
         {
             entity.ToTable("projects");
+            entity.Property(row => row.OrganizationId).HasDefaultValue(TenantAccess.LegacyOrganizationId);
+            entity.HasOne<OrganizationRow>().WithMany().HasForeignKey(row => row.OrganizationId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasQueryFilter(row => IsSystem || row.OrganizationId == CurrentOrganizationId);
             entity.HasKey(project => project.Id);
             entity.Property(project => project.Name).HasMaxLength(200).IsRequired();
             entity.Property(project => project.Description).HasMaxLength(2_000);
@@ -58,6 +75,7 @@ public sealed class SentinelDbContext : DbContext
         modelBuilder.Entity<ScopeRow>(entity =>
         {
             entity.ToTable("scopes");
+            entity.HasQueryFilter(row => IsSystem || row.Project.OrganizationId == CurrentOrganizationId);
             entity.HasKey(scope => scope.Id);
             entity.Property(scope => scope.TargetBaseUrl).HasMaxLength(2_048).IsRequired();
             entity.Property(scope => scope.Environment).HasMaxLength(100).IsRequired();
@@ -72,6 +90,7 @@ public sealed class SentinelDbContext : DbContext
         modelBuilder.Entity<AuditRow>(entity =>
         {
             entity.ToTable("audits");
+            entity.HasQueryFilter(row => IsSystem || row.Project.OrganizationId == CurrentOrganizationId);
             entity.HasKey(audit => audit.Id);
             entity.Property(audit => audit.TargetUrl).HasMaxLength(2_048).IsRequired();
             entity.Property(audit => audit.State).HasMaxLength(50).IsRequired();
@@ -91,6 +110,7 @@ public sealed class SentinelDbContext : DbContext
         modelBuilder.Entity<AuditControlRow>(entity =>
         {
             entity.ToTable("audit_controls");
+            entity.HasQueryFilter(row => IsSystem || row.Audit.Project.OrganizationId == CurrentOrganizationId);
             entity.HasKey(control => control.Id);
             entity.Property(control => control.ControlId).HasMaxLength(100).IsRequired();
             entity.Property(control => control.State).HasMaxLength(50).IsRequired();
@@ -109,6 +129,7 @@ public sealed class SentinelDbContext : DbContext
         modelBuilder.Entity<AuditEvidenceRow>(entity =>
         {
             entity.ToTable("audit_evidence");
+            entity.HasQueryFilter(row => IsSystem || row.Audit.Project.OrganizationId == CurrentOrganizationId);
             entity.HasKey(evidence => evidence.Id);
             entity.Property(evidence => evidence.EvidenceReference).HasMaxLength(100).IsRequired();
             entity.Property(evidence => evidence.Sha256).HasMaxLength(64).IsRequired();
@@ -124,6 +145,8 @@ public sealed class SentinelDbContext : DbContext
         modelBuilder.Entity<AuditOutboxRow>(entity =>
         {
             entity.ToTable("audit_outbox");
+            entity.HasOne(row => row.Audit).WithOne().HasForeignKey<AuditOutboxRow>(row => row.Id).OnDelete(DeleteBehavior.Restrict);
+            entity.HasQueryFilter(row => IsSystem || row.Audit.Project.OrganizationId == CurrentOrganizationId);
             entity.HasKey(message => message.Id);
             entity.Property(message => message.PayloadJson).HasColumnName("payload_json").IsRequired();
             entity.Property(message => message.Status).HasColumnName("status").HasMaxLength(50).IsRequired();
@@ -137,6 +160,7 @@ public sealed class SentinelDbContext : DbContext
 
 public sealed class AuditExecutionRow
 {
+    public AuditRow Audit { get; set; } = null!;
     public Guid AuditId { get; set; }
     public string TargetKey { get; set; } = "";
     public string? WorkerId { get; set; }
@@ -162,6 +186,7 @@ public sealed class TargetBudgetRow
 
 public sealed class ExecutionEventRow
 {
+    public AuditRow Audit { get; set; } = null!;
     public long Id { get; set; }
     public Guid AuditId { get; set; }
     public DateTimeOffset AtUtc { get; set; }
@@ -171,6 +196,7 @@ public sealed class ExecutionEventRow
 
 public sealed class ProjectRow
 {
+    public Guid OrganizationId { get; set; } = TenantAccess.LegacyOrganizationId;
     public Guid Id { get; set; }
     public string Name { get; set; } = string.Empty;
     public string? Description { get; set; }
@@ -223,12 +249,20 @@ public sealed class AuditControlRow
 
 public sealed class AuditOutboxRow
 {
+    public AuditRow Audit { get; set; } = null!;
     public Guid Id { get; set; }
     public string PayloadJson { get; set; } = string.Empty;
     public string Status { get; set; } = "Pending";
     public int Attempts { get; set; }
     public DateTimeOffset CreatedAtUtc { get; set; }
     public DateTimeOffset? DispatchedAtUtc { get; set; }
+}
+
+public sealed class OrganizationRow
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = "";
+    public DateTimeOffset CreatedAtUtc { get; set; }
 }
 
 public sealed class AuditEvidenceRow

@@ -171,7 +171,6 @@ namespace Sentinel.Persistence.Migrations
             modelBuilder.Entity("Sentinel.Persistence.AuditOutboxRow", b =>
                 {
                     b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
                     b.Property<int>("Attempts")
@@ -278,6 +277,33 @@ namespace Sentinel.Persistence.Migrations
                     b.ToTable("execution_events", (string)null);
                 });
 
+            modelBuilder.Entity("Sentinel.Persistence.OrganizationRow", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("organizations", (string)null);
+
+                    b.HasData(
+                        new
+                        {
+                            Id = new Guid("a594dfb1-5bee-4d9b-bb65-949f9c0ed0c7"),
+                            CreatedAtUtc = new DateTimeOffset(new DateTime(2026, 10, 19, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            Name = "Workspace Sentinel"
+                        });
+                });
+
             modelBuilder.Entity("Sentinel.Persistence.ProjectRow", b =>
                 {
                     b.Property<Guid>("Id")
@@ -296,7 +322,14 @@ namespace Sentinel.Persistence.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
+                    b.Property<Guid>("OrganizationId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValue(new Guid("a594dfb1-5bee-4d9b-bb65-949f9c0ed0c7"));
+
                     b.HasKey("Id");
+
+                    b.HasIndex("OrganizationId");
 
                     b.ToTable("projects", (string)null);
                 });
@@ -374,11 +407,24 @@ namespace Sentinel.Persistence.Migrations
 
             modelBuilder.Entity("Sentinel.Persistence.AuditExecutionRow", b =>
                 {
-                    b.HasOne("Sentinel.Persistence.AuditRow", null)
+                    b.HasOne("Sentinel.Persistence.AuditRow", "Audit")
                         .WithOne()
                         .HasForeignKey("Sentinel.Persistence.AuditExecutionRow", "AuditId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+
+                    b.Navigation("Audit");
+                });
+
+            modelBuilder.Entity("Sentinel.Persistence.AuditOutboxRow", b =>
+                {
+                    b.HasOne("Sentinel.Persistence.AuditRow", "Audit")
+                        .WithOne()
+                        .HasForeignKey("Sentinel.Persistence.AuditOutboxRow", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Audit");
                 });
 
             modelBuilder.Entity("Sentinel.Persistence.AuditRow", b =>
@@ -401,9 +447,20 @@ namespace Sentinel.Persistence.Migrations
 
             modelBuilder.Entity("Sentinel.Persistence.ExecutionEventRow", b =>
                 {
-                    b.HasOne("Sentinel.Persistence.AuditRow", null)
+                    b.HasOne("Sentinel.Persistence.AuditRow", "Audit")
                         .WithMany()
                         .HasForeignKey("AuditId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Audit");
+                });
+
+            modelBuilder.Entity("Sentinel.Persistence.ProjectRow", b =>
+                {
+                    b.HasOne("Sentinel.Persistence.OrganizationRow", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });

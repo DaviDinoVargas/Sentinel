@@ -13,6 +13,7 @@ import {
 import { WorkspaceService } from '../core/workspace.service';
 import { Badge, EmptyState } from '../design-system/ui';
 import { Icon } from '../design-system/icon';
+import { AuthSessionService } from '../core/auth-session.service';
 
 @Component({
   imports: [CommonModule, ReactiveFormsModule, RouterLink, Badge, EmptyState, Icon],
@@ -35,6 +36,11 @@ import { Icon } from '../design-system/icon';
       </section>
     } @else {
       <section class="panel panel-pad">
+        @if (!auth.can('audits.execute')) {
+          <p class="help">
+            Seu papel permite consultar auditorias. Executar e cancelar exige permissão de operação.
+          </p>
+        }
         <div class="panel-header" style="padding:0 0 20px">
           <div>
             <h2>Nova auditoria HTTP</h2>
@@ -54,7 +60,9 @@ import { Icon } from '../design-system/icon';
               "
             >
               <option value="simulated">Verificações HTTP de baixo risco</option>
-              <option value="lab-active">Laboratório ativo: carga limitada + probes GET</option>
+              <option value="lab-active" [disabled]="!auth.can('audits.execute-active')">
+                Laboratório ativo: carga limitada + probes GET
+              </option>
             </select></label
           >
           @if (profile() === 'lab-active') {
@@ -99,7 +107,14 @@ import { Icon } from '../design-system/icon';
                 >Confirmo a execução de requisições HTTP contra o alvo autorizado. A API revalidará
                 o escopo.</span
               ></label
-            ><button class="button primary" type="submit" [disabled]="submitting()">
+            ><button
+              class="button primary"
+              type="submit"
+              [disabled]="
+                submitting() ||
+                !auth.can(profile() === 'lab-active' ? 'audits.execute-active' : 'audits.execute')
+              "
+            >
               <s-icon name="play" />{{ submitting() ? 'Enviando…' : 'Iniciar auditoria' }}
             </button>
           </div>
@@ -233,6 +248,7 @@ import { Icon } from '../design-system/icon';
   `,
 })
 export class AuditsPage {
+  readonly auth = inject(AuthSessionService);
   readonly ws = inject(WorkspaceService);
   private readonly router = inject(Router);
   readonly submitting = signal(false);
@@ -370,7 +386,9 @@ export class AuditsPage {
             <button
               class="button"
               (click)="cancel(item.id)"
-              [disabled]="cancelling() || item.state === 'Cancelling'"
+              [disabled]="
+                cancelling() || item.state === 'Cancelling' || !auth.can('audits.execute')
+              "
             >
               {{ item.state === 'Cancelling' ? 'Cancelamento solicitado' : 'Cancelar execução' }}
             </button>
@@ -416,10 +434,16 @@ export class AuditsPage {
               projetos e perfis que usam esse alvo. Taxas menores podem interromper testes pelo
               prazo do plugin.
             </p>
+            @if (!auth.can('platform.manage')) {
+              <p class="help">
+                Somente administradores da plataforma alteram o orçamento global, pois ele afeta
+                projetos de várias organizações.
+              </p>
+            }
             <button
               class="button small"
               type="submit"
-              [disabled]="savingBudget() || budgetForm.invalid"
+              [disabled]="savingBudget() || budgetForm.invalid || !auth.can('platform.manage')"
             >
               Salvar limite global
             </button>
@@ -545,6 +569,7 @@ export class AuditsPage {
   `,
 })
 export class AuditDetailPage {
+  readonly auth = inject(AuthSessionService);
   readonly terminal = isAuditTerminal;
   readonly ws = inject(WorkspaceService);
   readonly audit = signal<Audit | null>(null);

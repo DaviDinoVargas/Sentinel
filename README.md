@@ -27,9 +27,28 @@ O script inicia/reutiliza os containers, inicia API e frontend em segundo plano 
 
 Alternativamente, defina `SENTINEL_POSTGRES_PASSWORD` e `SENTINEL_RABBITMQ_PASSWORD` no ambiente e execute `dotnet run --project Sentinel/Sentinel.csproj`. Migrações são aplicadas na inicialização. PostgreSQL é a fonte de verdade; não há fallback em memória.
 
+## Identidade e organizações
+
+O acesso às rotas de negócio exige JWT emitido pelo provedor OIDC. O frontend usa Authorization Code + PKCE S256 via `oidc-client-ts`; tokens ficam somente na memória da aba e não são salvos em localStorage/sessionStorage. Apenas o estado temporário do protocolo PKCE usa sessionStorage. Recarregar a página exige entrar novamente, podendo reaproveitar a sessão do provedor. A API valida assinatura, emissor, audiência, prazo, papel e uma única organização existente.
+
+O módulo **Identidade e acesso** mostra identidade, organização, papéis, permissões efetivas e limitações. Administradores da plataforma podem listar/cadastrar organizações; atribuição de organização e papéis às identidades ocorre no provedor. Filtros globais do EF Core isolam projetos, escopos, auditorias, controles, evidências, execução e outbox nas requisições HTTP. Workers de background processam envelopes persistidos entre organizações. Projetos históricos são preservados na organização inicial da migração.
+
+| Papel | Permissões |
+| --- | --- |
+| ReadOnly / Auditor | Consultar recursos da própria organização |
+| Developer | Consulta, cadastro de projetos, verificações de baixo risco e cancelamento |
+| SecurityEngineer / OrganizationAdmin | Também autorizar escopos e executar perfil ativo de laboratório |
+| PlatformAdmin | Também administrar organizações, infraestrutura global e orçamento por alvo; recursos de projetos continuam vinculados à organização do token |
+
+Rotas públicas de negócio: `GET /api/v1/health` e `GET /api/v1/identity/configuration`. Perfil em `GET /api/v1/identity`; administração em `GET/POST /api/v1/identity/organizations`. Orçamento por alvo é global entre organizações e por isso só PlatformAdmin o altera. Swagger continua disponível no ambiente Development.
+
+`start-local.ps1` inicia/reutiliza o Keycloak por `scripts/start-identity.ps1`: imagem 26.8.1 pinada por digest, volume próprio e publicação somente em `127.0.0.1:18080`. O cliente público não permite implicit flow ou password grant. O operador sintético `sentinel.local` recebe credencial criptografada pelo DPAPI do usuário Windows em `.local/identity/operator.credential.xml`; nunca versionar ou imprimir credenciais nos logs. Para consultar a senha local em um terminal privado, o proprietário pode usar `(Import-Clixml .local/identity/operator.credential.xml).GetNetworkCredential().Password`. O bootstrap não redefine senhas de usuários existentes.
+
+A configuração local HTTP/H2 é exclusiva de desenvolvimento. Produção exige HTTPS, provedor/banco configurados e operação endurecida. `Identity:Authority`, `Identity:Audience`, `Identity:ClientId`, `Identity:RedirectUri` e `Identity:PostLogoutRedirectUri` permitem configurar o provedor. HTTP para metadados OIDC só é permitido em loopback no ambiente Development. Permissões específicas por projeto e aprovações de produção ainda são pendências.
+
 ## Interface
 
-Onze módulos: visão geral, projetos, escopos/políticas, auditorias e detalhe, resultados/achados, evidências/relatórios, score, Performance Lab, plugins/controles, infraestrutura/filas e capacidades. O estado vem da API; gráficos e contadores informam o recorte consultado. Veja [Sentinel.Web/README.md](Sentinel.Web/README.md).
+Doze módulos: visão geral, projetos, escopos/políticas, auditorias e detalhe, resultados/achados, evidências/relatórios, score, Performance Lab, plugins/controles, infraestrutura/filas, capacidades e identidade/acesso. O estado vem da API; gráficos e contadores informam o recorte consultado. Veja [Sentinel.Web/README.md](Sentinel.Web/README.md).
 
 ## Controles atuais
 
@@ -50,7 +69,7 @@ Os cinco últimos fazem requisições HTTP reais. O nome de ação `simulated` p
 - `LAB-AUTH-01`: quando o baseline exige autenticação, tenta dois tokens de laboratório (inválido e JWT sem assinatura). Acesso 2xx após recusa anônima exige revisão de possível bypass.
 - `LAB-INP-01`: duas entradas GET na query da URL autorizada, procurando vazamento de stack trace em 5xx. Ausência de vazamento é inconclusiva quanto a SQL injection/XSS.
 
-Os dois plugins ativos não executam no perfil padrão. Métricas aparecem em Performance Lab; controles e evidências nas telas de investigação e no relatório. O orçamento é compartilhado no PostgreSQL entre workers, projetos e perfis do mesmo host/porta. Ainda não há autenticação de operadores ou cenários autenticados.
+Os dois plugins ativos não executam no perfil padrão. Métricas aparecem em Performance Lab; controles e evidências nas telas de investigação e no relatório. O orçamento é compartilhado no PostgreSQL entre workers, projetos e perfis do mesmo host/porta. Ainda não há cenários autenticados contra os alvos auditados.
 
 Para uma cópia da Locadora já preparada fora do diretório original, `scripts/start-locadora-lab.ps1 -LabPath <caminho-da-copia>` inicia SQL Server com banco/volume próprios e processos locais nas portas 14200, 15079/17064 e 18000. Requer dependências instaladas e build Release da cópia. Não modifica o TCC original; o proxy valida TLS com o certificado público local e não exporta chave privada. Logs/relatórios ficam em `.local/locadora/`, fora do Git. Consulte [scripts/README.md](scripts/README.md).
 
@@ -101,6 +120,6 @@ O score `P0-1.0` expõe fórmula, componentes, cobertura, confiança e limitaç�
 
 ## Cobertura e continuidade
 
-Hoje os adaptadores implementados avaliam URLs HTTP/HTTPS. O objetivo de atender diferentes softwares exige novos adaptadores de alvo e plugins. A tela Capacidades explicita pendências como análise de código/dependências, banco e RabbitMQ do alvo, desktop/mobile, carga autenticada/ampliada, grafo/fluxos, Keycloak, MinIO/S3, containers para plugins e triagem de achados.
+Hoje os adaptadores implementados avaliam URLs HTTP/HTTPS. O objetivo de atender diferentes softwares exige novos adaptadores de alvo e plugins. A tela Capacidades explicita pendências como análise de código/dependências, banco e RabbitMQ do alvo, desktop/mobile, carga autenticada/ampliada, grafo/fluxos, MinIO/S3, containers para plugins e triagem de achados.
 
-Uso atual: ambiente local/laboratório autorizado. Ainda não há autenticação, aprovação humana, revogação de escopo ou guardas completas de produção.
+Uso atual: ambiente local/laboratório autorizado. Ainda não há aprovação humana de produção ou revogação de escopo ou guardas completas de produção.

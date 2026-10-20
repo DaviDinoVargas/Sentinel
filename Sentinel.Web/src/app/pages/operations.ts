@@ -3,6 +3,7 @@ import { CommonModule } from '@angular/common';
 import { WorkspaceService } from '../core/workspace.service';
 import { Badge, EmptyState } from '../design-system/ui';
 import { Icon } from '../design-system/icon';
+import { AuthSessionService } from '../core/auth-session.service';
 @Component({
   imports: [CommonModule, Badge, EmptyState, Icon],
   template: `
@@ -16,17 +17,24 @@ import { Icon } from '../design-system/icon';
         <s-icon name="refresh" /> Atualizar agora
       </button>
     </div>
-    @if (ws.operations(); as ops) {
+    @if (!auth.can('platform.manage')) {
+      <section class="panel">
+        <s-empty
+          title="Acesso restrito à administração da plataforma"
+          description="Este painel contém informações globais de infraestrutura. Seus projetos, auditorias e evidências continuam disponíveis nas respectivas telas."
+        />
+      </section>
+    } @else if (ws.operations(); as ops) {
       <div class="metric-grid">
         <article class="metric">
           <div class="metric-top">Auditorias na fila <s-icon name="clock" /></div>
           <strong>{{ ops.database.queuedAudits ?? '—' }}</strong
-          ><small>Estado Queued no PostgreSQL</small>
+          ><small>Na fila ou aguardando orçamento</small>
         </article>
         <article class="metric warn">
           <div class="metric-top">Execuções com falha <s-icon name="alert" /></div>
           <strong>{{ ops.database.failedAudits ?? '—' }}</strong
-          ><small>Estado Failed · histórico completo</small>
+          ><small>Falhas e interrupções · histórico completo</small>
         </article>
         <article class="metric">
           <div class="metric-top">Outbox pendente <s-icon name="layers" /></div>
@@ -157,5 +165,6 @@ import { Icon } from '../design-system/icon';
   `,
 })
 export class OperationsPage {
+  readonly auth = inject(AuthSessionService);
   readonly ws = inject(WorkspaceService);
 }

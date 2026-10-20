@@ -1,6 +1,16 @@
 import { Routes } from '@angular/router';
 
 export const routes: Routes = [
+  {
+    path: 'identity',
+    title: 'Identidade e acesso · Sentinel',
+    loadComponent: () => import('./pages/identity').then((m) => m.IdentityPage),
+  },
+  {
+    path: 'auth/callback',
+    title: 'Autenticando · Sentinel',
+    loadComponent: () => import('./pages/identity').then((m) => m.IdentityPage),
+  },
   { path: '', pathMatch: 'full', redirectTo: 'overview' },
   {
     path: 'overview',

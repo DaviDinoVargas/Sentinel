@@ -112,6 +112,13 @@ export class CoveragePage {
   );
   readonly available = [
     {
+      title: 'Identidade e organizações',
+      description:
+        'OIDC/PKCE, papéis, isolamento por organização e permissões verificadas no backend',
+      path: '/identity',
+      screen: 'Identidade e acesso',
+    },
+    {
       title: 'Carga limitada de laboratório',
       description:
         '40 GETs, concorrência 2, teto 10 inícios/s, percentis e aborto por sinais de impacto',
@@ -132,7 +139,8 @@ export class CoveragePage {
     },
     {
       title: 'Execução assíncrona',
-      description: 'Orçamento global, posse/heartbeat, checkpoints, cancelamento e recuperação após falhas',
+      description:
+        'Orçamento global, posse/heartbeat, checkpoints, cancelamento e recuperação após falhas',
       path: '/audits',
       screen: 'Central de auditorias',
     },
@@ -188,7 +196,8 @@ export class CoveragePage {
     },
     {
       title: 'Governança ampliada',
-      description: 'Keycloak, aprovação humana, limites de produção e revogação de escopo.',
+      description:
+        'Permissões por projeto, aprovação humana, limites de produção e revogação de escopo.',
     },
     {
       title: 'Isolamento e evidências',

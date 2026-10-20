@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Mvc;
 using Sentinel.Core;
 using Sentinel.Execution;
+using Sentinel.Identity;
+using Microsoft.AspNetCore.Authorization;
 
 namespace Sentinel.Controllers;
 
@@ -22,6 +24,7 @@ public sealed class AuditsController : ControllerBase
         => _coordinator.Snapshot(auditId) is { } snapshot ? Ok(snapshot) : NotFound();
 
     [HttpPost("{auditId:guid}/cancel")]
+    [Authorize(Policy = Permissions.Execute)]
     public ActionResult<Audit> Cancel(Guid auditId)
     {
         var audit = _auditService.FindAudit(auditId);
@@ -31,6 +34,7 @@ public sealed class AuditsController : ControllerBase
     }
 
     [HttpPut("{auditId:guid}/target-budget")]
+    [Authorize(Policy = Permissions.Platform)]
     public ActionResult<TargetBudget> ConfigureBudget(Guid auditId, ConfigureTargetBudgetRequest request)
     {
         if (_coordinator.Snapshot(auditId) is null) return NotFound();

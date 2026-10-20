@@ -1,7 +1,7 @@
 import { computed, DestroyRef, inject, Injectable, signal } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { catchError, EMPTY, forkJoin, Subject, switchMap, timer } from 'rxjs';
+import { catchError, EMPTY, forkJoin, of, Subject, switchMap, takeUntil, timer } from 'rxjs';
 import {
   Audit,
   AuditPage,
@@ -12,9 +12,11 @@ import {
   SentinelApiService,
   SentinelProject,
 } from './sentinel-api.service';
+import { AuthSessionService } from './auth-session.service';
 
 @Injectable({ providedIn: 'root' })
 export class WorkspaceService {
+  private readonly auth = inject(AuthSessionService);
   readonly api = inject(SentinelApiService);
   private readonly destroyRef = inject(DestroyRef);
   readonly projects = signal<SentinelProject[]>([]);
@@ -57,12 +59,14 @@ export class WorkspaceService {
     ),
   );
   private readonly selection = new Subject<{ id: string; offset: number }>();
+  private readonly sessionChanged = new Subject<void>();
   private started = false;
 
   constructor() {
     this.selection
       .pipe(
         switchMap(({ id, offset }) => {
+          if (!id) return EMPTY;
           this.loading.set(true);
           return forkJoin({
             context: this.api.project(id),
@@ -88,13 +92,17 @@ export class WorkspaceService {
       });
   }
   start(): void {
-    if (this.started) return;
+    if (this.started) {
+      this.refresh();
+      return;
+    }
     this.started = true;
     this.refreshProjects();
     this.refreshGlobal();
     timer(5000, 5000)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(() => {
+        if (!this.auth.profile()) return;
         this.now.set(Date.now());
         this.refreshGlobal();
         if (this.projectId() && !this.loading()) this.refreshProject();
@@ -104,7 +112,7 @@ export class WorkspaceService {
     this.projectsLoading.set(true);
     this.api
       .projects()
-      .pipe(takeUntilDestroyed(this.destroyRef))
+      .pipe(takeUntil(this.sessionChanged), takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (projects) => {
           this.projects.set(projects);
@@ -150,9 +158,11 @@ export class WorkspaceService {
     this.refreshing.set(true);
     forkJoin({
       catalog: this.api.plugins().pipe(catchError(() => [null])),
-      operations: this.api.operations().pipe(catchError(() => [null])),
+      operations: this.auth.can('platform.manage')
+        ? this.api.operations().pipe(catchError(() => [null]))
+        : of(null),
     })
-      .pipe(takeUntilDestroyed(this.destroyRef))
+      .pipe(takeUntil(this.sessionChanged), takeUntilDestroyed(this.destroyRef))
       .subscribe((result) => {
         this.catalog.set(result.catalog);
         this.operations.set(result.operations);
@@ -165,6 +175,24 @@ export class WorkspaceService {
     this.refreshProjects();
     this.refreshGlobal();
     this.refreshProject();
+  }
+  reset(): void {
+    this.sessionChanged.next();
+    this.selection.next({ id: '', offset: 0 });
+    this.refreshing.set(false);
+    this.projectId.set('');
+    this.projects.set([]);
+    this.context.set(null);
+    this.history.set(null);
+    this.score.set(null);
+    this.catalog.set(null);
+    this.operations.set(null);
+    this.error.set('');
+    this.contextError.set('');
+    this.notice.set('');
+    this.projectsLoading.set(false);
+    this.loading.set(false);
+    this.lastSync.set(null);
   }
   updateAudit(audit: Audit): void {
     this.notice.set(

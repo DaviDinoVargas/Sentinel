@@ -5,6 +5,7 @@ using Sentinel.Core;
 using Sentinel.Execution;
 using Sentinel.Persistence;
 using Sentinel.Workers;
+using Sentinel.Identity;
 using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -13,6 +14,7 @@ builder.Services.AddControllers().AddJsonOptions(options =>
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddSingleton<TimeProvider>(TimeProvider.System);
+builder.Services.AddSentinelIdentity(builder.Configuration, builder.Environment);
 // Resolve a configuração final do host no momento de criar as opções. Capturar a
 // connection string antes de Build ignora substituições do WebApplicationFactory
 // e pode enviar os testes para o banco de desenvolvimento.
@@ -90,6 +92,7 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
 app.MapGet("/api/v1/health", async (IDbContextFactory<SentinelDbContext> dbContextFactory, CancellationToken cancellationToken) =>
@@ -99,7 +102,7 @@ app.MapGet("/api/v1/health", async (IDbContextFactory<SentinelDbContext> dbConte
     return connected
         ? Results.Ok(new { status = "healthy", persistence = "postgresql" })
         : Results.Problem(statusCode: StatusCodes.Status503ServiceUnavailable, title: "Banco de dados indisponível");
-});
+}).AllowAnonymous();
 
 app.Run();
 

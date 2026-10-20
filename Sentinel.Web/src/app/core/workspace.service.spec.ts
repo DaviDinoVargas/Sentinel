@@ -2,6 +2,8 @@ import { TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { WorkspaceService } from './workspace.service';
+import { AuthSessionService } from './auth-session.service';
+import { adminIdentity } from '../testing/identity-fixture';
 
 describe('WorkspaceService', () => {
   let ws: WorkspaceService;
@@ -18,6 +20,7 @@ describe('WorkspaceService', () => {
       providers: [provideHttpClient(), provideHttpClientTesting()],
     });
     ws = TestBed.inject(WorkspaceService);
+    TestBed.inject(AuthSessionService).profile.set(adminIdentity);
     http = TestBed.inject(HttpTestingController);
   });
   afterEach(() => http.verify({ ignoreCancelled: true }));

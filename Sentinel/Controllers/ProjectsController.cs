@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Sentinel.Core;
+using Sentinel.Identity;
+using Microsoft.AspNetCore.Authorization;
 
 namespace Sentinel.Controllers;
 
@@ -52,6 +54,7 @@ public sealed class ProjectsController : ControllerBase
     }
 
     [HttpPost]
+    [Authorize(Policy = Permissions.ManageProjects)]
     [ProducesResponseType(typeof(SentinelProject), StatusCodes.Status201Created)]
     public ActionResult<SentinelProject> CreateProject([FromBody] CreateProjectRequest request)
     {
@@ -67,6 +70,7 @@ public sealed class ProjectsController : ControllerBase
     }
 
     [HttpPost("{projectId:guid}/scopes")]
+    [Authorize(Policy = Permissions.ManageScopes)]
     [ProducesResponseType(typeof(AuthorizedScope), StatusCodes.Status201Created)]
     public ActionResult<AuthorizedScope> CreateScope(Guid projectId, [FromBody] CreateScopeRequest request)
     {
@@ -86,10 +90,13 @@ public sealed class ProjectsController : ControllerBase
     }
 
     [HttpPost("{projectId:guid}/audits")]
+    [Authorize(Policy = Permissions.Execute)]
     [ProducesResponseType(typeof(Audit), StatusCodes.Status202Accepted)]
     [ProducesResponseType(typeof(Audit), StatusCodes.Status403Forbidden)]
     public ActionResult<Audit> RequestAudit(Guid projectId, [FromBody] RequestAuditRequest request)
     {
+        if (string.Equals(request.Action, "lab-active", StringComparison.OrdinalIgnoreCase) &&
+            !Permissions.Roles[Permissions.ExecuteActive].Any(User.IsInRole)) return Forbid();
         var correlationId = HttpContext.TraceIdentifier;
         try
         {

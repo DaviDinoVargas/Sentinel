@@ -5,6 +5,7 @@ import { RouterLink } from '@angular/router';
 import { WorkspaceService } from '../core/workspace.service';
 import { Badge, EmptyState } from '../design-system/ui';
 import { Icon } from '../design-system/icon';
+import { AuthSessionService } from '../core/auth-session.service';
 
 export function localExpiry(): string {
   const date = new Date(Date.now() + 3600000);
@@ -144,7 +145,16 @@ export function localExpiry(): string {
             @if (form.controls.authorized.touched && form.controls.authorized.invalid) {
               <p class="field-error">Confirme a autorização para continuar.</p>
             }
-            <button class="button primary" type="submit" [disabled]="saving()">
+            @if (!auth.can('scopes.manage')) {
+              <p class="help">
+                Autorizar escopos exige papel de administração ou engenharia de segurança.
+              </p>
+            }
+            <button
+              class="button primary"
+              type="submit"
+              [disabled]="saving() || !auth.can('scopes.manage')"
+            >
               <s-icon name="scope" />{{ saving() ? 'Registrando…' : 'Registrar autorização' }}
             </button>
           </form>
@@ -158,6 +168,7 @@ export function localExpiry(): string {
   `,
 })
 export class ScopesPage {
+  readonly auth = inject(AuthSessionService);
   readonly ws = inject(WorkspaceService);
   readonly saving = signal(false);
   readonly form = inject(FormBuilder).nonNullable.group({

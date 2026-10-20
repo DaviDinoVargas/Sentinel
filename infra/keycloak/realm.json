@@ -1,0 +1,49 @@
+{
+  "realm": "sentinel",
+  "enabled": true,
+  "displayName": "Sentinel Security Workspace",
+  "registrationAllowed": false,
+  "resetPasswordAllowed": false,
+  "rememberMe": false,
+  "bruteForceProtected": true,
+  "accessTokenLifespan": 300,
+  "ssoSessionIdleTimeout": 1800,
+  "ssoSessionMaxLifespan": 28800,
+  "roles": {
+    "realm": [
+      { "name": "PlatformAdmin" }, { "name": "OrganizationAdmin" },
+      { "name": "SecurityEngineer" }, { "name": "Developer" },
+      { "name": "Auditor" }, { "name": "ReadOnly" }
+    ]
+  },
+  "clients": [{
+    "clientId": "sentinel-web",
+    "name": "Sentinel Web",
+    "enabled": true,
+    "publicClient": true,
+    "protocol": "openid-connect",
+    "standardFlowEnabled": true,
+    "implicitFlowEnabled": false,
+    "directAccessGrantsEnabled": false,
+    "serviceAccountsEnabled": false,
+    "redirectUris": ["http://localhost:4200/auth/callback"],
+    "webOrigins": ["http://localhost:4200"],
+    "attributes": {
+      "pkce.code.challenge.method": "S256",
+      "post.logout.redirect.uris": "http://localhost:4200/identity"
+    },
+    "protocolMappers": [{
+      "name": "sentinel-roles", "protocol": "openid-connect",
+      "protocolMapper": "oidc-usermodel-realm-role-mapper",
+      "config": { "multivalued": "true", "claim.name": "roles", "jsonType.label": "String", "access.token.claim": "true", "id.token.claim": "true", "userinfo.token.claim": "true" }
+    }, {
+      "name": "sentinel-organization", "protocol": "openid-connect",
+      "protocolMapper": "oidc-usermodel-attribute-mapper",
+      "config": { "user.attribute": "organization_id", "claim.name": "organization_id", "jsonType.label": "String", "multivalued": "false", "access.token.claim": "true", "id.token.claim": "true", "userinfo.token.claim": "true" }
+    }, {
+      "name": "sentinel-api-audience", "protocol": "openid-connect",
+      "protocolMapper": "oidc-audience-mapper",
+      "config": { "included.custom.audience": "sentinel-api", "access.token.claim": "true", "id.token.claim": "false" }
+    }]
+  }]
+}
