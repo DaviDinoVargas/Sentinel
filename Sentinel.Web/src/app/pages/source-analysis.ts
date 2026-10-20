@@ -41,6 +41,7 @@ import { Icon } from '../design-system/icon';
     </div>
     <p class="section-gap">
       <a class="text-link" routerLink="/dependencies">Dependências, licenças declaradas e SBOM →</a>
+      · <a class="text-link" routerLink="/api-surface">Contratos OpenAPI e superfície de APIs →</a>
     </p>
     <section class="panel panel-pad section-gap">
       <h2>Enviar snapshot ZIP</h2>

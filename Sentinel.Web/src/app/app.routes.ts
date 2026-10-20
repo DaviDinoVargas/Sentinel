@@ -2,6 +2,11 @@ import { Routes } from '@angular/router';
 
 export const routes: Routes = [
   {
+    path: 'api-surface',
+    title: 'Superfície de APIs · Sentinel',
+    loadComponent: () => import('./pages/api-surface').then((m) => m.ApiSurfacePage),
+  },
+  {
     path: 'dependencies',
     title: 'Dependências · Sentinel',
     loadComponent: () => import('./pages/dependencies').then((m) => m.DependenciesPage),

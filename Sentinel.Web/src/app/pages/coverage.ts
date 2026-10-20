@@ -113,6 +113,13 @@ export class CoveragePage {
   );
   readonly available = [
     {
+      title: 'Superfície OpenAPI',
+      description:
+        'Inventário declarado em JSON, evidência verificada e prévia de escopo por URL/histórico HTTP; sem varredura automática',
+      path: '/api-surface',
+      screen: 'Superfície de APIs',
+    },
+    {
       title: 'Dependências offline',
       description:
         'Trivy em snapshot autorizado, versões/transitivas reconhecidas, CVEs, licenças declaradas e SBOM com recorte explícito',

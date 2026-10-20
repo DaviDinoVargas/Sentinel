@@ -26,6 +26,7 @@ export class App {
     { path: '/findings', label: 'Resultados e achados', icon: 'search', group: '' },
     { path: '/source-analysis', label: 'Fontes e segredos', icon: 'document', group: '' },
     { path: '/dependencies', label: 'Dependências', icon: 'layers', group: '' },
+    { path: '/api-surface', label: 'Superfície de APIs', icon: 'scope', group: '' },
     { path: '/evidence', label: 'Evidências e relatórios', icon: 'document', group: '' },
     { path: '/score', label: 'Security Score', icon: 'chart', group: '' },
     { path: '/performance', label: 'Performance Lab', icon: 'clock', group: '' },

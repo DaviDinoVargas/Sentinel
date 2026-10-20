@@ -43,6 +43,7 @@ describe('Central Sentinel', () => {
     const fixture = render();
     const element = fixture.nativeElement as HTMLElement;
     expect(element.querySelector('nav a[href="/dependencies"]')).not.toBeNull();
+    expect(element.querySelector('nav a[href="/api-surface"]')).not.toBeNull();
     expect(element.textContent).toContain('Fontes e segredos');
     expect(element.textContent).toContain('Infraestrutura e filas');
     expect(element.textContent).toContain('Evidências e relatórios');
