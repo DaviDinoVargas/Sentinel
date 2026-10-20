@@ -1,0 +1,22 @@
+apiVersion: sentinel.dev/v1
+kind: PluginManifest
+metadata:
+  id: sentinel.source.dependencies
+  version: 1.0.0
+  name: Dependências e vulnerabilidades offline com Trivy 0.76.0 (SUP-01)
+spec:
+  type: dependency-analyzer
+  contractVersion: "1.0"
+  mode: passive
+  controls: [SUP-01]
+  capabilities:
+    network: "false"
+    sourceRead: true
+    artifactWrite: false
+  resources:
+    timeoutSeconds: 150
+    memoryMiB: 512
+  permissions: [target.source.read]
+  execution:
+    isolation: container
+  riskClass: low

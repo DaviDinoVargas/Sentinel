@@ -34,10 +34,14 @@ import { Icon } from '../design-system/icon';
     <div class="banner">
       <s-icon name="shield" /><span
         >Análise do snapshot enviado: inventário e candidatos a segredos. Sem build, restore,
-        histórico Git ou validação de credenciais. Dependências declaradas ainda não são avaliadas
-        contra CVEs.</span
+        histórico Git ou validação de credenciais. Lockfiles e manifestos suportados também são
+        avaliados pelo Trivy offline; consulte componentes, CVEs e o recorte do SBOM na tela
+        Dependências.</span
       >
     </div>
+    <p class="section-gap">
+      <a class="text-link" routerLink="/dependencies">Dependências, licenças declaradas e SBOM →</a>
+    </p>
     <section class="panel panel-pad section-gap">
       <h2>Enviar snapshot ZIP</h2>
       @if (auth.can('scopes.manage')) {

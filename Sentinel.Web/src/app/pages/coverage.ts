@@ -113,6 +113,13 @@ export class CoveragePage {
   );
   readonly available = [
     {
+      title: 'Dependências offline',
+      description:
+        'Trivy em snapshot autorizado, versões/transitivas reconhecidas, CVEs, licenças declaradas e SBOM com recorte explícito',
+      path: '/dependencies',
+      screen: 'Dependências',
+    },
+    {
       title: 'Fontes e segredos',
       description:
         'Snapshot ZIP autorizado, inventário e dependências declaradas, candidatos a segredos com Gitleaks isolado',
@@ -196,7 +203,7 @@ export class CoveragePage {
     {
       title: 'Análise de código e dependências ampliada',
       description:
-        'AST/fluxo de dados, Trivy, vulnerabilidades transitivas, SBOM, licenças e histórico Git.',
+        'AST/fluxo de dados, histórico Git, cobertura ampliada de dependências, inventário completo e confirmação de uso no código/runtime.',
     },
     {
       title: 'DAST ampliado',

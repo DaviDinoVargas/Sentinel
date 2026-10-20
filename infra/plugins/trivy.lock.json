@@ -1,0 +1,7 @@
+{
+  "version": "0.76.0",
+  "image": "aquasec/trivy:0.76.0@sha256:2416d1f74045b57274df1a340eee6b510cacd73c66a6ccb8da092b117eb7d222",
+  "database": "ghcr.io/aquasecurity/trivy-db@sha256:5903d201b3dc68dda334b9a9397ed51bd7956d834f43ab4edae6844a18912ced",
+  "maximumDatabaseAgeDays": 7,
+  "release": "https://github.com/aquasecurity/trivy/releases/tag/v0.76.0"
+}

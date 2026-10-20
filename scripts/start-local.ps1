@@ -17,6 +17,20 @@ foreach ($name in @('sentinel-postgres', 'sentinel-rabbitmq')) {
         if ($LASTEXITCODE -ne 0) { throw "Não foi possível iniciar $name" }
     }
 }
+# A running container may still be recovering its database after a VM restart.
+# Do not start the API/migrations until the existing data services are ready.
+Write-Output 'Aguardando PostgreSQL e RabbitMQ ficarem prontos (até 3 minutos)...'
+$servicesDeadline = [DateTime]::UtcNow.AddMinutes(3)
+do {
+    docker exec sentinel-postgres pg_isready -U sentinel_app -d sentinel_dev -t 2 *> $null
+    $postgresReady = $LASTEXITCODE -eq 0
+    if ($postgresReady) {
+        docker exec sentinel-rabbitmq rabbitmq-diagnostics -q ping *> $null
+        if ($LASTEXITCODE -eq 0) { break }
+    }
+    if ([DateTime]::UtcNow -ge $servicesDeadline) { throw 'PostgreSQL/RabbitMQ ainda não estão prontos. Verifique recuperação e logs dos containers; não recrie os volumes.' }
+    Start-Sleep -Seconds 2
+} while ($true)
 $listener = Get-NetTCPConnection -State Listen -LocalPort 5161 -ErrorAction SilentlyContinue | Select-Object -First 1
 if ($listener -and $RestartApi) {
     $existing = Get-CimInstance Win32_Process -Filter "ProcessId=$($listener.OwningProcess)"

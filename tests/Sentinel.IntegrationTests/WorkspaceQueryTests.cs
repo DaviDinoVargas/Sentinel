@@ -80,7 +80,10 @@ public sealed class WorkspaceQueryTests(SentinelApiFactory factory) : IClassFixt
         Assert.Equal("automatic-schema-validation", root.GetProperty("approvalMode").GetString());
         Assert.Equal(0, root.GetProperty("rejectedCount").GetInt32());
         var plugins = root.GetProperty("plugins").EnumerateArray().ToArray();
-        Assert.Equal(11, plugins.Length); Assert.Single(plugins, plugin => plugin.GetProperty("isFixture").GetBoolean());
+        Assert.Single(plugins, plugin => plugin.GetProperty("isFixture").GetBoolean());
+        var dependencies = Assert.Single(plugins, plugin => plugin.GetProperty("id").GetString() == "sentinel.source.dependencies");
+        Assert.True(dependencies.GetProperty("capabilities").GetProperty("sourceRead").GetBoolean());
+        Assert.Equal("false", dependencies.GetProperty("capabilities").GetProperty("network").GetString());
         Assert.Contains(plugins, plugin => plugin.GetProperty("controls").EnumerateArray().Any(control => control.GetString() == "WEB-CFG-06"));
         Assert.All(plugins, plugin => { Assert.Equal("process", plugin.GetProperty("isolation").GetString()); Assert.True(plugin.GetProperty("resources").GetProperty("timeoutSeconds").GetInt32() > 0); });
         Assert.DoesNotContain("manifestPath", body); Assert.DoesNotContain("password", body, StringComparison.OrdinalIgnoreCase);

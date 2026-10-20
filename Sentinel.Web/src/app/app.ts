@@ -25,6 +25,7 @@ export class App {
     { path: '/audits', label: 'Central de auditorias', icon: 'play', group: 'INVESTIGAÇÃO' },
     { path: '/findings', label: 'Resultados e achados', icon: 'search', group: '' },
     { path: '/source-analysis', label: 'Fontes e segredos', icon: 'document', group: '' },
+    { path: '/dependencies', label: 'Dependências', icon: 'layers', group: '' },
     { path: '/evidence', label: 'Evidências e relatórios', icon: 'document', group: '' },
     { path: '/score', label: 'Security Score', icon: 'chart', group: '' },
     { path: '/performance', label: 'Performance Lab', icon: 'clock', group: '' },

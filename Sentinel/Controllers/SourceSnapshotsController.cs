@@ -27,7 +27,8 @@ public sealed class SourceSnapshotsController(SourceSnapshotStore snapshots, IDb
                 "Snapshot cifrado por uma hora; extração transitória exclusivamente para container sem rede, com montagem somente leitura. Logs não recebem conteúdo do código.",
                 "Envio/revogação exigem permissão de escopos; execução usa permissão de auditoria. Dez snapshots retidos/projeto, cem na instalação.",
                 "Gitleaks usa configuração da plataforma; .gitleaksignore não é materializado e comentários de dispensa são desconsiderados. Não valida credenciais nem as transmite.",
-                "Inventário identifica extensões e dependências declaradas em package.json/csproj. Não executa AST/fluxo de dados, resolve versões, analisa CVEs ou garante ausência de segredos.",
+                "Inventário identifica extensões e dependências declaradas em package.json/csproj. Trivy offline analisa manifestos/lockfiles suportados com base fixada (idade máxima 7 dias), até 8 MiB de entradas; nenhum build/restore ou confirmação de uso em runtime.",
+                "Dependências/CVEs/licenças e exportação de SBOM parcial estão na tela Dependências. Relatórios têm limites explícitos de exportação; ausência de candidatos não aprova o projeto. Não executa AST/fluxo de dados nem confirma exploração.",
                 "Fontes de mesma chave estável compartilham histórico. Resultado sem padrões de segredo é Informational, nunca Passed ou resolução automática.",
                 "Volumes/chaves e SourceSnapshots:StorageId devem ser compartilhados por workers; identidade padrão deriva de máquina/diretório. Falha de volume interrompe sem aprovar o alvo." } });
     }

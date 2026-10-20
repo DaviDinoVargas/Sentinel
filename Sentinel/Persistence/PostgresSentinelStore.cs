@@ -116,8 +116,14 @@ public sealed class PostgresSentinelStore : ISentinelStore
     public IReadOnlyList<OutboxMessage> GetPendingOutboxMessages(int limit)
     {
         using var db = _dbContextFactory.CreateDbContext();
+        var terminal = new[] { "Completed", "Cancelled", "Blocked", "Failed", "Interrupted" };
+        // Keep the authoritative envelope/history, but do not publish obsolete jobs.
+        // EF query filters also apply to retirement; HTTP tenant contexts stay scoped.
+        db.AuditOutbox.Where(message => message.Status == "Pending" && terminal.Contains(message.Audit.State))
+            .OrderBy(message => message.CreatedAtUtc).Take(500)
+            .ExecuteUpdate(setters => setters.SetProperty(message => message.Status, "Superseded"));
         return db.AuditOutbox.AsNoTracking()
-            .Where(message => message.Status == "Pending")
+            .Where(message => message.Status == "Pending" && !terminal.Contains(message.Audit.State))
             .OrderBy(message => message.CreatedAtUtc)
             .Take(limit)
             .Select(message => new OutboxMessage(message.Id, message.PayloadJson, message.Attempts))

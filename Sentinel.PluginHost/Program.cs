@@ -19,6 +19,7 @@ public static class Program
         ["sentinel.fixture.sim-001"] = () => new Sim001FixtureCheck(),
         ["sentinel.source.inventory"] = () => new SourceInventoryCheck(),
         ["sentinel.source.secrets"] = () => new SourceSecretsCheck(),
+        ["sentinel.source.dependencies"] = () => new SourceDependenciesCheck(),
         ["sentinel.http.security-headers"] = () => new HttpSecurityHeadersCheck(),
         ["sentinel.http.cors-reflection"] = () => new CorsReflectionCheck(),
         ["sentinel.http.error-disclosure"] = () => new ErrorDisclosureCheck(),

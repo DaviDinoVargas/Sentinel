@@ -2,6 +2,11 @@ import { Routes } from '@angular/router';
 
 export const routes: Routes = [
   {
+    path: 'dependencies',
+    title: 'Dependências · Sentinel',
+    loadComponent: () => import('./pages/dependencies').then((m) => m.DependenciesPage),
+  },
+  {
     path: 'source-analysis',
     title: 'Fontes e segredos · Sentinel',
     loadComponent: () => import('./pages/source-analysis').then((m) => m.SourceAnalysisPage),

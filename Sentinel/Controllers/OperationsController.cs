@@ -32,7 +32,8 @@ public sealed class OperationsController(
                 await db.Audits.IgnoreQueryFilters().CountAsync(audit => audit.State == "Failed" || audit.State == "Interrupted", cancellationToken),
                 await pending.CountAsync(cancellationToken),
                 await db.AuditOutbox.IgnoreQueryFilters().CountAsync(message => message.Status == "Dispatched", cancellationToken),
-                await pending.Select(message => (DateTimeOffset?)message.CreatedAtUtc).MinAsync(cancellationToken));
+                await pending.Select(message => (DateTimeOffset?)message.CreatedAtUtc).MinAsync(cancellationToken),
+                await db.AuditOutbox.IgnoreQueryFilters().CountAsync(message => message.Status == "Superseded", cancellationToken));
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -68,6 +69,6 @@ public sealed class OperationsController(
 }
 
 public sealed record OperationsSnapshot(DateTimeOffset SampledAtUtc, string Status, DatabaseSnapshot Database, BrokerSnapshot Broker);
-public sealed record DatabaseSnapshot(string Status, int? Projects, int? QueuedAudits, int? FailedAudits, int? PendingOutbox, int? DispatchedOutbox, DateTimeOffset? OldestPendingAtUtc);
+public sealed record DatabaseSnapshot(string Status, int? Projects, int? QueuedAudits, int? FailedAudits, int? PendingOutbox, int? DispatchedOutbox, DateTimeOffset? OldestPendingAtUtc, int? SupersededOutbox = null);
 public sealed record BrokerSnapshot(string Status, int DeliveryLimit, IReadOnlyList<QueueSnapshot> Queues);
 public sealed record QueueSnapshot(string Name, uint ReadyMessages, uint Consumers);

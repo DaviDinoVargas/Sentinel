@@ -31,6 +31,9 @@ public sealed class OutboxDispatcher : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        // Do not synchronously drain a backlog inside BackgroundService.StartAsync:
+        // consumers and the HTTP server must be able to start while we publish.
+        await Task.Yield();
         using var channel = _connectionProvider.Connection.CreateModel();
         RabbitMqTopology.Declare(channel, _options);
         channel.ConfirmSelect();
@@ -45,6 +48,7 @@ public sealed class OutboxDispatcher : BackgroundService
             {
                 foreach (var message in _store.GetPendingOutboxMessages(limit: 50))
                 {
+                    stoppingToken.ThrowIfCancellationRequested();
                     var properties = channel.CreateBasicProperties();
                     properties.Persistent = true;
                     properties.ContentType = "application/json";
@@ -64,6 +68,7 @@ public sealed class OutboxDispatcher : BackgroundService
                     }
                 }
             }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
             catch (Exception exception)
             {
                 _logger.LogError(exception, "Falha ao despachar mensagens do outbox.");
@@ -79,6 +84,7 @@ public sealed class OutboxDispatcher : BackgroundService
                 {
                 }
             }
+            else await Task.Yield();
         }
     }
 }

@@ -71,10 +71,16 @@ import { AuthSessionService } from '../core/auth-session.service';
             }}</strong>
           </div>
           <div class="status-line">
-            <span>Persistência de evidências</span><span class="tag">POSTGRESQL</span>
+            <span>Notificações encerradas sem publicação</span
+            ><strong>{{ ops.database.supersededOutbox ?? '—' }}</strong>
+          </div>
+          <div class="status-line">
+            <span>Persistência de evidências</span><span class="tag">ARTEFATOS CIFRADOS</span>
           </div>
           <p class="help">
-            MinIO/S3 ainda não está integrado. Nenhuma credencial é retornada por esta consulta.
+            Metadados no PostgreSQL; artefatos em armazenamento privado com retenção. Notificações
+            de auditorias já encerradas são preservadas como substituídas, sem novo envio. MinIO/S3
+            ainda não está integrado.
           </p>
         </section>
         <section class="panel panel-pad">
@@ -96,7 +102,8 @@ import { AuthSessionService } from '../core/auth-session.service';
             <span>Prefetch do AuditWorker</span><span class="tag">1 MENSAGEM</span>
           </div>
           <div class="status-line">
-            <span>Isolamento atual dos plugins</span><span class="tag">PROCESSO</span>
+            <span>Runtime configurado dos plugins</span
+            ><span class="tag">{{ ws.catalog()?.runtime?.mode ?? 'Indisponível' }}</span>
           </div>
           <p class="help">
             Consumidores conectados são observados pelo broker. Esse número não é um heartbeat de

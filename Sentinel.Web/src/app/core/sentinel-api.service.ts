@@ -237,6 +237,7 @@ export interface OperationsSnapshot {
     failedAudits: number | null;
     pendingOutbox: number | null;
     dispatchedOutbox: number | null;
+    supersededOutbox?: number | null;
     oldestPendingAtUtc: string | null;
   };
   broker: {
