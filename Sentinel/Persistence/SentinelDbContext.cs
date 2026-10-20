@@ -27,6 +27,7 @@ public sealed class SentinelDbContext : DbContext
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        Sentinel.Findings.FindingModel.Configure(modelBuilder, this);
         modelBuilder.Entity<TargetCredentialRow>(entity =>
         {
             entity.ToTable("target_credentials"); entity.HasKey(row => row.Id);

@@ -14,6 +14,8 @@ public static class Permissions
     public const string Execute = "audits.execute";
     public const string ExecuteActive = "audits.execute-active";
     public const string Platform = "platform.manage";
+    public const string TriageFindings = "findings.triage";
+    public const string AcceptRisk = "findings.accept-risk";
     public static readonly IReadOnlyDictionary<string, string[]> Roles = new Dictionary<string, string[]>
     {
         [Read] = ["PlatformAdmin", "OrganizationAdmin", "SecurityEngineer", "Developer", "Auditor", "ReadOnly"],
@@ -22,6 +24,8 @@ public static class Permissions
         [Execute] = ["PlatformAdmin", "OrganizationAdmin", "SecurityEngineer", "Developer"],
         [ExecuteActive] = ["PlatformAdmin", "OrganizationAdmin", "SecurityEngineer"],
         [Platform] = ["PlatformAdmin"],
+        [TriageFindings] = ["PlatformAdmin", "OrganizationAdmin", "SecurityEngineer", "Developer"],
+        [AcceptRisk] = ["PlatformAdmin", "OrganizationAdmin"],
     };
 }
 

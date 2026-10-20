@@ -5,8 +5,9 @@ import { WorkspaceService } from '../core/workspace.service';
 import { Badge, EmptyState } from '../design-system/ui';
 import { HistoryPager } from '../design-system/history-pager';
 import { Icon } from '../design-system/icon';
+import { FindingRegister } from '../design-system/finding-register';
 @Component({
-  imports: [CommonModule, RouterLink, Badge, EmptyState, HistoryPager, Icon],
+  imports: [CommonModule, RouterLink, Badge, EmptyState, HistoryPager, Icon, FindingRegister],
   template: `
     <div class="page-heading">
       <div>
@@ -16,10 +17,11 @@ import { Icon } from '../design-system/icon';
       </div>
       <a class="button" routerLink="/evidence"><s-icon name="document" /> Ver evidências</a>
     </div>
-    <div class="banner">
+    <s-finding-register />
+    <div class="banner section-gap">
       <s-icon name="search" /><span
-        >Resultados por execução, sem deduplicação ou triagem de achados ainda. Os filtros
-        consideram a página de auditorias carregada.</span
+        >Resultados por execução abaixo. Os filtros consideram a página de auditorias
+        carregada.</span
       >
     </div>
     <section class="panel">

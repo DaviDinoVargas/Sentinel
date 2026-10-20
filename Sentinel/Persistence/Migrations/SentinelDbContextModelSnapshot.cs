@@ -22,6 +22,217 @@ namespace Sentinel.Persistence.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("Sentinel.Findings.FindingEventRow", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("Actor")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("AtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("FindingId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("ObservationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Owner")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Priority")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("Revision")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset?>("RiskExpiresAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("FindingId", "Id");
+
+                    b.ToTable("finding_events", (string)null);
+                });
+
+            modelBuilder.Entity("Sentinel.Findings.FindingObservationRow", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("AtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("AuditId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AuditState")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Confidence")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int?>("CredentialVersion")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Fingerprint")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("PluginVersion")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Sequence")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Severity")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Summary")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("TimeSource")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AuditId", "Sequence")
+                        .IsUnique();
+
+                    b.HasIndex("ProjectId", "Fingerprint", "AtUtc");
+
+                    b.ToTable("finding_observations", (string)null);
+                });
+
+            modelBuilder.Entity("Sentinel.Findings.FindingProjectionRow", b =>
+                {
+                    b.Property<Guid>("AuditId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("AtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("AuditId");
+
+                    b.ToTable("finding_projections", (string)null);
+                });
+
+            modelBuilder.Entity("Sentinel.Findings.FindingRow", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Confidence")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("ControlId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Fingerprint")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTimeOffset>("FirstSeenAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("LastAssessedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastAssessedState")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("LastSeenAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("LatestFailureId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Location")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<string>("Owner")
+                        .HasColumnType("text");
+
+                    b.Property<string>("PluginId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Priority")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset?>("RiskExpiresAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Severity")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProjectId", "Fingerprint")
+                        .IsUnique();
+
+                    b.HasIndex("ProjectId", "LastSeenAtUtc");
+
+                    b.ToTable("findings", (string)null);
+                });
+
             modelBuilder.Entity("Sentinel.Persistence.AuditControlRow", b =>
                 {
                     b.Property<Guid>("Id")
@@ -464,6 +675,45 @@ namespace Sentinel.Persistence.Migrations
                     b.HasIndex("ScopeId");
 
                     b.ToTable("target_credentials", (string)null);
+                });
+
+            modelBuilder.Entity("Sentinel.Findings.FindingEventRow", b =>
+                {
+                    b.HasOne("Sentinel.Findings.FindingRow", "Finding")
+                        .WithMany()
+                        .HasForeignKey("FindingId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Finding");
+                });
+
+            modelBuilder.Entity("Sentinel.Findings.FindingObservationRow", b =>
+                {
+                    b.HasOne("Sentinel.Persistence.AuditRow", null)
+                        .WithMany()
+                        .HasForeignKey("AuditId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Sentinel.Persistence.ProjectRow", "Project")
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Project");
+                });
+
+            modelBuilder.Entity("Sentinel.Findings.FindingRow", b =>
+                {
+                    b.HasOne("Sentinel.Persistence.ProjectRow", "Project")
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Project");
                 });
 
             modelBuilder.Entity("Sentinel.Persistence.AuditControlRow", b =>

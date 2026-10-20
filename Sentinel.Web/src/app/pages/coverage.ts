@@ -153,13 +153,15 @@ export class CoveragePage {
     },
     {
       title: 'Resultados de segurança',
-      description: 'Severidade, confiança, origem e versão do plugin',
+      description:
+        'Achados deduplicados, ocorrências, triagem, prioridade e regressões comparáveis',
       path: '/findings',
       screen: 'Resultados e achados',
     },
     {
       title: 'Evidências e relatórios',
-      description: 'Resumo persistido, SHA-256 e exportação JSON por auditoria',
+      description:
+        'Artefatos privados cifrados, hash verificável, exportação e retenção por projeto',
       path: '/evidence',
       screen: 'Evidências e relatórios',
     },
@@ -211,9 +213,9 @@ export class CoveragePage {
       description: 'Credenciais efêmeras para os alvos e armazenamento MinIO/S3.',
     },
     {
-      title: 'Triagem e continuidade',
+      title: 'Remediação e continuidade ampliadas',
       description:
-        'Modelo canônico de achados, deduplicação, correções, regressões e eventos persistidos.',
+        'Orientações de correção, testes de regressão dedicados, SARIF e correlação entre revisões do código.',
     },
   ];
 }

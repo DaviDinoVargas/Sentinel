@@ -156,6 +156,8 @@ export class IdentityPage {
     name: ['', [Validators.required, Validators.maxLength(200)]],
   });
   readonly permissions = [
+    { id: 'findings.triage', label: 'Triar achados e definir prioridade' },
+    { id: 'findings.accept-risk', label: 'Aceitar risco com responsável e validade' },
     { id: 'workspace.read', label: 'Consultar projetos, resultados e evidências da organização' },
     { id: 'projects.manage', label: 'Cadastrar projetos' },
     { id: 'scopes.manage', label: 'Autorizar escopos' },

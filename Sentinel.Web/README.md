@@ -9,7 +9,7 @@ Workspace Angular para acompanhar a segurança de aplicações autorizadas. A in
 - Escopos e políticas: URL base, ambiente, validade local e confirmação de autorização.
 - Acessos do alvo: perfis Bearer cifrados, rotação/revogação e cenários autenticados com referência protegida.
 - Central de auditorias: início de verificações HTTP reais, histórico paginado e detalhe por identificador.
-- Resultados e achados: filtros por resultado, severidade, controle, alvo e resumo.
+- Resultados e achados: registro canônico deduplicado, ocorrências/eventos paginados, triagem com revisão e permissões, prioridade, responsável, aceite com prazo e fechamento por regressão comparável; resultados por execução preservados abaixo.
 - Evidências e relatórios: registros SHA-256, relatório por auditoria e exportação JSON no detalhe.
 - Artefatos privados: visualizador com verificação SHA-256 na API/navegador, exportação de bytes verificados, origem/classificação, indicação de legado e política de retenção de novos registros.
 - Security Score: fórmula, componentes, cobertura, confiança e limitações.

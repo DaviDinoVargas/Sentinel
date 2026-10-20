@@ -22,6 +22,8 @@ else if (OperatingSystem.IsWindows()) protection.ProtectKeysWithDpapi();
 else throw new InvalidOperationException("Configure certificado para proteger as chaves das credenciais fora do laboratório Windows.");
 builder.Services.AddSingleton<TargetCredentialVault>();
 builder.Services.AddSingleton<Sentinel.Evidence.EvidenceArtifactStore>();
+builder.Services.AddSingleton<Sentinel.Findings.FindingProjector>();
+builder.Services.AddHostedService<Sentinel.Findings.FindingProjectionWorker>();
 builder.Services.AddSingleton<Sentinel.Evidence.EvidenceRetentionService>();
 builder.Services.AddHostedService<Sentinel.Evidence.EvidenceRetentionWorker>();
 builder.Services.AddSentinelIdentity(builder.Configuration, builder.Environment);

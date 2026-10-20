@@ -124,6 +124,16 @@ Responsáveis por escopos podem configurar retenção de 1–30 dias para novas 
 
 O mascaramento `basic-v1` cobre padrões de credenciais em texto/JSON, com limite de 64 KiB por artefato. Não garante anonimização de dados pessoais. MinIO/S3, cota global e cadeia de custódia ampliada permanecem pendentes. Hash não equivale a assinatura digital nem confirma a conclusão do controle.
 
+## Gestão de achados
+
+**Resultados e achados** consolida controles `Failed` entre execuções e preserva todas as avaliações (incluindo `Passed`, `Inconclusive` e erros) como ocorrências. O fingerprint considera projeto, URL normalizada, controle/plugin, ação, perfil, expectativa e configuração de carga autenticada. Versões diferentes permanecem no mesmo histórico; regressão exige a mesma versão de plugin e credencial e horários de checkpoint conhecidos. A ordem dos checkpoints prevalece sobre a criação na fila; legado sem horário de coleta não fecha achados automaticamente. Controles demonstrativos são excluídos; o nome histórico de envelope `simulated` também cobre plugins HTTP reais e não elimina seus resultados.
+
+Um serviço processa até 25 auditorias terminais por lote a cada cinco segundos. Ledger por auditoria e lock transacional PostgreSQL tornam a projeção idempotente entre workers e ordenam decisões humanas com consolidações. Inserção histórica fora de ordem recalcula a sequência temporal sem duplicar achados. A interface mostra o número de auditorias pendentes; resultados ainda em andamento continuam disponíveis no relatório da execução.
+
+Triagem exige `findings.triage` (Developer, SecurityEngineer e administradores), com revisão otimista, ator do JWT, motivo e prioridade independentes da severidade/confiança. `AcceptedRisk` exige administrador da organização/plataforma, responsável e validade futura de até 365 dias; vencimento retorna para `Triaged` com evento. `FalsePositive` e aceite vigente preservam a decisão manual. `Resolved` exige nova auditoria concluída com `Passed` comparável depois da última falha; falha posterior reabre. Inconclusão, erro, alteração de versão e execução interrompida não fecham achados.
+
+Rotas: `GET /api/v1/projects/{id}/findings` (filtros/paginação), `GET .../findings/{findingId}` (ocorrências e eventos paginados) e `PUT .../findings/{findingId}/triage`. Links por ocorrência levam aos controles/evidências da auditoria. Achados não equivalem a exploração confirmada; a confiança da ferramenta é preservada. Ainda faltam correlação semântica de URLs/aliases, revisões de código, SARIF, guias de remediação e regressões dedicadas. A projeção usa lock global e requer evolução para volumes maiores.
+
 ## Verificação
 
 ```powershell
@@ -145,6 +155,6 @@ O score `P0-1.0` expõe fórmula, componentes, cobertura, confiança e limitaç�
 
 ## Cobertura e continuidade
 
-Hoje os adaptadores implementados avaliam URLs HTTP/HTTPS. O objetivo de atender diferentes softwares exige novos adaptadores de alvo e plugins. A tela Capacidades explicita pendências como análise de código/dependências, banco e RabbitMQ do alvo, desktop/mobile, carga autenticada/ampliada, grafo/fluxos, MinIO/S3, aprovação humana de plugins e triagem de achados.
+Hoje os adaptadores implementados avaliam URLs HTTP/HTTPS. O objetivo de atender diferentes softwares exige novos adaptadores de alvo e plugins. A tela Capacidades explicita pendências como análise de código/dependências, banco e RabbitMQ do alvo, desktop/mobile, carga autenticada/ampliada, grafo/fluxos, MinIO/S3, aprovação humana de plugins e remediação ampliada.
 
 Uso atual: ambiente local/laboratório autorizado. Ainda não há aprovação humana de produção ou revogação de escopo ou guardas completas de produção.
