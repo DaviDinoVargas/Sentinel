@@ -57,7 +57,7 @@ public sealed class SourceSnapshotStore(IDbContextFactory<SentinelDbContext> fac
         var row = new SourceSnapshotRow { Id = Guid.NewGuid(), ProjectId = project, ScopeId = Guid.NewGuid(), SourceKey = key,
             RevisionLabel = Evidence.EvidenceSanitizer.Apply(revision, 120).Value, Sha256 = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(),
             StorageId = StorageId, Bytes = bytes.Length, ExpandedBytes = inventory.ExpandedBytes, FileCount = inventory.FileCount, CreatedBy = actor, CreatedAtUtc = now, ExpiresAtUtc = now.AddHours(1) };
-        db.Scopes.Add(new ScopeRow { Id = row.ScopeId, ProjectId = project, TargetBaseUrl = Target(row).AbsoluteUri, Environment = "source-analysis", CreatedAtUtc = now, ExpiresAtUtc = row.ExpiresAtUtc });
+        db.Scopes.Add(new ScopeRow { Id = row.ScopeId, ProjectId = project, TargetBaseUrl = Target(row).AbsoluteUri, Environment = "source-analysis", CreatedAtUtc = now, ExpiresAtUtc = row.ExpiresAtUtc, CreatedBy = actor });
         db.Add(row); EnsurePrivateRoot();
         var file = Blob(row.Id); await File.WriteAllBytesAsync(file, Protector(project, row.Id).Protect(bytes), ct);
         try { await db.SaveChangesAsync(ct); await tx.CommitAsync(ct); }

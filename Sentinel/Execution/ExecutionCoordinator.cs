@@ -85,6 +85,7 @@ public sealed class ExecutionCoordinator(IDbContextFactory<SentinelDbContext> fa
     public bool Heartbeat(ExecutionLease lease) => Locked(lease.AuditId, (db, execution, audit, now) =>
     {
         if (!Owns(execution, lease, now) || execution.CancelRequestedAtUtc is not null) return false;
+        if (StopForRevokedScope(db, execution, audit, now)) return false;
         execution.HeartbeatAtUtc = now;
         execution.LeaseUntilUtc = now.AddSeconds(LeaseSeconds);
         execution.SafetyUntilUtc = Later(execution.LeaseUntilUtc, execution.PluginDeadlineUtc?.AddSeconds(2));
@@ -94,6 +95,7 @@ public sealed class ExecutionCoordinator(IDbContextFactory<SentinelDbContext> fa
     public bool BeginPlugin(ExecutionLease lease, string pluginId, DateTimeOffset deadline, string? runtimeDetail = null) => Locked(lease.AuditId, (db, execution, audit, now) =>
     {
         if (!Owns(execution, lease, now) || execution.CancelRequestedAtUtc is not null || deadline <= now) return false;
+        if (StopForRevokedScope(db, execution, audit, now)) return false;
         var completed = JsonSerializer.Deserialize<string[]>(execution.CompletedPluginsJson)!;
         if (completed.Contains(pluginId)) return false;
         execution.CurrentPluginId = pluginId;
@@ -109,6 +111,7 @@ public sealed class ExecutionCoordinator(IDbContextFactory<SentinelDbContext> fa
     {
         if (!Owns(execution, lease, now) || execution.CancelRequestedAtUtc is not null || execution.CurrentPluginId is null || execution.PluginDeadlineUtc <= now)
             return new RequestPermit(false);
+        if (StopForRevokedScope(db, execution, audit, now)) return new RequestPermit(false);
         var budget = db.TargetBudgets.Single(row => row.TargetKey == execution.TargetKey);
         if (budget.NextRequestAtUtc > now)
             return new RequestPermit(false, Math.Max(1, (int)Math.Ceiling((budget.NextRequestAtUtc.Value - now).TotalMilliseconds)));
@@ -121,6 +124,18 @@ public sealed class ExecutionCoordinator(IDbContextFactory<SentinelDbContext> fa
         Event(db, execution, now, "RequestGranted", execution.CurrentPluginId);
         return new RequestPermit(true);
     });
+
+    private static bool StopForRevokedScope(SentinelDbContext db, AuditExecutionRow execution, AuditRow audit, DateTimeOffset now)
+    {
+        if (!db.Scopes.Any(scope => scope.Id == audit.ScopeId && scope.RevokedAtUtc != null)) return false;
+        if (execution.CancelRequestedAtUtc is null)
+        {
+            execution.CancelRequestedAtUtc = now;
+            Event(db, execution, now, "ScopeRevoked", "Escopo revogado; novas permissões recusadas e encerramento solicitado.");
+        }
+        audit.State = nameof(AuditState.Cancelling);
+        return true;
+    }
 
     public bool Checkpoint(ExecutionLease lease, string pluginId, IReadOnlyList<AuditControlResult> controls, IReadOnlyList<AuditEvidence> evidence)
         => Locked(lease.AuditId, (db, execution, audit, now) =>
@@ -256,6 +271,14 @@ public sealed class ExecutionCoordinator(IDbContextFactory<SentinelDbContext> fa
                 VALUES ({audit.Id}, {targetKey}, 0, '[]'::jsonb, 0) ON CONFLICT ("AuditId") DO NOTHING
                 """);
         }
+        // Complete bounded cancellation batches after a persisted scope revocation,
+        // including when the initiating API disappeared or more than 100 jobs existed.
+        var revoked = scan.Audits.AsNoTracking().Where(a => a.ScopeId != null &&
+            scan.Scopes.Any(s => s.Id == a.ScopeId && s.RevokedAtUtc != null) &&
+            !scan.AuditExecutions.Any(e => e.AuditId == a.Id && e.CancelRequestedAtUtc != null) &&
+            new[] { "Queued", "Running", "WaitingForBudget", "Cancelling" }.Contains(a.State))
+            .OrderBy(a => a.CreatedAtUtc).Select(a => a.Id).Take(100).ToArray();
+        foreach (var id in revoked) Cancel(id);
         var scanNow = scan.Database.SqlQuery<DateTimeOffset>($"SELECT clock_timestamp() AS \"Value\"").Single();
         // Oldest delivery first prevents a fixed UUID prefix from starving waiting jobs.
         var ids = (from row in scan.AuditExecutions.AsNoTracking()

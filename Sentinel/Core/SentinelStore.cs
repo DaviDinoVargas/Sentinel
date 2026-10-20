@@ -5,7 +5,7 @@ public interface ISentinelStore
     SentinelProject CreateProject(string name, string? description, DateTimeOffset createdAtUtc);
     SentinelProject? FindProject(Guid projectId);
     IReadOnlyList<SentinelProject> GetProjects(int limit);
-    AuthorizedScope CreateScope(Guid projectId, Uri targetBaseUri, string environment, DateTimeOffset expiresAtUtc, DateTimeOffset createdAtUtc);
+    AuthorizedScope CreateScope(Guid projectId, Uri targetBaseUri, string environment, DateTimeOffset expiresAtUtc, DateTimeOffset createdAtUtc, string? createdBy = null);
     IReadOnlyList<AuthorizedScope> GetScopes(Guid projectId);
 
     // Usado só para o caminho Blocked: a política nega antes de qualquer execução, então

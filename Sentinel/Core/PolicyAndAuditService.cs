@@ -13,7 +13,7 @@ public sealed class ScopePolicyEngine
     {
         if (action == "source-analysis")
         {
-            var sourceScope = scopes.FirstOrDefault(s => s.Environment == "source-analysis" && s.ExpiresAtUtc > nowUtc && s.TargetBaseUri == targetUri);
+            var sourceScope = scopes.FirstOrDefault(s => s.Environment == "source-analysis" && s.RevokedAtUtc is null && s.ExpiresAtUtc > nowUtc && s.TargetBaseUri == targetUri);
             return targetUri.Scheme == "source" && sourceScope is not null ? PolicyDecision.Allow(sourceScope) : PolicyDecision.Block("Snapshot sem escopo exato e válido para análise estática.");
         }
         var active = IsActive(action);
@@ -36,7 +36,7 @@ public sealed class ScopePolicyEngine
 
     private static bool IsAuthorized(AuthorizedScope scope, Uri targetUri, DateTimeOffset nowUtc)
     {
-        if (scope.ExpiresAtUtc <= nowUtc ||
+        if (scope.RevokedAtUtc is not null || scope.ExpiresAtUtc <= nowUtc ||
             !string.Equals(scope.TargetBaseUri.Scheme, targetUri.Scheme, StringComparison.OrdinalIgnoreCase) ||
             !string.Equals(scope.TargetBaseUri.Host, targetUri.Host, StringComparison.OrdinalIgnoreCase) ||
             scope.TargetBaseUri.Port != targetUri.Port)
@@ -77,7 +77,7 @@ public sealed class AuditService
         return _store.CreateProject(request.Name, request.Description, _timeProvider.GetUtcNow());
     }
 
-    public AuthorizedScope CreateScope(Guid projectId, CreateScopeRequest request)
+    public AuthorizedScope CreateScope(Guid projectId, CreateScopeRequest request, string? actor = null)
     {
         if (_store.FindProject(projectId) is null)
         {
@@ -100,8 +100,10 @@ public sealed class AuditService
         {
             throw new ArgumentException("O ambiente é obrigatório.", nameof(request));
         }
+        if (request.Environment.Trim().Equals("source-analysis", StringComparison.OrdinalIgnoreCase)) throw new ArgumentException("O ambiente source-analysis é reservado ao ciclo de snapshots.");
 
-        return _store.CreateScope(projectId, targetBaseUri, request.Environment, request.ExpiresAtUtc, nowUtc);
+        if (actor is { Length: > 200 } || actor?.Any(char.IsControl) == true) throw new ArgumentException("Identidade do operador incompatível com o registro de escopo.");
+        return _store.CreateScope(projectId, targetBaseUri, request.Environment, request.ExpiresAtUtc, nowUtc, actor);
     }
 
     public Audit RequestAudit(Guid projectId, RequestAuditRequest request, string correlationId)

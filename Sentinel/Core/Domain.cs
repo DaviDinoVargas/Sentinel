@@ -12,7 +12,11 @@ public sealed record AuthorizedScope(
     Uri TargetBaseUri,
     string Environment,
     DateTimeOffset ExpiresAtUtc,
-    DateTimeOffset CreatedAtUtc);
+    DateTimeOffset CreatedAtUtc,
+    string? CreatedBy = null,
+    DateTimeOffset? RevokedAtUtc = null,
+    string? RevokedBy = null,
+    string? RevocationReason = null);
 
 public enum AuditState
 {

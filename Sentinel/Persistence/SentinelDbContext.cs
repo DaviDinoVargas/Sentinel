@@ -16,6 +16,7 @@ public sealed class SentinelDbContext : DbContext
     public DbSet<ProjectRow> Projects => Set<ProjectRow>();
     public DbSet<OrganizationRow> Organizations => Set<OrganizationRow>();
     public DbSet<ScopeRow> Scopes => Set<ScopeRow>();
+    public DbSet<ScopeEventRow> ScopeEvents => Set<ScopeEventRow>();
     public DbSet<AuditRow> Audits => Set<AuditRow>();
     public DbSet<AuditControlRow> AuditControls => Set<AuditControlRow>();
     public DbSet<AuditEvidenceRow> AuditEvidence => Set<AuditEvidenceRow>();
@@ -29,6 +30,17 @@ public sealed class SentinelDbContext : DbContext
     {
         Sentinel.Findings.FindingModel.Configure(modelBuilder, this);
         Sentinel.Source.SourceSnapshotRow.Configure(modelBuilder, this);
+        modelBuilder.Entity<ScopeEventRow>(entity =>
+        {
+            entity.ToTable("scope_events", table => table.HasTrigger("scope_events_append_only"));
+            entity.HasKey(row => row.Id);
+            entity.Property(row => row.Kind).HasMaxLength(50).IsRequired();
+            entity.Property(row => row.Actor).HasMaxLength(200).IsRequired();
+            entity.Property(row => row.Reason).HasMaxLength(1000).IsRequired();
+            entity.HasIndex(row => new { row.ScopeId, row.CreatedAtUtc, row.Id });
+            entity.HasOne(row => row.Scope).WithMany().HasForeignKey(row => row.ScopeId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasQueryFilter(row => IsSystem || row.Scope.Project.OrganizationId == CurrentOrganizationId);
+        });
         modelBuilder.Entity<TargetCredentialRow>(entity =>
         {
             entity.ToTable("target_credentials"); entity.HasKey(row => row.Id);
@@ -94,6 +106,9 @@ public sealed class SentinelDbContext : DbContext
             entity.Property(scope => scope.Environment).HasMaxLength(100).IsRequired();
             entity.Property(scope => scope.ExpiresAtUtc).IsRequired();
             entity.Property(scope => scope.CreatedAtUtc).IsRequired();
+            entity.Property(scope => scope.CreatedBy).HasMaxLength(200);
+            entity.Property(scope => scope.RevokedBy).HasMaxLength(200);
+            entity.Property(scope => scope.RevocationReason).HasMaxLength(1000);
             entity.HasOne(scope => scope.Project)
                 .WithMany(project => project.Scopes)
                 .HasForeignKey(scope => scope.ProjectId)
@@ -249,7 +264,23 @@ public sealed class ScopeRow
     public string Environment { get; set; } = string.Empty;
     public DateTimeOffset ExpiresAtUtc { get; set; }
     public DateTimeOffset CreatedAtUtc { get; set; }
+    public string? CreatedBy { get; set; }
+    public DateTimeOffset? RevokedAtUtc { get; set; }
+    public string? RevokedBy { get; set; }
+    public string? RevocationReason { get; set; }
     public ProjectRow Project { get; set; } = null!;
+    public Sentinel.Core.AuthorizedScope ToDomain() => new(Id, ProjectId, new Uri(TargetBaseUrl), Environment, ExpiresAtUtc, CreatedAtUtc, CreatedBy, RevokedAtUtc, RevokedBy, RevocationReason);
+}
+
+public sealed class ScopeEventRow
+{
+    public Guid Id { get; set; }
+    public Guid ScopeId { get; set; }
+    public string Kind { get; set; } = "";
+    public string Actor { get; set; } = "";
+    public string Reason { get; set; } = "";
+    public DateTimeOffset CreatedAtUtc { get; set; }
+    public ScopeRow Scope { get; set; } = null!;
 }
 
 public sealed class AuditRow

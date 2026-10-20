@@ -46,7 +46,7 @@ public sealed class PostgresSentinelStore : ISentinelStore
             .ToArray();
     }
 
-    public AuthorizedScope CreateScope(Guid projectId, Uri targetBaseUri, string environment, DateTimeOffset expiresAtUtc, DateTimeOffset createdAtUtc)
+    public AuthorizedScope CreateScope(Guid projectId, Uri targetBaseUri, string environment, DateTimeOffset expiresAtUtc, DateTimeOffset createdAtUtc, string? createdBy = null)
     {
         var row = new ScopeRow
         {
@@ -55,11 +55,13 @@ public sealed class PostgresSentinelStore : ISentinelStore
             TargetBaseUrl = targetBaseUri.AbsoluteUri,
             Environment = environment.Trim(),
             ExpiresAtUtc = expiresAtUtc,
-            CreatedAtUtc = createdAtUtc
+            CreatedAtUtc = createdAtUtc,
+            CreatedBy = createdBy
         };
 
         using var db = _dbContextFactory.CreateDbContext();
         db.Scopes.Add(row);
+        if (createdBy is not null) db.ScopeEvents.Add(new ScopeEventRow { Id = Guid.NewGuid(), ScopeId = row.Id, Kind = "ScopeGranted", Actor = createdBy, Reason = "Escopo HTTP registrado pelo operador autorizado.", CreatedAtUtc = createdAtUtc });
         db.SaveChanges();
         return ToScope(row);
     }
@@ -70,13 +72,8 @@ public sealed class PostgresSentinelStore : ISentinelStore
         return db.Scopes.AsNoTracking()
             .Where(scope => scope.ProjectId == projectId)
             .OrderBy(scope => scope.CreatedAtUtc)
-            .Select(scope => new AuthorizedScope(
-                scope.Id,
-                scope.ProjectId,
-                new Uri(scope.TargetBaseUrl, UriKind.Absolute),
-                scope.Environment,
-                scope.ExpiresAtUtc,
-                scope.CreatedAtUtc))
+            .AsEnumerable()
+            .Select(scope => scope.ToDomain())
             .ToArray();
     }
 
@@ -261,7 +258,7 @@ public sealed class PostgresSentinelStore : ISentinelStore
         new(row.Id, row.Name, row.Description, row.CreatedAtUtc);
 
     private static AuthorizedScope ToScope(ScopeRow row) =>
-        new(row.Id, row.ProjectId, new Uri(row.TargetBaseUrl, UriKind.Absolute), row.Environment, row.ExpiresAtUtc, row.CreatedAtUtc);
+        row.ToDomain();
 
     private static Audit ToAudit(AuditRow row) =>
         new(

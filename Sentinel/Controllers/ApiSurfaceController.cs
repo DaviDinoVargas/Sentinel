@@ -52,7 +52,7 @@ public sealed class ApiSurfaceController(ISentinelStore store, EvidenceArtifactS
         var now = time.GetUtcNow();
         using var db = factory.CreateDbContext();
         var scopes = await db.Scopes.AsNoTracking().Where(s => s.ProjectId == projectId && s.ExpiresAtUtc > now).ToArrayAsync(ct);
-        var authorized = scopes.Select(s => new AuthorizedScope(s.Id, s.ProjectId, new Uri(s.TargetBaseUrl), s.Environment, s.ExpiresAtUtc, s.CreatedAtUtc)).ToArray();
+        var authorized = scopes.Select(s => s.ToDomain()).ToArray();
         var destinations = report.Operations.Select(o => Destination(baseUri!, o.Path)).ToArray();
         var urls = destinations.OfType<Uri>().Select(u => u.AbsoluteUri).Distinct().ToArray();
         var history = await db.Audits.AsNoTracking().Where(a => a.ProjectId == projectId && a.State == "Completed" && urls.Contains(a.TargetUrl)

@@ -62,7 +62,6 @@ public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine po
             await _concurrency.WaitAsync(cancellationToken);
             try
             {
-                await ValidateDns(cancellationToken);
                 string? bearer = null;
                 while (true)
                 {
@@ -83,6 +82,8 @@ public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine po
                     if (permit.RetryAfterMs == 0) return Denied(call.RequestId, "Gateway recusou posse, orçamento ou cancelamento.");
                     await Task.Delay(Math.Min(permit.RetryAfterMs, 200), cancellationToken);
                 }
+                await ValidateDns(cancellationToken);
+                cancellationToken.ThrowIfCancellationRequested();
                 using var message = new HttpRequestMessage(HttpMethod.Get, call.Uri);
                 foreach (var header in call.Headers) message.Headers.TryAddWithoutValidation(header.Key, header.Value);
                 if (bearer is not null && !call.Anonymous) message.Headers.Authorization = new("Bearer", bearer);

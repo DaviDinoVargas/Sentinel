@@ -76,7 +76,9 @@ public sealed class ProjectsController : ControllerBase
     {
         try
         {
-            var scope = _auditService.CreateScope(projectId, request);
+            var actor = User.FindFirst("sub")?.Value;
+            if (string.IsNullOrWhiteSpace(actor)) return Forbid();
+            var scope = _auditService.CreateScope(projectId, request, actor);
             return Created($"/api/v1/projects/{projectId}/scopes/{scope.Id}", scope);
         }
         catch (KeyNotFoundException)
