@@ -89,7 +89,7 @@ public sealed class ExecutionCoordinator(IDbContextFactory<SentinelDbContext> fa
         return true;
     });
 
-    public bool BeginPlugin(ExecutionLease lease, string pluginId, DateTimeOffset deadline) => Locked(lease.AuditId, (db, execution, audit, now) =>
+    public bool BeginPlugin(ExecutionLease lease, string pluginId, DateTimeOffset deadline, string? runtimeDetail = null) => Locked(lease.AuditId, (db, execution, audit, now) =>
     {
         if (!Owns(execution, lease, now) || execution.CancelRequestedAtUtc is not null || deadline <= now) return false;
         var completed = JsonSerializer.Deserialize<string[]>(execution.CompletedPluginsJson)!;
@@ -97,7 +97,7 @@ public sealed class ExecutionCoordinator(IDbContextFactory<SentinelDbContext> fa
         execution.CurrentPluginId = pluginId;
         execution.PluginDeadlineUtc = deadline;
         execution.SafetyUntilUtc = Later(execution.LeaseUntilUtc, deadline.AddSeconds(2));
-        Event(db, execution, now, "PluginStarted", pluginId);
+        Event(db, execution, now, "PluginStarted", runtimeDetail is null ? pluginId : $"{pluginId} · {runtimeDetail}");
         return true;
     });
 

@@ -4,7 +4,7 @@ Workspace para investigar a segurança de aplicações com escopos autorizados, 
 
 Fluxo de execução:
 
-`projeto → escopo → auditoria Queued + outbox PostgreSQL → RabbitMQ → worker → plugins em processos isolados → controles/evidências → relatório`
+`projeto → escopo → auditoria Queued + outbox PostgreSQL → RabbitMQ → worker → plugins em containers sem rede + gateway HTTP → controles/evidências → relatório`
 
 A API revalida host, esquema, porta, prefixo de caminho, validade e ação no pedido e no worker. Auditorias bloqueadas ficam registradas sem execução. A fila quorum usa publisher confirms, confirmação manual, prefetch 1, limite de redelivery e DLQ.
 
@@ -18,14 +18,14 @@ Pré-requisitos: .NET 8/9, Node/npm, Rancher Desktop com os containers `sentinel
 .\scripts\start-local.ps1 -RestartApi
 ```
 
-O script inicia/reutiliza os containers, inicia API e frontend em segundo plano e verifica saúde, catálogo e página. Com `-RestartApi`, valida que o processo da porta pertence ao checkout antes de encerrá-lo. Credenciais locais são reutilizadas em memória a partir dos containers, sem gravação em arquivos. Logs em `.local/` são ignorados pelo Git.
+O script inicia/reutiliza os containers, inicia API e frontend em segundo plano e verifica saúde, configuração OIDC e página. Com `-RestartApi`, valida que o processo da porta pertence ao checkout antes de encerrá-lo. Credenciais locais são reutilizadas em memória a partir dos containers, sem gravação em arquivos. Logs em `.local/` são ignorados pelo Git.
 
 - Aplicação: http://localhost:4200
 - API: http://localhost:5161
 - OpenAPI em desenvolvimento: http://localhost:5161/swagger
 - RabbitMQ local: http://localhost:15672
 
-Alternativamente, defina `SENTINEL_POSTGRES_PASSWORD` e `SENTINEL_RABBITMQ_PASSWORD` no ambiente e execute `dotnet run --project Sentinel/Sentinel.csproj`. Migrações são aplicadas na inicialização. PostgreSQL é a fonte de verdade; não há fallback em memória.
+Alternativamente, construa a sandbox com `scripts/build-plugin-sandbox.ps1`, defina `PluginRuntime__Image` com seu digest local e as variáveis `SENTINEL_POSTGRES_PASSWORD` e `SENTINEL_RABBITMQ_PASSWORD` no ambiente e execute `dotnet run --project Sentinel/Sentinel.csproj`. Migrações são aplicadas na inicialização. PostgreSQL é a fonte de verdade; não há fallback em memória.
 
 ## Identidade e organizações
 
@@ -59,7 +59,7 @@ Doze módulos: visão geral, projetos, escopos/políticas, auditorias e detalhe,
 - `WEB-CFG-06`: confiança em Host/X-Forwarded-Host e reflexo em resposta/redirecionamento.
 - `WEB-CFG-09`: exposição de tecnologia/versão em cabeçalhos.
 
-Os cinco últimos fazem requisições HTTP reais. O nome de ação `simulated` permanece por compatibilidade do contrato. Redirecionamentos automáticos, cookies compartilhados e proxies do ambiente estão desabilitados nos clientes dos plugins. Cada manifesto YAML e os schemas JSON são validados; o host aplica timeout e mata a árvore de processos se necessário. O ambiente dos filhos contém somente uma allowlist de variáveis do runtime, sem senhas/configurações herdadas da API. Memória/egress ainda são declarações do manifesto, sem sandbox por container.
+Os cinco últimos fazem requisições HTTP reais. O nome de ação `simulated` permanece por compatibilidade do contrato. Redirecionamentos automáticos, cookies compartilhados e proxies do ambiente estão desabilitados nos clientes dos plugins. Cada manifesto YAML e os schemas JSON são validados; o host aplica timeout e mata a árvore de processos se necessário. O ambiente dos filhos contém somente uma allowlist de variáveis do runtime, sem senhas/configurações herdadas da API. A sandbox aplica memória (64–512 MiB conforme manifesto), 0,5 CPU, 64 PIDs, usuário 65532, rootfs somente leitura, tmpfs de 16 MiB e rede none. O gateway no worker envia os GETs autorizados, valida TLS/DNS, reavalia escopo e reserva o orçamento distribuído. Sem Docker ou imagem válida, a execução falha sem fallback.
 
 ## Perfil ativo de laboratório
 
@@ -120,6 +120,6 @@ O score `P0-1.0` expõe fórmula, componentes, cobertura, confiança e limitaç�
 
 ## Cobertura e continuidade
 
-Hoje os adaptadores implementados avaliam URLs HTTP/HTTPS. O objetivo de atender diferentes softwares exige novos adaptadores de alvo e plugins. A tela Capacidades explicita pendências como análise de código/dependências, banco e RabbitMQ do alvo, desktop/mobile, carga autenticada/ampliada, grafo/fluxos, MinIO/S3, containers para plugins e triagem de achados.
+Hoje os adaptadores implementados avaliam URLs HTTP/HTTPS. O objetivo de atender diferentes softwares exige novos adaptadores de alvo e plugins. A tela Capacidades explicita pendências como análise de código/dependências, banco e RabbitMQ do alvo, desktop/mobile, carga autenticada/ampliada, grafo/fluxos, MinIO/S3, aprovação humana de plugins e triagem de achados.
 
 Uso atual: ambiente local/laboratório autorizado. Ainda não há aprovação humana de produção ou revogação de escopo ou guardas completas de produção.

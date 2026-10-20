@@ -2,6 +2,12 @@
 
 `start-local.ps1` mantém os serviços do Sentinel em 4200/5161 e reutiliza os containers locais de PostgreSQL/RabbitMQ. `-RestartApi` verifica a identidade do processo antes de reiniciar a API deste checkout.
 
+`build-plugin-sandbox.ps1` publica o PluginHost numa imagem Linux construída com SDK/runtime Microsoft fixados por digest. O script compara hashes das fontes e reutiliza o build quando possível. O ID imutável da imagem fica em `.local/plugin-runtime.json`; `start-local.ps1` carrega esse ID em `PluginRuntime__Image` e usa modo `container`. Use `-Force` no build para reconstruir. A ausência de Docker/imagem interrompe a execução, sem fallback automático.
+
+A sandbox não recebe mounts do host, rede própria, privilégios ou credenciais da API. Aplica rootfs somente leitura, UID/GID 65532, 0,5 CPU, memória por manifesto (64–512 MiB), 64 PIDs e tmpfs sem execução de 16 MiB. GETs passam por RPC stdin/stdout ao gateway no worker, que controla destino, DNS, escopo, prazo, TLS e orçamento. O catálogo mostra modo, imagem, limites e monitor de limpeza; eventos da auditoria registram o runtime efetivo. Containers próprios vencidos são removidos após prazo + dois segundos, com verificação a cada cinco segundos.
+
+Modo `PluginRuntime__Mode=process` existe apenas em Development para testes e não aplica sandbox de filesystem/rede. Para os testes reais de containers, defina `SENTINEL_TEST_PLUGIN_IMAGE` com o campo `image` do registro local antes de `dotnet test`. Os testes usam banco/filas separados da aplicação. Plugins de terceiros e aprovação humana permanecem pendentes.
+
 `start-locadora-lab.ps1 -LabPath A:\Sentinel-Labs\LocadoraDeVeiculos` executa uma **cópia já preparada** do alvo, em paralelo ao Sentinel. O script recusa caminhos dentro de `A:\TCC\`.
 
 Pré-requisitos da cópia:

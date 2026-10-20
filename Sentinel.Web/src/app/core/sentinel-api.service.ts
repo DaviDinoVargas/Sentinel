@@ -133,6 +133,7 @@ export interface Plugin {
   resources: { timeoutSeconds: number; memoryMiB: number };
   permissions: string[];
   isolation: string;
+  appliedMemoryMiB?: number | null;
   riskClass: string;
   isFixture: boolean;
 }
@@ -140,6 +141,24 @@ export interface PluginCatalog {
   approvalMode: string;
   rejectedCount: number;
   plugins: Plugin[];
+  runtime?: {
+    mode: string;
+    image: string | null;
+    monitor: {
+      sampledAtUtc: string | null;
+      status: string;
+      activeContainers: number;
+      removedContainers: number;
+    };
+    network: string;
+    readOnlyRoot: boolean;
+    user: string;
+    cpuLimit: number | null;
+    pidsLimit: number | null;
+    tmpfsMiB: number | null;
+    configuration: string;
+    limitations: string[];
+  };
 }
 export interface OperationsSnapshot {
   sampledAtUtc: string;

@@ -16,10 +16,68 @@ import { Icon } from '../design-system/icon';
     @if (ws.catalog(); as catalog) {
       <div class="banner">
         <s-icon name="plugin" /><span
-          >Aprovação automática após validação do manifesto e schemas. Aprovação humana e isolamento
-          por container ainda não estão implementados.</span
+          >Manifestos locais aprovados automaticamente após validação de schemas. Aprovação humana e
+          admissão de plugins de terceiros continuam pendentes.</span
         >
       </div>
+      @if (catalog.runtime; as runtime) {
+        <section class="panel panel-pad section-gap" aria-labelledby="sandbox-title">
+          <div class="panel-header">
+            <div>
+              <p class="kicker">AMBIENTE DE EXECUÇÃO</p>
+              <h2 id="sandbox-title">Isolamento e gateway HTTP</h2>
+            </div>
+            <s-badge
+              [value]="runtime.monitor.status"
+              [text]="
+                runtime.monitor.status === 'healthy'
+                  ? 'Sandbox disponível'
+                  : runtime.monitor.status === 'development-process'
+                    ? 'Processo de desenvolvimento'
+                    : 'Verificar sandbox'
+              "
+            />
+          </div>
+          <dl class="detail-list">
+            <dt>Modo aplicado</dt>
+            <dd>{{ runtime.mode }}</dd>
+            <dt>Imagem fixada</dt>
+            <dd class="mono url">{{ runtime.image || 'Sem container' }}</dd>
+            <dt>Rede</dt>
+            <dd>{{ runtime.network }}</dd>
+            <dt>Filesystem / usuário</dt>
+            <dd>
+              {{ runtime.readOnlyRoot ? 'Somente leitura' : 'Sem isolamento' }} · {{ runtime.user }}
+            </dd>
+            <dt>CPU / processos</dt>
+            <dd>
+              {{ runtime.cpuLimit ?? 'Não aplicado' }} CPU ·
+              {{ runtime.pidsLimit ?? 'Não aplicado' }} PIDs
+            </dd>
+            <dt>Temporários</dt>
+            <dd>{{ runtime.tmpfsMiB ?? 'Não aplicado' }} MiB · tmpfs sem execução</dd>
+            <dt>Containers observados</dt>
+            <dd>
+              {{ runtime.monitor.activeContainers }} ativos ·
+              {{ runtime.monitor.removedContainers }} expirados removidos neste worker
+            </dd>
+            <dt>Configuração</dt>
+            <dd>{{ runtime.configuration }}</dd>
+          </dl>
+          <details>
+            <summary>Limitações e recuperação após falhas</summary>
+            <p class="help">
+              O worker remove containers próprios após o prazo e dois segundos de tolerância. O
+              monitor é atualizado a cada cinco segundos. Sem daemon ou imagem válida, a auditoria
+              falha sem iniciar um processo alternativo.
+            </p>
+            @for (limitation of runtime.limitations; track limitation) {
+              <p class="help">{{ limitation }}</p>
+            }
+          </details>
+          <button class="button" (click)="ws.refreshGlobal()">Atualizar monitor</button>
+        </section>
+      }
       @if (catalog.rejectedCount) {
         <div class="banner warning" role="status">
           {{ catalog.rejectedCount }} manifesto(s) rejeitado(s) na inicialização. Consulte o log
@@ -68,8 +126,15 @@ import { Icon } from '../design-system/icon';
                   <dd>{{ plugin.type }} / {{ plugin.riskClass }}</dd>
                   <dt>Timeout aplicado</dt>
                   <dd>{{ plugin.resources.timeoutSeconds }} segundos</dd>
-                  <dt>Memória declarada</dt>
-                  <dd>{{ plugin.resources.memoryMiB }} MiB · sem limite aplicado pelo host</dd>
+                  <dt>Memória aplicada</dt>
+                  <dd>
+                    {{
+                      plugin.appliedMemoryMiB
+                        ? plugin.appliedMemoryMiB + ' MiB'
+                        : 'Sem limite no processo'
+                    }}
+                    · declarada: {{ plugin.resources.memoryMiB }} MiB
+                  </dd>
                   <dt>Rede declarada</dt>
                   <dd>{{ plugin.capabilities.network }}</dd>
                   <dt>Leitura de código</dt>

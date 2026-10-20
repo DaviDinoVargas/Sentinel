@@ -14,7 +14,11 @@ public sealed record PluginExecutionRequest(
     string Action,
     DateTimeOffset DeadlineUtc,
     DateTimeOffset NowUtc,
-    bool RequireRequestPermits = false);
+    bool RequireRequestPermits = false,
+    bool UseHttpRelay = false);
+
+public sealed record HttpRelayRequest(string Kind, Guid RequestId, string Method, string Uri, Dictionary<string, string[]> Headers);
+public sealed record HttpRelayResponse(string Kind, Guid RequestId, int StatusCode, Dictionary<string, string[]> Headers, string BodyBase64, double ElapsedMs, string? Error);
 
 // Estados de saída que um plugin pode devolver (Plugins.md). Um plugin que não conseguiu
 // testar devolve Inconclusive ou Partial, nunca "sem achados" como aprovação.

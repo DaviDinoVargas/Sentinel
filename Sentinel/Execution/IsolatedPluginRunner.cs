@@ -5,13 +5,8 @@ using Sentinel.Contracts;
 
 namespace Sentinel.Execution;
 
-// Executa um plugin em processo isolado (ADR-0003: "Preferir container ou processo
-// isolado"; o P0 usa processo — isolamento por container é pendência registrada no
-// handoff). Cada chamada sobe um processo `dotnet Sentinel.PluginHost.dll <pluginId>`
-// novo, entrega o envelope de entrada via stdin, lê o resultado via stdout, aplica o
-// timeout declarado no manifesto e mata a árvore de processos se ele estourar. stdout é
-// validado contra o schema antes de o host confiar nele (Plugins.md: "Saída malformada é
-// rejeitada sem travar o worker").
+// One container per plugin by default, with a bounded bidirectional pipe for the
+// worker's HTTP gateway. Process mode requires explicit development configuration.
 public sealed class IsolatedPluginRunner
 {
     private const int MaxCapturedOutputChars = 32_000;
@@ -19,21 +14,24 @@ public sealed class IsolatedPluginRunner
     private readonly string _pluginHostDllPath;
     private readonly PluginSchemaValidator _validator;
     private readonly ILogger<IsolatedPluginRunner> _logger;
+    private readonly PluginRuntime _runtime;
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() },
     };
 
-    public IsolatedPluginRunner(string pluginHostDllPath, PluginSchemaValidator validator, ILogger<IsolatedPluginRunner> logger)
+    public IsolatedPluginRunner(string pluginHostDllPath, PluginSchemaValidator validator, ILogger<IsolatedPluginRunner> logger, PluginRuntime runtime)
     {
         _pluginHostDllPath = pluginHostDllPath;
         _validator = validator;
         _logger = logger;
+        _runtime = runtime;
     }
 
     public async Task<PluginExecutionResult> RunAsync(PluginManifest manifest, PluginExecutionRequest request, CancellationToken cancellationToken,
-        Func<CancellationToken, Task<bool>>? permit = null)
+        Func<CancellationToken, Task<bool>>? permit = null,
+        Func<HttpRelayRequest, CancellationToken, Task<HttpRelayResponse>>? relay = null)
     {
         var inputValidation = _validator.ValidateInput(request);
         if (!inputValidation.IsValid)
@@ -52,42 +50,85 @@ public sealed class IsolatedPluginRunner
         if (remaining < timeout) timeoutCts.CancelAfter(remaining);
         cancellationToken.ThrowIfCancellationRequested();
 
-        var startInfo = new ProcessStartInfo
-        {
-            FileName = "dotnet",
-            ArgumentList = { _pluginHostDllPath, manifest.Metadata.Id },
-            RedirectStandardInput = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            StandardInputEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
-            StandardOutputEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
-        };
+        var containerName = "sentinel-plugin-" + Guid.NewGuid().ToString("N");
+        ProcessStartInfo startInfo;
+        try { startInfo = _runtime.Start(_pluginHostDllPath, manifest, containerName, request.DeadlineUtc); }
+        catch (Exception exception) { return ScriptError(request, exception.Message); }
+        if (_runtime.Container && !request.UseHttpRelay) return ScriptError(request, "Sandbox exige gateway HTTP; acesso direto é negado.");
+        startInfo.RedirectStandardInput = true;
+        startInfo.RedirectStandardOutput = true;
+        startInfo.RedirectStandardError = true;
+        startInfo.UseShellExecute = false;
+        startInfo.CreateNoWindow = true;
+        startInfo.StandardInputEncoding = new UTF8Encoding(false);
+        startInfo.StandardOutputEncoding = new UTF8Encoding(false);
         RestrictEnvironment(startInfo);
 
         using var process = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
         var stdout = new StringBuilder();
         var stderr = new StringBuilder();
         var started = false;
-        process.ErrorDataReceived += (_, e) => AppendCapped(stderr, e.Data);
+        using var relayCts = CancellationTokenSource.CreateLinkedTokenSource(linkedCts.Token);
+        using var relaySlots = new SemaphoreSlim(2, 2);
+        using var pipeWriter = new SemaphoreSlim(1, 1);
+        var forwarding = new List<Task>();
+        Task stderrReader = Task.CompletedTask;
+
+        async Task ForwardAsync(HttpRelayRequest call)
+        {
+            try
+            {
+                await relaySlots.WaitAsync(relayCts.Token);
+                HttpRelayResponse response;
+                try
+                {
+                    response = request.UseHttpRelay && relay is not null && manifest.Spec.Capabilities.Network == "scoped-egress"
+                        ? await relay(call, relayCts.Token) : ScopedHttpGateway.Session.Denied(call.RequestId, "Gateway não autorizado pelo host.");
+                }
+                finally { relaySlots.Release(); }
+                await pipeWriter.WaitAsync(relayCts.Token);
+                try
+                {
+                    var json = JsonSerializer.Serialize(response, JsonOptions);
+                    await process.StandardInput.WriteLineAsync(json.AsMemory(), relayCts.Token);
+                    await process.StandardInput.FlushAsync(relayCts.Token);
+                }
+                finally { pipeWriter.Release(); }
+            }
+            catch (Exception exception) when (exception is OperationCanceledException or IOException or InvalidOperationException or ObjectDisposedException)
+            {
+                // Pipe closure or timeout never grants a fallback network path.
+                _logger.LogDebug("Canal HTTP encerrado para plugin {PluginId}.", manifest.Metadata.Id);
+            }
+            catch (Exception exception)
+            {
+                _logger.LogError(exception, "Falha no gateway do plugin {PluginId}; execução interrompida.", manifest.Metadata.Id);
+                linkedCts.Cancel();
+            }
+        }
 
         try
         {
             process.Start();
             started = true;
-            process.BeginErrorReadLine();
+            stderrReader = DrainErrorAsync(process.StandardError, stderr);
 
             var inputJson = JsonSerializer.Serialize(request, JsonOptions);
             await process.StandardInput.WriteLineAsync(inputJson);
             await process.StandardInput.FlushAsync(linkedCts.Token);
-            while (await process.StandardOutput.ReadLineAsync(linkedCts.Token) is { } line)
+            while (await ReadBoundedLineAsync(process.StandardOutput, 64_000, linkedCts.Token) is { } line)
             {
                 if (line == "{\"kind\":\"request-permit\"}")
                 {
-                    var allowed = request.RequireRequestPermits && permit is not null && await permit(linkedCts.Token);
+                    var allowed = !request.UseHttpRelay && request.RequireRequestPermits && permit is not null && await permit(linkedCts.Token);
                     await process.StandardInput.WriteLineAsync(allowed ? "{\"allowed\":true}" : "{\"allowed\":false}");
                     await process.StandardInput.FlushAsync(linkedCts.Token);
+                }
+                else if (line.StartsWith("{\"kind\":\"http-request\"", StringComparison.Ordinal))
+                {
+                    if (line.Length > 16_000 || forwarding.Count >= 64) throw new InvalidOperationException("Orçamento do protocolo HTTP excedido.");
+                    var call = JsonSerializer.Deserialize<HttpRelayRequest>(line, JsonOptions) ?? throw new JsonException("Requisição HTTP inválida.");
+                    forwarding.Add(ForwardAsync(call));
                 }
                 else
                 {
@@ -115,6 +156,13 @@ public sealed class IsolatedPluginRunner
             if (started) await process.WaitForExitAsync();
             _logger.LogError(exception, "Falha ao iniciar/comunicar com o processo isolado do plugin {PluginId}.", manifest.Metadata.Id);
             return ScriptError(request, $"Falha ao executar o plugin em processo isolado: {exception.GetType().Name}: {exception.Message}");
+        }
+        finally
+        {
+            relayCts.Cancel();
+            await Task.WhenAll(forwarding);
+            if (started) await _runtime.RemoveAsync(containerName);
+            await stderrReader;
         }
 
         if (stderr.Length > 0)
@@ -146,17 +194,28 @@ public sealed class IsolatedPluginRunner
         }
     }
 
-    private static void AppendCapped(StringBuilder builder, string? line)
+    private static async Task DrainErrorAsync(StreamReader reader, StringBuilder builder)
     {
-        if (line is null)
+        var buffer = new char[512];
+        int count;
+        while ((count = await reader.ReadAsync(buffer)) > 0)
         {
-            return;
+            var remaining = MaxCapturedOutputChars - builder.Length;
+            if (remaining > 0) builder.Append(buffer, 0, Math.Min(count, remaining));
         }
+    }
 
-        if (builder.Length < MaxCapturedOutputChars)
+    private static async Task<string?> ReadBoundedLineAsync(StreamReader reader, int maximum, CancellationToken cancellationToken)
+    {
+        var result = new StringBuilder();
+        var character = new char[1];
+        while (await reader.ReadAsync(character.AsMemory(), cancellationToken) > 0)
         {
-            builder.AppendLine(line);
+            if (character[0] == '\n') return result.ToString().TrimEnd('\r');
+            if (result.Length >= maximum) throw new InvalidOperationException("Linha do protocolo excedeu o limite.");
+            result.Append(character[0]);
         }
+        return result.Length == 0 ? null : result.ToString();
     }
 
     internal static void RestrictEnvironment(ProcessStartInfo startInfo)

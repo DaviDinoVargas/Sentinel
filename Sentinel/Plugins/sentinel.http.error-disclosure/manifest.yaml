@@ -18,5 +18,5 @@ spec:
     memoryMiB: 128
   permissions: [target.http.passive]
   execution:
-    isolation: process
+    isolation: container
   riskClass: low

@@ -48,6 +48,6 @@ public sealed class PluginManifestResources
 
 public sealed class PluginManifestExecution
 {
-    // "process" (usado pelo P0) ou "container" (ainda não implementado — ver handoff).
-    public string Isolation { get; set; } = "process";
+    // The host applies its approved runtime; process mode is development-only.
+    public string Isolation { get; set; } = "container";
 }

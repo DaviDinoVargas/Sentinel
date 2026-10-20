@@ -4,6 +4,11 @@ $repoRoot = Split-Path $PSScriptRoot -Parent
 $logDirectory = Join-Path $repoRoot '.local'
 New-Item -ItemType Directory -Path $logDirectory -Force | Out-Null
 if (-not $SkipIdentitySetup) { & (Join-Path $PSScriptRoot 'start-identity.ps1'); if ($LASTEXITCODE -ne 0) { throw 'Inicialização da identidade falhou.' } }
+& (Join-Path $PSScriptRoot 'build-plugin-sandbox.ps1')
+if ($LASTEXITCODE -ne 0) { throw 'Sandbox indisponível.' }
+$sandbox = Get-Content -LiteralPath (Join-Path $logDirectory 'plugin-runtime.json') -Raw | ConvertFrom-Json
+$env:PluginRuntime__Mode = 'container'
+$env:PluginRuntime__Image = $sandbox.image
 foreach ($name in @('sentinel-postgres', 'sentinel-rabbitmq')) {
     $container = docker inspect $name | ConvertFrom-Json
     if ($LASTEXITCODE -ne 0) { throw "Container local ausente: $name" }

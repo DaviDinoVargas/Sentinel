@@ -10,7 +10,7 @@ namespace Sentinel.Workers;
 
 public sealed class AuditWorker(
     ISentinelStore store, ScopePolicyEngine policy, TimeProvider timeProvider,
-    PluginRegistry registry, IsolatedPluginRunner runner, ExecutionCoordinator coordinator,
+    PluginRegistry registry, IsolatedPluginRunner runner, ExecutionCoordinator coordinator, ScopedHttpGateway gateway, PluginRuntime runtime,
     RabbitMqConnectionProvider connectionProvider, IOptions<RabbitMqOptions> options,
     ILogger<AuditWorker> logger) : BackgroundService
 {
@@ -71,9 +71,13 @@ public sealed class AuditWorker(
                 if (!decision.IsAllowed) { coordinator.Finish(lease, AuditState.Blocked, decision.Reason); return; }
                 var timeout = now.AddSeconds(manifest.Spec.Resources.TimeoutSeconds);
                 var deadline = timeout < decision.Scope!.ExpiresAtUtc ? timeout : decision.Scope.ExpiresAtUtc;
-                if (!coordinator.BeginPlugin(lease, manifest.Metadata.Id, deadline)) return;
+                var runtimeDetail = runtime.Container
+                    ? $"container {runtime.Options.Image}; {Math.Clamp(manifest.Spec.Resources.MemoryMiB, 64, 512)} MiB; CPU 0.5; PIDs 64; rede none; HTTP via gateway"
+                    : "processo de desenvolvimento; HTTP via gateway; sem sandbox de filesystem";
+                if (!coordinator.BeginPlugin(lease, manifest.Metadata.Id, deadline, runtimeDetail)) return;
                 var request = new PluginExecutionRequest(manifest.Spec.ContractVersion, Guid.NewGuid(), payload.AuditId, payload.ProjectId,
-                    payload.ScopeId, existing.CorrelationId, target.AbsoluteUri, payload.Action, deadline, now, RequireRequestPermits: true);
+                    payload.ScopeId, existing.CorrelationId, target.AbsoluteUri, payload.Action, deadline, now, RequireRequestPermits: true, UseHttpRelay: true);
+                using var gatewaySession = gateway.Open(lease, request, manifest);
                 childStopped = false;
                 var result = await runner.RunAsync(manifest, request, executionCts.Token, async token =>
                 {
@@ -85,7 +89,7 @@ public sealed class AuditWorker(
                         if (permit.RetryAfterMs == 0) return false;
                         await Task.Delay(Math.Min(permit.RetryAfterMs, 200), token);
                     }
-                });
+                }, gatewaySession.SendAsync);
                 childStopped = true;
                 executionCts.Token.ThrowIfCancellationRequested();
                 var controls = result.Checks.Select(check => new AuditControlResult(check.ControlId, check.State, check.Summary,

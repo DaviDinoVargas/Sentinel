@@ -18,5 +18,5 @@ spec:
     memoryMiB: 64
   permissions: []
   execution:
-    isolation: process
+    isolation: container
   riskClass: low

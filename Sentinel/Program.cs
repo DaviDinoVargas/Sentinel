@@ -37,6 +37,10 @@ builder.Services.AddSingleton<ISentinelStore, PostgresSentinelStore>();
 builder.Services.AddSingleton<ScopePolicyEngine>();
 builder.Services.AddSingleton<AuditService>();
 builder.Services.AddSingleton<ExecutionCoordinator>();
+builder.Services.AddSingleton<ScopedHttpGateway>();
+builder.Services.Configure<PluginRuntimeOptions>(builder.Configuration.GetSection("PluginRuntime"));
+builder.Services.AddSingleton<PluginRuntime>();
+builder.Services.AddHostedService<PluginSandboxReaper>();
 builder.Services.AddHostedService<ExecutionReconciler>();
 
 // RabbitMQ (ADR-0004): a senha nunca fica em arquivo versionado.
@@ -65,7 +69,7 @@ var schemasDirectory = Path.Combine(pluginsDirectory, "schemas");
 var pluginHostDllPath = Path.Combine(AppContext.BaseDirectory, "Sentinel.PluginHost.dll");
 builder.Services.AddSingleton(new PluginSchemaValidator(schemasDirectory));
 builder.Services.AddSingleton(provider => new PluginRegistry(pluginsDirectory, provider.GetRequiredService<PluginSchemaValidator>(), provider.GetRequiredService<ILogger<PluginRegistry>>()));
-builder.Services.AddSingleton(provider => new IsolatedPluginRunner(pluginHostDllPath, provider.GetRequiredService<PluginSchemaValidator>(), provider.GetRequiredService<ILogger<IsolatedPluginRunner>>()));
+builder.Services.AddSingleton(provider => new IsolatedPluginRunner(pluginHostDllPath, provider.GetRequiredService<PluginSchemaValidator>(), provider.GetRequiredService<ILogger<IsolatedPluginRunner>>(), provider.GetRequiredService<PluginRuntime>()));
 
 var app = builder.Build();
 

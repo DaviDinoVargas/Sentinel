@@ -10,6 +10,8 @@ namespace Sentinel.IntegrationTests;
 public sealed class SentinelApiFactory : WebApplicationFactory<Program>
 {
     public bool StartWorkers { get; init; } = true;
+    public string PluginMode { get; init; } = "process";
+    public string PluginImage { get; init; } = "";
     public TestIdentityProvider Identity { get; } = new();
     public new HttpClient CreateClient()
     {
@@ -37,6 +39,8 @@ public sealed class SentinelApiFactory : WebApplicationFactory<Program>
                 // consumir e descartar mensagens destinadas a sentinel_test.
                 ["RabbitMq:TopologySuffix"] = "integration-tests",
                 ["Identity:Authority"] = Identity.Issuer,
+                ["PluginRuntime:Mode"] = PluginMode,
+                ["PluginRuntime:Image"] = PluginImage,
             });
         });
     }

@@ -18,5 +18,5 @@ spec:
     memoryMiB: 128
   permissions: [target.http.lab-active]
   execution:
-    isolation: process
+    isolation: container
   riskClass: medium

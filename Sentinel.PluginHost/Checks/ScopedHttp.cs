@@ -7,7 +7,9 @@ internal static class ScopedHttp
 {
     // Redirecionar automaticamente pode sair do host/caminho autorizado. O cliente
     // também não reutiliza cookies nem aceita configuração de proxy do ambiente.
-    public static HttpClient Create(TimeSpan? timeout = null) => new(new RequestPermitHandler(new SocketsHttpHandler
+    public static HttpClient Create(TimeSpan? timeout = null) => HttpRelayClient.Enabled
+        ? new HttpClient(new HttpRelayClient()) { Timeout = timeout ?? TimeSpan.FromSeconds(10) }
+        : new(new RequestPermitHandler(new SocketsHttpHandler
     {
         AllowAutoRedirect = false,
         UseCookies = false,
@@ -17,6 +19,7 @@ internal static class ScopedHttp
     public static HttpClient CreateLabClient(Uri target)
     {
         if (!IsLoopback(target) || !string.IsNullOrEmpty(target.UserInfo)) throw new ArgumentException("Alvo de laboratório inválido.");
+        if (HttpRelayClient.Enabled) return new HttpClient(new HttpRelayClient()) { Timeout = TimeSpan.FromSeconds(3) };
         var address = target.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase)
             ? IPAddress.Loopback : IPAddress.Parse(target.IdnHost.Trim('[', ']'));
         return new HttpClient(new RequestPermitHandler(new SocketsHttpHandler

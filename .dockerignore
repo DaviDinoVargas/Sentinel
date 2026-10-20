@@ -1,0 +1,6 @@
+**/bin
+**/obj
+.git
+.local
+Sentinel.Web
+tests

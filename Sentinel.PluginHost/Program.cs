@@ -60,6 +60,7 @@ public static class Program
         var remaining = request.DeadlineUtc - DateTimeOffset.UtcNow;
         RequestPermitHandler.Required = request.RequireRequestPermits;
         using var deadlineCts = new CancellationTokenSource(remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero);
+        if (request.UseHttpRelay) HttpRelayClient.Start(deadlineCts.Token);
 
         PluginExecutionResult result;
         try

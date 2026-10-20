@@ -15,6 +15,7 @@
     "action": { "type": "string", "minLength": 1 },
     "deadlineUtc": { "type": "string", "format": "date-time" },
     "nowUtc": { "type": "string", "format": "date-time" },
-    "requireRequestPermits": { "type": "boolean" }
+    "requireRequestPermits": { "type": "boolean" },
+    "useHttpRelay": { "type": "boolean" }
   }
 }

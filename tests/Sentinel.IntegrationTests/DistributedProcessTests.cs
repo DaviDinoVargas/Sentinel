@@ -14,14 +14,16 @@ public sealed class DistributedProcessTests
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { Converters = { new JsonStringEnumConverter() } };
 
-    [Fact]
-    public async Task Processos_distintos_compartilham_orcamento_cancelam_e_reconciliam_queda_real()
+    [Theory]
+    [InlineData("process")]
+    [InlineData("container")]
+    public async Task Processos_distintos_compartilham_orcamento_cancelam_e_reconciliam_queda_real(string pluginMode)
     {
         using var target = new LabTargetServer();
         using var identity = new TestIdentityProvider();
         var topology = "process-" + Guid.NewGuid().ToString("N");
-        using var first = await ApiProcess.Start(topology, identity);
-        using var second = await ApiProcess.Start(topology, identity);
+        using var first = await ApiProcess.Start(topology, identity, pluginMode);
+        using var second = await ApiProcess.Start(topology, identity, pluginMode);
         var url = new Uri(target.BaseUri, "aplicacao/protegido").AbsoluteUri;
         var firstAudit = await Enqueue(first.Client, url);
         var firstRun = await WaitExecution(first.Client, firstAudit.Id, run => run.GrantedRequests >= 3);
@@ -105,7 +107,7 @@ public sealed class DistributedProcessTests
     {
         public HttpClient Client { get; } = client;
         public int ProcessId => process.Id;
-        public static async Task<ApiProcess> Start(string topology, TestIdentityProvider identity)
+        public static async Task<ApiProcess> Start(string topology, TestIdentityProvider identity, string pluginMode)
         {
             using var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start();
             var port = ((IPEndPoint)listener.LocalEndpoint).Port; listener.Stop();
@@ -120,6 +122,8 @@ public sealed class DistributedProcessTests
             start.Environment["ConnectionStrings__SentinelPostgres"] = "Host=localhost;Port=5432;Database=sentinel_test;Username=sentinel_app";
             start.Environment["RabbitMq__TopologySuffix"] = topology;
             start.Environment["Identity__Authority"] = identity.Issuer;
+            start.Environment["PluginRuntime__Mode"] = pluginMode;
+            start.Environment["PluginRuntime__Image"] = Environment.GetEnvironmentVariable("SENTINEL_TEST_PLUGIN_IMAGE") ?? "";
             start.Environment["Logging__LogLevel__Default"] = "Warning";
             start.Environment["Logging__LogLevel__Microsoft.EntityFrameworkCore"] = "Warning";
             var process = Process.Start(start)!;

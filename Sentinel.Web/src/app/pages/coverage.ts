@@ -164,7 +164,7 @@ export class CoveragePage {
     },
     {
       title: 'Plugins',
-      description: 'Manifestos, contrato, permissões e recursos declarados',
+      description: 'Manifestos, permissões, sandbox, recursos aplicados e gateway HTTP',
       path: '/plugins',
       screen: 'Plugins e controles',
     },
@@ -200,8 +200,8 @@ export class CoveragePage {
         'Permissões por projeto, aprovação humana, limites de produção e revogação de escopo.',
     },
     {
-      title: 'Isolamento e evidências',
-      description: 'Containers para plugins, credenciais efêmeras e armazenamento MinIO/S3.',
+      title: 'Credenciais e evidências ampliadas',
+      description: 'Credenciais efêmeras para os alvos e armazenamento MinIO/S3.',
     },
     {
       title: 'Triagem e continuidade',

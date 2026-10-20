@@ -5,13 +5,14 @@ namespace Sentinel.Controllers;
 
 [ApiController]
 [Route("api/v1/plugins")]
-public sealed class PluginsController(PluginRegistry registry) : ControllerBase
+public sealed class PluginsController(PluginRegistry registry, PluginRuntime runtime) : ControllerBase
 {
     [HttpGet]
     public IActionResult Get() => Ok(new
     {
         approvalMode = "automatic-schema-validation",
         rejectedCount = registry.RejectedManifestErrors.Count,
+        runtime = runtime.Describe(),
         plugins = registry.Approved.Select(manifest => new
         {
             id = manifest.Metadata.Id,
@@ -25,7 +26,9 @@ public sealed class PluginsController(PluginRegistry registry) : ControllerBase
             manifest.Spec.Capabilities,
             manifest.Spec.Resources,
             manifest.Spec.Permissions,
-            isolation = manifest.Spec.Execution.Isolation,
+            isolation = runtime.Options.Mode,
+            declaredIsolation = manifest.Spec.Execution.Isolation,
+            appliedMemoryMiB = runtime.Container ? Math.Clamp(manifest.Spec.Resources.MemoryMiB, 64, 512) : (int?)null,
             manifest.Spec.RiskClass,
             isFixture = manifest.Spec.Controls.All(control => control.StartsWith("SIM-", StringComparison.Ordinal))
         }).OrderBy(plugin => plugin.id)
