@@ -5,6 +5,8 @@ namespace Sentinel.Findings;
 
 public sealed class FindingRow
 {
+    public string DataOrigin { get; set; } = Core.DataOrigins.Unknown;
+    public string? BaseFingerprint { get; set; }
     public Guid Id { get; set; }
     public Guid ProjectId { get; set; }
     public ProjectRow Project { get; set; } = null!;
@@ -29,6 +31,8 @@ public sealed class FindingRow
 
 public sealed class FindingObservationRow
 {
+    public string DataOrigin { get; set; } = Core.DataOrigins.Unknown;
+    public string? BaseFingerprint { get; set; }
     public Guid Id { get; set; }
     public Guid ProjectId { get; set; }
     public ProjectRow Project { get; set; } = null!;
@@ -71,6 +75,8 @@ public static class FindingModel
         model.Entity<FindingRow>(e =>
         {
             e.ToTable("findings"); e.HasKey(r => r.Id);
+            e.Property(r => r.DataOrigin).HasMaxLength(32).HasDefaultValue(Core.DataOrigins.Unknown);
+            e.Property(r => r.BaseFingerprint).HasMaxLength(64);
             e.Property(r => r.Fingerprint).HasMaxLength(64); e.HasIndex(r => new { r.ProjectId, r.Fingerprint }).IsUnique();
             e.HasIndex(r => new { r.ProjectId, r.LastSeenAtUtc }); e.Property(r => r.Revision).IsConcurrencyToken();
             e.Property(r => r.Location).HasMaxLength(2048); e.Property(r => r.Title).HasMaxLength(4000);
@@ -80,6 +86,8 @@ public static class FindingModel
         model.Entity<FindingObservationRow>(e =>
         {
             e.ToTable("finding_observations"); e.HasKey(r => r.Id);
+            e.Property(r => r.DataOrigin).HasMaxLength(32).HasDefaultValue(Core.DataOrigins.Unknown);
+            e.Property(r => r.BaseFingerprint).HasMaxLength(64);
             e.Property(r => r.Fingerprint).HasMaxLength(64); e.HasIndex(r => new { r.AuditId, r.Sequence }).IsUnique();
             e.HasIndex(r => new { r.ProjectId, r.Fingerprint, r.AtUtc });
             e.HasOne<AuditRow>().WithMany().HasForeignKey(r => r.AuditId).OnDelete(DeleteBehavior.Restrict);

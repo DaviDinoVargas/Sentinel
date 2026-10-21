@@ -30,6 +30,11 @@ public sealed class SentinelDbContext : DbContext
     {
         Sentinel.Findings.FindingModel.Configure(modelBuilder, this);
         Sentinel.Source.SourceSnapshotRow.Configure(modelBuilder, this);
+        Sentinel.Core.DataOriginEventRow.Configure(modelBuilder, this);
+        modelBuilder.Entity<AuditRow>().Property(r => r.DataOrigin).HasMaxLength(32).HasDefaultValue(Core.DataOrigins.Unknown);
+        modelBuilder.Entity<AuditRow>().Property(r => r.OriginDeclaredBy).HasMaxLength(200);
+        modelBuilder.Entity<ProjectRow>().Property(r => r.Purpose).HasMaxLength(32).HasDefaultValue(Core.ProjectPurposes.Software);
+        modelBuilder.Entity<AuditRow>().HasIndex(r => new { r.ProjectId, r.DataOrigin, r.CreatedAtUtc });
         modelBuilder.Entity<ScopeEventRow>(entity =>
         {
             entity.ToTable("scope_events", table => table.HasTrigger("scope_events_append_only"));
@@ -244,6 +249,7 @@ public sealed class ExecutionEventRow
 
 public sealed class ProjectRow
 {
+    public string Purpose { get; set; } = Sentinel.Core.ProjectPurposes.Software;
     public Guid OrganizationId { get; set; } = TenantAccess.LegacyOrganizationId;
     public int EvidenceRetentionDays { get; set; } = 30;
     public DateTimeOffset? EvidencePolicyUpdatedAtUtc { get; set; }
@@ -286,6 +292,9 @@ public sealed class ScopeEventRow
 
 public sealed class AuditRow
 {
+    public string DataOrigin { get; set; } = Sentinel.Core.DataOrigins.Unknown;
+    public string? OriginDeclaredBy { get; set; }
+    public DateTimeOffset? OriginDeclaredAtUtc { get; set; }
     public Guid Id { get; set; }
     public Guid ProjectId { get; set; }
     public Guid? ScopeId { get; set; }

@@ -74,7 +74,8 @@ public sealed class AuditService
             throw new ArgumentException("O nome do projeto é obrigatório.", nameof(request));
         }
 
-        return _store.CreateProject(request.Name, request.Description, _timeProvider.GetUtcNow());
+        if (!ProjectPurposes.Valid(request.Purpose)) throw new ArgumentException("Finalidade do projeto inválida.");
+        return _store.CreateProject(request.Name, request.Description, _timeProvider.GetUtcNow(), request.Purpose);
     }
 
     public AuthorizedScope CreateScope(Guid projectId, CreateScopeRequest request, string? actor = null)
@@ -106,7 +107,7 @@ public sealed class AuditService
         return _store.CreateScope(projectId, targetBaseUri, request.Environment, request.ExpiresAtUtc, nowUtc, actor);
     }
 
-    public Audit RequestAudit(Guid projectId, RequestAuditRequest request, string correlationId)
+    public Audit RequestAudit(Guid projectId, RequestAuditRequest request, string correlationId, string? actor = null)
     {
         if (_store.FindProject(projectId) is null)
         {
@@ -120,6 +121,9 @@ public sealed class AuditService
         }
 
         var nowUtc = _timeProvider.GetUtcNow();
+        DataOrigins.Validate(request.DataOrigin);
+        ProjectPurposes.ValidateOrigin(_store.FindProject(projectId)!.Purpose, request.DataOrigin);
+        if (request.DataOrigin != DataOrigins.Unknown) DataOrigins.ValidateActor(actor);
         var scopes = _store.GetScopes(projectId);
         if (request.Action.Equals("authenticated-lab", StringComparison.OrdinalIgnoreCase) && request.CredentialProfileId is { } profileId)
         {
@@ -131,7 +135,8 @@ public sealed class AuditService
         {
             return _store.SaveBlockedAudit(new Audit(
                 Guid.NewGuid(), projectId, null, targetUri, AuditState.Blocked, correlationId, decision.Reason, nowUtc,
-                Array.Empty<AuditControlResult>(), Array.Empty<AuditEvidence>()));
+                Array.Empty<AuditControlResult>(), Array.Empty<AuditEvidence>(), request.DataOrigin,
+                request.DataOrigin == DataOrigins.Unknown ? null : actor, request.DataOrigin == DataOrigins.Unknown ? null : nowUtc));
         }
 
         // A execução real acontece de forma assíncrona em um worker (AuditWorker), que
@@ -153,7 +158,8 @@ public sealed class AuditService
             credential, request.ExpectedAccess, request.IncludeAuthenticatedLoad);
         var outboxPayloadJson = System.Text.Json.JsonSerializer.Serialize(outboxPayload, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
         return _store.SaveQueuedAuditWithOutbox(
-            new Audit(auditId, projectId, decision.Scope.Id, targetUri, AuditState.Queued, correlationId, null, nowUtc, Array.Empty<AuditControlResult>(), Array.Empty<AuditEvidence>()),
+            new Audit(auditId, projectId, decision.Scope.Id, targetUri, AuditState.Queued, correlationId, null, nowUtc, Array.Empty<AuditControlResult>(), Array.Empty<AuditEvidence>(), request.DataOrigin,
+                request.DataOrigin == DataOrigins.Unknown ? null : actor, request.DataOrigin == DataOrigins.Unknown ? null : nowUtc),
             outboxPayloadJson);
     }
 
@@ -161,10 +167,10 @@ public sealed class AuditService
 
     public IReadOnlyList<SentinelProject> GetProjects(int limit) => _store.GetProjects(limit);
 
-    public async Task<AuditHistoryPage?> GetAuditHistoryAsync(Guid projectId, int limit, int offset, CancellationToken cancellationToken)
+    public async Task<AuditHistoryPage?> GetAuditHistoryAsync(Guid projectId, int limit, int offset, CancellationToken cancellationToken, string? dataOrigin = null)
     {
         if (_store.FindProject(projectId) is null) return null;
-        return await _store.GetAuditHistoryAsync(projectId, limit, offset, cancellationToken);
+        return await _store.GetAuditHistoryAsync(projectId, limit, offset, cancellationToken, dataOrigin);
     }
 
     public ProjectContext? GetProjectContext(Guid projectId)
@@ -175,78 +181,28 @@ public sealed class AuditService
 
     public SecurityScore? GetSecurityScore(Guid projectId)
     {
-        if (_store.FindProject(projectId) is null)
-        {
-            return null;
-        }
-
-        var audits = _store.GetAudits(projectId);
-        var controls = audits.SelectMany(audit => audit.Controls).ToArray();
-        var evaluatedControls = controls.Where(control =>
-            string.Equals(control.State, "Passed", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(control.State, "Failed", StringComparison.OrdinalIgnoreCase)).ToArray();
-        var passedControls = evaluatedControls.Count(control =>
-            string.Equals(control.State, "Passed", StringComparison.OrdinalIgnoreCase));
-        var auditsWithControls = audits.Count(audit => audit.Controls.Count > 0);
-        var coverage = audits.Count == 0
-            ? 0m
-            : decimal.Round((decimal)auditsWithControls / audits.Count * 100m, 2);
-        var rawScore = evaluatedControls.Length == 0
-            ? (decimal?)null
-            : decimal.Round((decimal)passedControls / evaluatedControls.Length * 100m, 2);
-        var demonstrationOnly = evaluatedControls.Length > 0 && evaluatedControls.All(control =>
-            string.Equals(control.Confidence, "DemonstrationOnly", StringComparison.OrdinalIgnoreCase));
-        var score = rawScore is null
-            ? null
-            : demonstrationOnly ? Math.Min(rawScore.Value, 20m) : rawScore;
-        var blockedAudits = audits.Count(audit => audit.State == AuditState.Blocked);
-        var limitations = new List<string>
-        {
-            "O P0 ainda cobre poucos controles do catálogo (hoje WEB-CFG-01, WEB-CFG-02, WEB-CFG-04, WEB-CFG-06 e WEB-CFG-09 contra o alvo); SIM-001 é fixture do pipeline e não testa o alvo.",
-            "O score não é certificação nem garantia de ausência de vulnerabilidades."
-        };
-
-        if (evaluatedControls.Length == 0)
-        {
-            limitations.Add("Não há controles com resultado aprovado ou reprovado para calcular uma pontuação.");
-        }
-
-        if (blockedAudits > 0)
-        {
-            limitations.Add("Auditorias bloqueadas pela política não avaliam a segurança do alvo e reduzem a cobertura observada.");
-        }
-
-        return new SecurityScore(
-            projectId,
-            "P0-1.0",
-            score,
-            evaluatedControls.Length == 0 ? "NotAssessed" : demonstrationOnly ? "DemonstrationOnly" : "Observed",
-            coverage,
-            audits.Count,
-            blockedAudits,
-            evaluatedControls.Length,
-            passedControls,
-            demonstrationOnly
-                ? "score = mínimo(taxa de controles aprovados × 100, 20)"
-                : "score = taxa de controles aprovados × 100",
-            new[]
-            {
-                new SecurityScoreComponent(
-                    "pass-rate",
-                    "Taxa de controles avaliados com estado Passed.",
-                    rawScore ?? 0m,
-                    1m,
-                    true),
-                new SecurityScoreComponent(
-                    "p0-demonstration-cap",
-                    "Teto aplicado porque todos os controles avaliados são apenas demonstrativos no P0.",
-                    demonstrationOnly ? 20m : 100m,
-                    0m,
-                    demonstrationOnly)
-            },
-            limitations);
+        if (_store.FindProject(projectId) is null) return null;
+        var all = _store.GetAudits(projectId);
+        var audits = all.Where(a => a.DataOrigin == DataOrigins.Software).ToArray();
+        bool Fixture(AuditControlResult c) => c.ControlId.StartsWith("SIM-", StringComparison.Ordinal) || c.Confidence == "DemonstrationOnly";
+        var eligible = audits.Where(a => a.State == AuditState.Completed).SelectMany(a => a.Controls).Where(c => !Fixture(c)).ToArray();
+        var evaluated = eligible.Where(c => c.State is "Passed" or "Failed").ToArray();
+        var passed = evaluated.Count(c => c.State == "Passed");
+        var withControls = audits.Count(a => a.State == AuditState.Completed && a.Controls.Any(c => !Fixture(c)));
+        var coverage = audits.Length == 0 ? 0m : decimal.Round(100m * withControls / audits.Length, 2);
+        var score = evaluated.Length == 0 ? (decimal?)null : decimal.Round(100m * passed / evaluated.Length, 2);
+        var fixtureCount = all.SelectMany(a => a.Controls).Count(Fixture);
+        return new SecurityScore(projectId, "P0-2.0", score, score is null ? "NotAssessed" : "Observed", coverage,
+            audits.Length, audits.Count(a => a.State == AuditState.Blocked), evaluated.Length, passed,
+            "score = Passed / (Passed + Failed) × 100; somente auditorias Completed de software avaliado, sem fixtures",
+            [new("pass-rate", "Taxa dos controles elegíveis aprovados.", score ?? 0m, 1m, true)],
+            ["Origem é declaração do operador, não comprovação independente de procedência.",
+             "Corpus sintético, origem não confirmada e controles SIM-/DemonstrationOnly não influenciam a nota.",
+             "Auditorias incompletas, inconclusivos, erros e bloqueios não são aprovação e não entram na taxa de sucesso.",
+             "Cobertura observada é a proporção de auditorias de software concluídas com controles não fixture, não a cobertura de endpoints, papéis ou catálogo.",
+             "Amostra limitada; não é certificação nem garantia de ausência de vulnerabilidades. Tendências entre versões do algoritmo não são diretamente comparáveis."],
+            DataOrigins.Counts(all.Select(a => a.DataOrigin)), fixtureCount);
     }
-
     public AuditReport? GetReport(Guid auditId)
     {
         var audit = FindAudit(auditId);
@@ -258,6 +214,6 @@ public sealed class AuditService
                 "Relatório dos controles registrados nesta auditoria. Resultados inconclusivos, erros e bloqueios não representam aprovação do alvo; o conjunto atual de controles não garante ausência de vulnerabilidades.",
                 audit.Controls,
                 audit.Evidence,
-                audit.PolicyReason);
+                audit.PolicyReason, audit.DataOrigin, audit.OriginDeclaredBy, audit.OriginDeclaredAtUtc);
     }
 }

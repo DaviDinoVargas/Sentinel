@@ -65,7 +65,8 @@ public sealed class AuditWorker(
             var authenticated = payload.Action == "authenticated-lab";
             var source = payload.Action == "source-analysis";
             if (source && (payload.Source is null || !runtime.Container)) { coordinator.Finish(lease, AuditState.Blocked, "Análise de fontes exige snapshot persistido e sandbox Docker."); return; }
-            var selected = registry.Approved.Where(item => source ? item.Spec.Capabilities.SourceRead && item.Spec.Capabilities.Network == "false" : !item.Spec.Capabilities.SourceRead && (authenticated
+            var validationProject = store.FindProject(payload.ProjectId)?.Purpose == ProjectPurposes.Validation;
+            var selected = registry.Approved.Where(item => validationProject || item.Metadata.Id != "sentinel.fixture.sim-001").Where(item => source ? item.Spec.Capabilities.SourceRead && item.Spec.Capabilities.Network == "false" : !item.Spec.Capabilities.SourceRead && (authenticated
                 ? item.Metadata.Id == "sentinel.lab.authenticated-access" || payload.IncludeAuthenticatedLoad && item.Metadata.Id == "sentinel.lab.bounded-http-load"
                 : item.Spec.Mode == mode && item.Metadata.Id != "sentinel.lab.authenticated-access"));
             foreach (var manifest in selected.OrderBy(item => item.Metadata.Id == "sentinel.lab.authenticated-access" ? 0 : 1))

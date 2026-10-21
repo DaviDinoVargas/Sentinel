@@ -39,10 +39,12 @@ public sealed class FindingProjector(IDbContextFactory<SentinelDbContext> factor
             var normalized = uri.GetComponents(UriComponents.SchemeAndServer | UriComponents.PathAndQuery, UriFormat.UriEscaped);
             var identity = new List<object?> { audit.ProjectId, normalized, control.ControlId, control.PluginId, payload?.Action ?? "legacy", payload?.Credential?.Id, payload?.ExpectedAccess, payload?.IncludeAuthenticatedLoad ?? false };
             if (control.Location is not null || control.SourceRuleId is not null) { identity.Add(control.Location); identity.Add(control.SourceRuleId); }
-            var fingerprint = Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(identity))).ToLowerInvariant();
+            var baseFingerprint = Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(identity))).ToLowerInvariant();
+            var fingerprint = DataOrigins.Partition(baseFingerprint, audit.DataOrigin);
             var checkpoint = checkpoints.FirstOrDefault(e => e.Detail == control.PluginId);
             var observation = new FindingObservationRow { Id = Guid.NewGuid(), ProjectId = audit.ProjectId, AuditId = auditId, Sequence = control.Sequence,
-                Fingerprint = fingerprint, AtUtc = checkpoint?.AtUtc ?? audit.CreatedAtUtc, TimeSource = checkpoint is null ? "AuditCreated" : "Checkpoint",
+                Fingerprint = fingerprint, BaseFingerprint = baseFingerprint, DataOrigin = audit.DataOrigin,
+                AtUtc = checkpoint?.AtUtc ?? audit.CreatedAtUtc, TimeSource = checkpoint is null ? "AuditCreated" : "Checkpoint",
                 State = control.State, AuditState = audit.State,
                 Summary = EvidenceSanitizer.Apply(control.Summary).Value, Severity = control.Severity, Confidence = control.Confidence,
                 PluginVersion = control.PluginVersion, CredentialVersion = payload?.Credential?.Version };
@@ -54,7 +56,7 @@ public sealed class FindingProjector(IDbContextFactory<SentinelDbContext> factor
             var failure = failures[^1]; var latest = observations[^1];
             var finding = await db.Set<FindingRow>().SingleOrDefaultAsync(r => r.ProjectId == audit.ProjectId && r.Fingerprint == fingerprint, ct);
             var isNew = finding is null;
-            finding ??= new FindingRow { Id = Guid.NewGuid(), ProjectId = audit.ProjectId, Fingerprint = fingerprint, ControlId = control.ControlId,
+            finding ??= new FindingRow { Id = Guid.NewGuid(), ProjectId = audit.ProjectId, Fingerprint = fingerprint, BaseFingerprint = baseFingerprint, DataOrigin = audit.DataOrigin, ControlId = control.ControlId,
                 PluginId = control.PluginId, Location = EvidenceSanitizer.Apply(control.Location is null ? normalized : normalized + " · " + control.Location + " · " + control.SourceRuleId, 2048).Value };
             if (isNew) db.Add(finding);
             var previousFailure = finding.LatestFailureId;

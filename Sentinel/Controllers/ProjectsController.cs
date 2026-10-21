@@ -44,12 +44,12 @@ public sealed class ProjectsController : ControllerBase
     [HttpGet("{projectId:guid}/audits")]
     [ProducesResponseType(typeof(AuditHistoryPage), StatusCodes.Status200OK)]
     public async Task<ActionResult<AuditHistoryPage>> GetAudits(Guid projectId,
-        CancellationToken cancellationToken, [FromQuery] int limit = 25, [FromQuery] int offset = 0)
+        CancellationToken cancellationToken, [FromQuery] int limit = 25, [FromQuery] int offset = 0, [FromQuery] string? dataOrigin = null)
     {
-        if (limit is < 1 or > 100 || offset < 0)
+        if (limit is < 1 or > 100 || offset < 0 || dataOrigin is not null && !DataOrigins.Valid(dataOrigin))
             return BadRequest(new ProblemDetails { Title = "Paginação inválida", Detail = "Use limit entre 1 e 100 e offset não negativo.", Status = 400 });
 
-        var history = await _auditService.GetAuditHistoryAsync(projectId, limit, offset, cancellationToken);
+        var history = await _auditService.GetAuditHistoryAsync(projectId, limit, offset, cancellationToken, dataOrigin);
         return history is null ? NotFound() : Ok(history);
     }
 
@@ -58,6 +58,7 @@ public sealed class ProjectsController : ControllerBase
     [ProducesResponseType(typeof(SentinelProject), StatusCodes.Status201Created)]
     public ActionResult<SentinelProject> CreateProject([FromBody] CreateProjectRequest request)
     {
+        if (request.Purpose == ProjectPurposes.Validation && !Permissions.Roles[Permissions.Platform].Any(User.IsInRole)) return Forbid();
         try
         {
             var project = _auditService.CreateProject(request);
@@ -102,7 +103,7 @@ public sealed class ProjectsController : ControllerBase
         var correlationId = HttpContext.TraceIdentifier;
         try
         {
-            var audit = _auditService.RequestAudit(projectId, request, correlationId);
+            var audit = _auditService.RequestAudit(projectId, request, correlationId, User.FindFirst("sub")?.Value);
             return audit.State == AuditState.Blocked
                 ? StatusCode(StatusCodes.Status403Forbidden, audit)
                 : Accepted($"/api/v1/audits/{audit.Id}", audit);

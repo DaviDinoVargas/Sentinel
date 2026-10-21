@@ -52,6 +52,7 @@ builder.Services.AddSingleton<ScopePolicyEngine>();
 builder.Services.AddSingleton<AuditService>();
 builder.Services.AddSingleton<ExecutionCoordinator>();
 builder.Services.AddSingleton<ScopeLifecycle>();
+builder.Services.AddSingleton<DataOriginClassification>();
 builder.Services.AddSingleton<ScopedHttpGateway>();
 builder.Services.Configure<PluginRuntimeOptions>(builder.Configuration.GetSection("PluginRuntime"));
 builder.Services.AddSingleton<PluginRuntime>();

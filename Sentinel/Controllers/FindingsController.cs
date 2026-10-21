@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Sentinel.Evidence;
+using Sentinel.Core;
 using Sentinel.Findings;
 using Sentinel.Identity;
 using Sentinel.Persistence;
@@ -14,9 +15,9 @@ namespace Sentinel.Controllers;
 public sealed class FindingsController(IDbContextFactory<SentinelDbContext> factory, TimeProvider time) : ControllerBase
 {
     [HttpGet]
-    public async Task<IActionResult> List(Guid projectId, CancellationToken ct, string? status = null, string? severity = null, string? priority = null, string? search = null, int offset = 0, int limit = 25)
+    public async Task<IActionResult> List(Guid projectId, CancellationToken ct, string? status = null, string? severity = null, string? priority = null, string? search = null, int offset = 0, int limit = 25, string? dataOrigin = null)
     {
-        if (offset < 0 || limit is < 1 or > 100 || search?.Length > 200) return BadRequest();
+        if (offset < 0 || limit is < 1 or > 100 || search?.Length > 200 || dataOrigin is not null && !DataOrigins.Valid(dataOrigin)) return BadRequest();
         await using var db = await factory.CreateDbContextAsync(ct);
         if (!await db.Projects.AnyAsync(p => p.Id == projectId, ct)) return NotFound();
         var query = db.Set<FindingRow>().AsNoTracking().Where(r => r.ProjectId == projectId);
@@ -24,6 +25,7 @@ public sealed class FindingsController(IDbContextFactory<SentinelDbContext> fact
         if (!string.IsNullOrEmpty(severity)) query = query.Where(r => r.Severity == severity);
         if (!string.IsNullOrEmpty(priority)) query = query.Where(r => r.Priority == priority);
         if (!string.IsNullOrWhiteSpace(search)) query = query.Where(r => r.Title.Contains(search) || r.ControlId.Contains(search) || r.Location.Contains(search));
+        if (dataOrigin is not null) query = query.Where(r => r.DataOrigin == dataOrigin);
         var count = await query.CountAsync(ct);
         var rows = await query.OrderByDescending(r => r.LastSeenAtUtc).ThenBy(r => r.Id).Skip(offset).Take(limit).ToArrayAsync(ct);
         var pending = await db.Audits.CountAsync(a => a.ProjectId == projectId && new[] { "Completed", "Failed", "Cancelled", "Interrupted", "Blocked" }.Contains(a.State) && !db.Set<FindingProjectionRow>().Any(p => p.AuditId == a.Id), ct);
@@ -74,7 +76,7 @@ public sealed class FindingsController(IDbContextFactory<SentinelDbContext> fact
         db.Add(FindingWorkflow.Event(row, actor, EvidenceSanitizer.Apply(request.Reason.Trim(), 2000).Value, time.GetUtcNow()));
         await db.SaveChangesAsync(ct); await tx.CommitAsync(ct); return Ok(Describe(row));
     }
-    private static object Describe(FindingRow r) => new { r.Id, r.ProjectId, r.Fingerprint, r.ControlId, r.PluginId, r.Location, r.Title, r.Severity, r.Confidence,
+    private static object Describe(FindingRow r) => new { r.Id, r.ProjectId, r.DataOrigin, r.BaseFingerprint, r.Fingerprint, r.ControlId, r.PluginId, r.Location, r.Title, r.Severity, r.Confidence,
         r.Status, r.Priority, r.Owner, r.RiskExpiresAtUtc, r.FirstSeenAtUtc, r.LastSeenAtUtc, r.LastAssessedAtUtc, r.LastAssessedState, r.LatestFailureId, r.Revision };
 }
 public sealed record FindingTriageRequest(int ExpectedRevision, string Status, string Priority, string Reason, string? Owner = null, DateTimeOffset? RiskExpiresAtUtc = null);

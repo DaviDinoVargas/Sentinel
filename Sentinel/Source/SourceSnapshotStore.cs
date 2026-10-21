@@ -44,21 +44,26 @@ public sealed class SourceSnapshotStore(IDbContextFactory<SentinelDbContext> fac
         }
         else File.SetUnixFileMode(Root, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
     }
-    public async Task<SourceSnapshotRow> CreateAsync(Guid project, string key, string revision, byte[] bytes, string actor, CancellationToken ct)
+    public async Task<SourceSnapshotRow> CreateAsync(Guid project, string key, string revision, byte[] bytes, string actor, CancellationToken ct, string dataOrigin = DataOrigins.Unknown)
     {
+        DataOrigins.Validate(dataOrigin); DataOrigins.ValidateActor(actor);
         if (!Regex.IsMatch(key, "^[a-z0-9][a-z0-9_-]{0,79}\\z") || string.IsNullOrWhiteSpace(revision) || revision.Length > 120) throw new ArgumentException("Informe identificador estável (letras minúsculas/números/_/-) e revisão de até 120 caracteres.");
         var inventory = await SourceArchivePolicy.ValidateAsync(bytes, ct);
         await using var db = await factory.CreateDbContextAsync(ct); await using var tx = await db.Database.BeginTransactionAsync(ct);
         await db.Database.ExecuteSqlRawAsync("SELECT pg_advisory_xact_lock(741426402)", ct);
-        if (!await db.Projects.AnyAsync(p => p.Id == project, ct)) throw new KeyNotFoundException();
+        var owner = await db.Projects.SingleOrDefaultAsync(p => p.Id == project, ct) ?? throw new KeyNotFoundException();
+        ProjectPurposes.ValidateOrigin(owner.Purpose, dataOrigin);
         var now = time.GetUtcNow();
         if (await db.Set<SourceSnapshotRow>().CountAsync(r => r.ProjectId == project && r.PurgedAtUtc == null, ct) >= 10 ||
             await db.Set<SourceSnapshotRow>().IgnoreQueryFilters().CountAsync(r => r.PurgedAtUtc == null, ct) >= 100) throw new ArgumentException("Cota de snapshots atingida: 10 por projeto / 100 na instalação. Aguarde retenção ou revogue snapshots antigos.");
         var row = new SourceSnapshotRow { Id = Guid.NewGuid(), ProjectId = project, ScopeId = Guid.NewGuid(), SourceKey = key,
             RevisionLabel = Evidence.EvidenceSanitizer.Apply(revision, 120).Value, Sha256 = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(),
-            StorageId = StorageId, Bytes = bytes.Length, ExpandedBytes = inventory.ExpandedBytes, FileCount = inventory.FileCount, CreatedBy = actor, CreatedAtUtc = now, ExpiresAtUtc = now.AddHours(1) };
+            StorageId = StorageId, Bytes = bytes.Length, ExpandedBytes = inventory.ExpandedBytes, FileCount = inventory.FileCount, CreatedBy = actor, CreatedAtUtc = now, ExpiresAtUtc = now.AddHours(1),
+            DataOrigin = dataOrigin, OriginDeclaredBy = dataOrigin == DataOrigins.Unknown ? null : actor, OriginDeclaredAtUtc = dataOrigin == DataOrigins.Unknown ? null : now };
         db.Scopes.Add(new ScopeRow { Id = row.ScopeId, ProjectId = project, TargetBaseUrl = Target(row).AbsoluteUri, Environment = "source-analysis", CreatedAtUtc = now, ExpiresAtUtc = row.ExpiresAtUtc, CreatedBy = actor });
-        db.Add(row); EnsurePrivateRoot();
+        db.Add(row);
+        if (dataOrigin != DataOrigins.Unknown) db.Add(new DataOriginEventRow { Id = Guid.NewGuid(), ProjectId = project, SnapshotId = row.Id, ToOrigin = dataOrigin, Actor = actor, AtUtc = now, Reason = "Origem declarada no envio do snapshot autorizado." });
+        EnsurePrivateRoot();
         var file = Blob(row.Id); await File.WriteAllBytesAsync(file, Protector(project, row.Id).Protect(bytes), ct);
         try { await db.SaveChangesAsync(ct); await tx.CommitAsync(ct); }
         catch { File.Delete(file); throw; }

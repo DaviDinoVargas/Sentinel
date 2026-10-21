@@ -12,12 +12,13 @@ public sealed class PostgresSentinelStore : ISentinelStore
         _dbContextFactory = dbContextFactory;
     }
 
-    public SentinelProject CreateProject(string name, string? description, DateTimeOffset createdAtUtc)
+    public SentinelProject CreateProject(string name, string? description, DateTimeOffset createdAtUtc, string purpose = ProjectPurposes.Software)
     {
         var row = new ProjectRow
         {
             Id = Guid.NewGuid(),
             Name = name.Trim(),
+            Purpose = purpose,
             Description = description?.Trim(),
             CreatedAtUtc = createdAtUtc
         };
@@ -42,7 +43,7 @@ public sealed class PostgresSentinelStore : ISentinelStore
         return db.Projects.AsNoTracking()
             .OrderByDescending(project => project.CreatedAtUtc)
             .Take(limit)
-            .Select(project => new SentinelProject(project.Id, project.Name, project.Description, project.CreatedAtUtc))
+            .Select(project => new SentinelProject(project.Id, project.Name, project.Description, project.CreatedAtUtc, project.Purpose))
             .ToArray();
     }
 
@@ -82,6 +83,7 @@ public sealed class PostgresSentinelStore : ISentinelStore
         var row = ToAuditRow(audit);
         using var db = _dbContextFactory.CreateDbContext();
         db.Audits.Add(row);
+        DataOrigins.RecordCreation(db, row);
         db.SaveChanges();
         return audit;
     }
@@ -103,11 +105,22 @@ public sealed class PostgresSentinelStore : ISentinelStore
         };
 
         using var db = _dbContextFactory.CreateDbContext();
+        using var originTransaction = db.Database.BeginTransaction();
+        if (audit.TargetUri.Scheme == "source")
+        {
+            // Serialize snapshot classification with reading the origin at enqueue.
+            db.Database.ExecuteSqlRaw("SELECT pg_advisory_xact_lock(741426401)");
+            var snapshot = db.Set<Source.SourceSnapshotRow>().Single(s => s.ProjectId == audit.ProjectId && s.ScopeId == audit.ScopeId);
+            ProjectPurposes.ValidateOrigin(db.Projects.Single(p => p.Id == audit.ProjectId).Purpose, snapshot.DataOrigin);
+            auditRow.DataOrigin = snapshot.DataOrigin; auditRow.OriginDeclaredBy = snapshot.OriginDeclaredBy; auditRow.OriginDeclaredAtUtc = snapshot.OriginDeclaredAtUtc;
+        }
         db.Audits.Add(auditRow);
+        DataOrigins.RecordCreation(db, auditRow);
         db.AuditExecutions.Add(new AuditExecutionRow { AuditId = audit.Id, TargetKey = Execution.ExecutionCoordinator.TargetKey(audit.TargetUri) });
         db.AuditOutbox.Add(outboxRow);
         db.SaveChanges();
-        return audit;
+        originTransaction.Commit();
+        return ToAudit(auditRow);
     }
 
     public IReadOnlyList<OutboxMessage> GetPendingOutboxMessages(int limit)
@@ -152,6 +165,7 @@ public sealed class PostgresSentinelStore : ISentinelStore
         CorrelationId = audit.CorrelationId,
         PolicyReason = audit.PolicyReason,
         CreatedAtUtc = audit.CreatedAtUtc,
+        DataOrigin = audit.DataOrigin, OriginDeclaredBy = audit.OriginDeclaredBy, OriginDeclaredAtUtc = audit.OriginDeclaredAtUtc,
         Controls = audit.Controls.Select((control, index) => new AuditControlRow
         {
             Id = Guid.NewGuid(),
@@ -243,19 +257,22 @@ public sealed class PostgresSentinelStore : ISentinelStore
             .ToArray();
     }
 
-    public async Task<AuditHistoryPage> GetAuditHistoryAsync(Guid projectId, int limit, int offset, CancellationToken cancellationToken)
+    public async Task<AuditHistoryPage> GetAuditHistoryAsync(Guid projectId, int limit, int offset, CancellationToken cancellationToken, string? dataOrigin = null)
     {
         await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
         var query = db.Audits.AsNoTracking().Where(audit => audit.ProjectId == projectId);
+        var groups = await query.GroupBy(a => a.DataOrigin).Select(g => new { Origin = g.Key, Count = g.Count() }).ToArrayAsync(cancellationToken);
+        var counts = new OriginCounts(groups.Where(g => g.Origin == DataOrigins.Software).Sum(g => g.Count), groups.Where(g => g.Origin == DataOrigins.Synthetic).Sum(g => g.Count), groups.Where(g => g.Origin == DataOrigins.Unknown).Sum(g => g.Count));
+        if (dataOrigin is not null) { DataOrigins.Validate(dataOrigin); query = query.Where(a => a.DataOrigin == dataOrigin); }
         var total = await query.CountAsync(cancellationToken);
         var rows = await query.OrderByDescending(audit => audit.CreatedAtUtc).ThenBy(audit => audit.Id)
             .Skip(offset).Take(limit).Include(audit => audit.Controls).Include(audit => audit.Evidence)
             .AsSplitQuery().ToArrayAsync(cancellationToken);
-        return new AuditHistoryPage(rows.Select(ToAudit).ToArray(), total, limit, offset);
+        return new AuditHistoryPage(rows.Select(ToAudit).ToArray(), total, limit, offset, counts);
     }
 
     private static SentinelProject ToProject(ProjectRow row) =>
-        new(row.Id, row.Name, row.Description, row.CreatedAtUtc);
+        new(row.Id, row.Name, row.Description, row.CreatedAtUtc, row.Purpose);
 
     private static AuthorizedScope ToScope(ScopeRow row) =>
         row.ToDomain();
@@ -275,7 +292,7 @@ public sealed class PostgresSentinelStore : ISentinelStore
                 .ToArray(),
             row.Evidence.OrderBy(evidence => evidence.CollectedAtUtc)
                 .Select(ToEvidence)
-                .ToArray());
+                .ToArray(), row.DataOrigin, row.OriginDeclaredBy, row.OriginDeclaredAtUtc);
 
     internal static AuditEvidence ToEvidence(AuditEvidenceRow row)
     {

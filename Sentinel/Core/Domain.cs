@@ -1,10 +1,10 @@
 namespace Sentinel.Core;
 
-public sealed record SentinelProject(Guid Id, string Name, string? Description, DateTimeOffset CreatedAtUtc);
+public sealed record SentinelProject(Guid Id, string Name, string? Description, DateTimeOffset CreatedAtUtc, string Purpose = ProjectPurposes.Software);
 
 public sealed record ProjectContext(SentinelProject Project, IReadOnlyList<AuthorizedScope> Scopes);
 
-public sealed record AuditHistoryPage(IReadOnlyList<Audit> Items, int TotalCount, int Limit, int Offset);
+public sealed record AuditHistoryPage(IReadOnlyList<Audit> Items, int TotalCount, int Limit, int Offset, OriginCounts? OriginCounts = null);
 
 public sealed record AuthorizedScope(
     Guid Id,
@@ -70,7 +70,7 @@ public sealed record SecurityScore(
     int ControlsPassed,
     string Formula,
     IReadOnlyList<SecurityScoreComponent> Components,
-    IReadOnlyList<string> Limitations);
+    IReadOnlyList<string> Limitations, OriginCounts? OriginCounts = null, int FixtureControlsExcluded = 0);
 
 public sealed class Audit
 {
@@ -84,7 +84,8 @@ public sealed class Audit
         string? policyReason,
         DateTimeOffset createdAtUtc,
         IReadOnlyList<AuditControlResult> controls,
-        IReadOnlyList<AuditEvidence> evidence)
+        IReadOnlyList<AuditEvidence> evidence, string dataOrigin = DataOrigins.Unknown,
+        string? originDeclaredBy = null, DateTimeOffset? originDeclaredAtUtc = null)
     {
         Id = id;
         ProjectId = projectId;
@@ -96,6 +97,7 @@ public sealed class Audit
         CreatedAtUtc = createdAtUtc;
         Controls = controls;
         Evidence = evidence;
+        DataOrigin = dataOrigin; OriginDeclaredBy = originDeclaredBy; OriginDeclaredAtUtc = originDeclaredAtUtc;
     }
 
     public Guid Id { get; }
@@ -108,14 +110,17 @@ public sealed class Audit
     public DateTimeOffset CreatedAtUtc { get; }
     public IReadOnlyList<AuditControlResult> Controls { get; }
     public IReadOnlyList<AuditEvidence> Evidence { get; }
+    public string DataOrigin { get; }
+    public string? OriginDeclaredBy { get; }
+    public DateTimeOffset? OriginDeclaredAtUtc { get; }
 }
 
-public sealed record CreateProjectRequest(string Name, string? Description);
+public sealed record CreateProjectRequest(string Name, string? Description, string Purpose = ProjectPurposes.Software);
 
 public sealed record CreateScopeRequest(string TargetBaseUrl, string Environment, DateTimeOffset ExpiresAtUtc);
 
 public sealed record RequestAuditRequest(string TargetUrl, string Action = "simulated", bool ConfirmActive = false,
-    Guid? CredentialProfileId = null, string? ExpectedAccess = null, bool IncludeAuthenticatedLoad = false);
+    Guid? CredentialProfileId = null, string? ExpectedAccess = null, bool IncludeAuthenticatedLoad = false, string DataOrigin = DataOrigins.Unknown);
 
 public sealed record AuditReport(
     Guid AuditId,
@@ -123,5 +128,5 @@ public sealed record AuditReport(
     string Statement,
     IReadOnlyList<AuditControlResult> Controls,
     IReadOnlyList<AuditEvidence> Evidence,
-    string? PolicyReason);
+    string? PolicyReason, string DataOrigin = DataOrigins.Unknown, string? OriginDeclaredBy = null, DateTimeOffset? OriginDeclaredAtUtc = null);
 

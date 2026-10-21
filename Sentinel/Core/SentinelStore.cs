@@ -2,7 +2,7 @@ namespace Sentinel.Core;
 
 public interface ISentinelStore
 {
-    SentinelProject CreateProject(string name, string? description, DateTimeOffset createdAtUtc);
+    SentinelProject CreateProject(string name, string? description, DateTimeOffset createdAtUtc, string purpose = ProjectPurposes.Software);
     SentinelProject? FindProject(Guid projectId);
     IReadOnlyList<SentinelProject> GetProjects(int limit);
     AuthorizedScope CreateScope(Guid projectId, Uri targetBaseUri, string environment, DateTimeOffset expiresAtUtc, DateTimeOffset createdAtUtc, string? createdBy = null);
@@ -13,7 +13,7 @@ public interface ISentinelStore
     Audit SaveBlockedAudit(Audit audit);
     Audit? FindAudit(Guid auditId);
     IReadOnlyList<Audit> GetAudits(Guid projectId);
-    Task<AuditHistoryPage> GetAuditHistoryAsync(Guid projectId, int limit, int offset, CancellationToken cancellationToken);
+    Task<AuditHistoryPage> GetAuditHistoryAsync(Guid projectId, int limit, int offset, CancellationToken cancellationToken, string? dataOrigin = null);
 
     // Fila de execução real (ADR-0004): a auditoria e a mensagem do outbox são gravadas
     // juntas, na mesma transação — nunca existe uma auditoria "Queued" sem uma mensagem

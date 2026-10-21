@@ -45,7 +45,7 @@ public sealed class AuditApiTests : IClassFixture<SentinelApiFactory>
 
         var auditResponse = await _client.PostAsJsonAsync(
             $"/api/v1/projects/{project.Id}/audits",
-            new RequestAuditRequest($"{targetBaseUrl}area-segura", "simulated"));
+            new RequestAuditRequest($"{targetBaseUrl}area-segura", "simulated", DataOrigin: DataOrigins.Software));
         Assert.Equal(HttpStatusCode.Accepted, auditResponse.StatusCode);
         var queuedAudit = await ReadRequiredAsync<Audit>(auditResponse);
         Assert.Equal(AuditState.Queued, queuedAudit.State);
@@ -54,17 +54,14 @@ public sealed class AuditApiTests : IClassFixture<SentinelApiFactory>
         // estado até o worker concluir (ou falhar, o que reprovaria o teste abaixo).
         var audit = await PollAuditUntilCompletedAsync(queuedAudit.Id);
         Assert.Equal(AuditState.Completed, audit.State);
-        // SIM-001 (fixture) + WEB-CFG-01 (cabeçalhos) + WEB-CFG-02 (CORS) + WEB-CFG-04
+        // Sem fixture no projeto real: WEB-CFG-01 (cabeçalhos) + WEB-CFG-02 (CORS) + WEB-CFG-04
         // (erro/stack trace) + WEB-CFG-06 (host header) + WEB-CFG-09 (fingerprinting). O
         // HttpListener de teste sempre envia "Server: Microsoft-HTTPAPI/2.0", então
         // WEB-CFG-09 reprova mesmo em /area-segura — é um caso real, não simulado.
-        Assert.Equal(6, audit.Controls.Count);
-        Assert.Equal(6, audit.Evidence.Count);
+        Assert.Equal(5, audit.Controls.Count);
+        Assert.Equal(5, audit.Evidence.Count);
 
-        var fixtureControl = Assert.Single(audit.Controls, control => control.ControlId == "SIM-001");
-        Assert.Equal("Passed", fixtureControl.State);
-        Assert.Equal("DemonstrationOnly", fixtureControl.Confidence);
-        Assert.Equal("sentinel.fixture.sim-001", fixtureControl.PluginId);
+        Assert.DoesNotContain(audit.Controls, c => c.ControlId == "SIM-001");
 
         var headerControl = Assert.Single(audit.Controls, control => control.ControlId == "WEB-CFG-01");
         Assert.Equal("Passed", headerControl.State);
@@ -90,20 +87,20 @@ public sealed class AuditApiTests : IClassFixture<SentinelApiFactory>
         Assert.Equal(HttpStatusCode.OK, reportResponse.StatusCode);
         var report = await ReadRequiredAsync<AuditReport>(reportResponse);
         Assert.Equal(AuditState.Completed, report.State);
-        Assert.Equal(6, report.Evidence.Count);
+        Assert.Equal(5, report.Evidence.Count);
         Assert.All(report.Evidence, evidence => Assert.Matches("^[a-f0-9]{64}$", evidence.Sha256));
 
         var scoreResponse = await _client.GetAsync($"/api/v1/projects/{project.Id}/security-score");
         Assert.Equal(HttpStatusCode.OK, scoreResponse.StatusCode);
         var score = await ReadRequiredAsync<SecurityScore>(scoreResponse);
-        Assert.Equal("P0-1.0", score.AlgorithmVersion);
-        // Nem todos os controles avaliados são DemonstrationOnly (os controles HTTP são
-        // Reproduced), então o teto de 20 do P0 não se aplica. 4 de 5 controles passam
+        Assert.Equal("P0-2.0", score.AlgorithmVersion);
+        // Somente controles reais da auditoria Completed entram. 3 de 4 passam; os controles HTTP são
+        // Reproduced; fixture e inconclusivos não elevam a nota.
         // (WEB-CFG-04 fica Inconclusive e não entra na amostra avaliada).
-        Assert.Equal(80m, score.Score);
+        Assert.Equal(75m, score.Score);
         Assert.Equal("Observed", score.Confidence);
-        Assert.Equal(5, score.ControlsEvaluated);
-        Assert.Equal(4, score.ControlsPassed);
+        Assert.Equal(4, score.ControlsEvaluated);
+        Assert.Equal(3, score.ControlsPassed);
     }
 
     [Fact]
@@ -239,7 +236,7 @@ public sealed class AuditApiTests : IClassFixture<SentinelApiFactory>
         var project = await CreateProjectAsync();
         var response = await _client.PostAsJsonAsync(
             $"/api/v1/projects/{project.Id}/audits",
-            new RequestAuditRequest("https://fora-do-escopo.sentinel.test/", "simulated"));
+            new RequestAuditRequest("https://fora-do-escopo.sentinel.test/", "simulated", DataOrigin: DataOrigins.Software));
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
         var audit = await ReadRequiredAsync<Audit>(response);
         Assert.Equal(AuditState.Blocked, audit.State);

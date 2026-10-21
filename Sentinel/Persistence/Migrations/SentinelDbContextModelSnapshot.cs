@@ -22,6 +22,56 @@ namespace Sentinel.Persistence.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("Sentinel.Core.DataOriginEventRow", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Actor")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTimeOffset>("AtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("AuditId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("FromOrigin")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<Guid?>("SnapshotId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ToOrigin")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AuditId");
+
+                    b.HasIndex("SnapshotId");
+
+                    b.HasIndex("ProjectId", "AtUtc");
+
+                    b.ToTable("data_origin_events", null, t =>
+                        {
+                            t.HasTrigger("data_origin_events_append_only");
+                        });
+                });
+
             modelBuilder.Entity("Sentinel.Findings.FindingEventRow", b =>
                 {
                     b.Property<long>("Id")
@@ -87,12 +137,23 @@ namespace Sentinel.Persistence.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("BaseFingerprint")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
                     b.Property<string>("Confidence")
                         .IsRequired()
                         .HasColumnType("text");
 
                     b.Property<int?>("CredentialVersion")
                         .HasColumnType("integer");
+
+                    b.Property<string>("DataOrigin")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasDefaultValue("Unknown");
 
                     b.Property<string>("Fingerprint")
                         .IsRequired()
@@ -155,6 +216,10 @@ namespace Sentinel.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<string>("BaseFingerprint")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
                     b.Property<string>("Confidence")
                         .IsRequired()
                         .HasColumnType("text");
@@ -162,6 +227,13 @@ namespace Sentinel.Persistence.Migrations
                     b.Property<string>("ControlId")
                         .IsRequired()
                         .HasColumnType("text");
+
+                    b.Property<string>("DataOrigin")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasDefaultValue("Unknown");
 
                     b.Property<string>("Fingerprint")
                         .IsRequired()
@@ -453,6 +525,20 @@ namespace Sentinel.Persistence.Migrations
                     b.Property<DateTimeOffset>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("DataOrigin")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasDefaultValue("Unknown");
+
+                    b.Property<DateTimeOffset?>("OriginDeclaredAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("OriginDeclaredBy")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
                     b.Property<string>("PolicyReason")
                         .HasMaxLength(2000)
                         .HasColumnType("character varying(2000)");
@@ -475,9 +561,9 @@ namespace Sentinel.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("ProjectId");
-
                     b.HasIndex("ScopeId");
+
+                    b.HasIndex("ProjectId", "DataOrigin", "CreatedAtUtc");
 
                     b.ToTable("audits", (string)null);
                 });
@@ -573,6 +659,13 @@ namespace Sentinel.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid")
                         .HasDefaultValue(new Guid("a594dfb1-5bee-4d9b-bb65-949f9c0ed0c7"));
+
+                    b.Property<string>("Purpose")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasDefaultValue("SoftwareUnderTest");
 
                     b.HasKey("Id");
 
@@ -754,6 +847,13 @@ namespace Sentinel.Persistence.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("DataOrigin")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasDefaultValue("Unknown");
+
                     b.Property<long>("ExpandedBytes")
                         .HasColumnType("bigint");
 
@@ -762,6 +862,13 @@ namespace Sentinel.Persistence.Migrations
 
                     b.Property<int>("FileCount")
                         .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset?>("OriginDeclaredAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("OriginDeclaredBy")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
 
                     b.Property<Guid>("ProjectId")
                         .HasColumnType("uuid");
@@ -805,6 +912,27 @@ namespace Sentinel.Persistence.Migrations
                     b.HasIndex("StorageId", "ExpiresAtUtc");
 
                     b.ToTable("source_snapshots", (string)null);
+                });
+
+            modelBuilder.Entity("Sentinel.Core.DataOriginEventRow", b =>
+                {
+                    b.HasOne("Sentinel.Persistence.AuditRow", null)
+                        .WithMany()
+                        .HasForeignKey("AuditId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Sentinel.Persistence.ProjectRow", "Project")
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Sentinel.Source.SourceSnapshotRow", null)
+                        .WithMany()
+                        .HasForeignKey("SnapshotId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Project");
                 });
 
             modelBuilder.Entity("Sentinel.Findings.FindingEventRow", b =>
