@@ -289,7 +289,9 @@ public sealed class ExecutionCoordinator(IDbContextFactory<SentinelDbContext> fa
         // Oldest delivery first prevents a fixed UUID prefix from starving waiting jobs.
         var ids = (from row in scan.AuditExecutions.AsNoTracking()
                    join message in scan.AuditOutbox.AsNoTracking() on row.AuditId equals message.Id
+                   join audit in scan.Audits.AsNoTracking() on row.AuditId equals audit.Id
                    where row.FinishedAtUtc == null && (row.LeaseUntilUtc == null || row.LeaseUntilUtc <= scanNow)
+                       && new[] { "Queued", "Running", "WaitingForBudget", "Cancelling" }.Contains(audit.State)
                    orderby message.DispatchedAtUtc, message.CreatedAtUtc
                    select row.AuditId).Take(500).ToArray();
         foreach (var id in ids) Locked(id, (db, execution, audit, now) =>

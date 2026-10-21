@@ -127,6 +127,33 @@ public sealed class ExecutionCoordinatorTests : IDisposable
     }
 
     [Fact]
+    public void Terminais_legados_sem_finalizacao_nao_ocupam_lote_de_recuperacao()
+    {
+        var id = Queued("http://localhost:21241/");
+        var old = _coordinator.TryAcquire(id, "lost-worker")!;
+        using (var db = _factory.CreateDbContext())
+        {
+            var target = db.Audits.Single(a => a.Id == id);
+            var past = DateTimeOffset.UtcNow.AddDays(-1);
+            for (var i = 0; i < 501; i++)
+            {
+                var legacyId = Guid.NewGuid();
+                db.Audits.Add(new AuditRow { Id = legacyId, ProjectId = target.ProjectId, ScopeId = target.ScopeId,
+                    TargetUrl = target.TargetUrl, State = "Completed", CorrelationId = legacyId.ToString("N"), CreatedAtUtc = past });
+                db.AuditExecutions.Add(new AuditExecutionRow { AuditId = legacyId, TargetKey = ExecutionCoordinator.TargetKey(new Uri(target.TargetUrl)) });
+                db.AuditOutbox.Add(new AuditOutboxRow { Id = legacyId, PayloadJson = "{}", Status = "Superseded", CreatedAtUtc = past });
+            }
+            db.SaveChanges();
+        }
+        Expire(id);
+        _coordinator.Reconcile();
+        var recovered = _coordinator.TryAcquire(id, "new-worker");
+        Assert.NotNull(recovered);
+        Assert.NotEqual(old.Token, recovered.Token);
+        Assert.False(_coordinator.Heartbeat(old));
+    }
+
+    [Fact]
     public void Atualizacao_de_versao_recupera_auditoria_legada_sem_recriar_banco()
     {
         var id = Queued("http://localhost:21240/");
