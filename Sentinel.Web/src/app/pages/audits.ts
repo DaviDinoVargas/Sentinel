@@ -47,7 +47,13 @@ import { EvidenceViewer } from '../design-system/evidence-viewer';
             <h2>Nova auditoria HTTP</h2>
             <p>
               {{ realPlugins() }} plugins de verificação
-              {{ profile() === 'simulated' ? '+ fixture do pipeline' : 'ativos de laboratório' }}
+              {{
+                profile() === 'simulated'
+                  ? ws.dataOrigin() === 'SyntheticCorpus'
+                    ? '+ fixture do pipeline'
+                    : 'do software avaliado'
+                  : 'ativos de laboratório'
+              }}
             </p>
           </div>
           <span class="tag">TRÁFEGO HTTP REAL</span>

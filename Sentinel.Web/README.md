@@ -18,8 +18,9 @@ Workspace Angular para acompanhar a segurança de aplicações autorizadas. A in
 - Infraestrutura e filas: PostgreSQL, outbox, RabbitMQ, mensagens prontas e consumidores conectados.
 - Capacidades: mapa do que está implementado e das expansões previstas.
 - Identidade e acesso: OIDC, organização, papéis e permissões efetivas.
+- Origem dos resultados: consultas por origem, classificação explícita do legado e eventos com ator/motivo. Projetos comuns não carregam corpus; projetos dedicados de validação dependem de criação por administrador e execução explícita.
 
-Os resultados e as evidências usam a página de auditorias carregada (25 por página); o score agrega todo o histórico do projeto. A interface atualiza o contexto a cada 5 segundos e o detalhe da auditoria a cada 3 segundos. Não converte espera prolongada em falha ou bloqueio.
+Os resultados e as evidências usam a página de auditorias carregada (25 por página), filtrada no servidor pela origem do contexto; o score agrega o histórico elegível de software, excluindo corpus, origem não confirmada e fixtures. A tela de origens permite consultar separadamente o legado e validações. A interface atualiza o contexto a cada 5 segundos e o detalhe da auditoria a cada 3 segundos. Não converte espera prolongada em falha ou bloqueio.
 
 ## Executar
 

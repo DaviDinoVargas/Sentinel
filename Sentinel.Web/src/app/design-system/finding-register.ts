@@ -34,7 +34,10 @@ export const findingPriorities = [
       <div class="panel-header">
         <div>
           <h2>Achados consolidados</h2>
-          <p class="help">Histórico completo do projeto, com deduplicação e triagem.</p>
+          <p class="help">
+            Origem: {{ ws.originLabel(ws.dataOrigin()) }}. Histórico do projeto neste recorte, com
+            deduplicação e triagem.
+          </p>
         </div>
         <button class="button small" (click)="load()" [disabled]="loading() || !ws.projectId()">
           Atualizar achados

@@ -1,5 +1,17 @@
 # Sentinel
 
+## Origem dos resultados — V19
+
+Projetos comuns usam somente entradas do software avaliado. Não há carregamento automático de corpus, nem necessidade de enviar fixtures para auditar outro projeto. Administradores da plataforma podem criar um projeto dedicado `SentinelValidation`; isso não importa arquivos nem inicia testes. O fluxo normal da interface declara `SoftwareUnderTest` para projetos comuns e `SyntheticCorpus` para validações. A API rejeita envio sintético novo a projetos comuns e software real a projetos de validação. Clientes antigos que omitem origem conservam `Unknown`.
+
+A tela **Origem dos resultados** (`/data-origins`) consulta todas as origens por projeto e permite classificar avaliações encerradas do legado, com permissão `scopes.manage`, ator do JWT, motivo redigido e eventos append-only. A migração preserva o legado como `Unknown`; nomes de pastas, URLs e nomes de projetos não são usados para adivinhar origem. Origem é declaração do operador, não prova independente da procedência.
+
+Consultas normais de auditorias, fontes e achados filtram a origem do contexto antes da paginação. O score exclui corpus, desconhecidos e fixtures. Fingerprints de origens conhecidas são particionados: uma aprovação sintética não fecha um achado do software. A classificação mantém IDs, evidências e decisões de triagem; exige grupos históricos completos e recusa mistura, colisão com grupo existente ou substituição de origem já declarada. Esses casos exigem migração específica. Não há fusão automática de decisões humanas.
+
+Endpoints: `POST /api/v1/projects/{id}/data-origins/classify` recebe `auditIds` (1–100), `dataOrigin` e `reason`; `GET /api/v1/projects/{id}/data-origins/events` pagina declarações. Listas de auditorias, achados e snapshots aceitam `dataOrigin=Unknown|SoftwareUnderTest|SyntheticCorpus`. Sem filtro, a API permite consultar o histórico autorizado completo. Relatórios individuais expõem a origem e preservam as evidências históricas.
+
+Busca/paginação avançada de projetos, seleção múltipla, filtros cruzados e enriquecimento de todos os formatos de exportação permanecem próximos recortes. V19 não amplia os testes de SQLi/XSS nem transforma resultados inconclusivos em aprovação.
+
 Workspace para investigar a segurança de aplicações com escopos autorizados, controles verificáveis e evidências persistidas.
 
 Fluxo de execução:
@@ -48,7 +60,7 @@ A configuração local HTTP/H2 é exclusiva de desenvolvimento. Produção exige
 
 ## Interface
 
-Quatorze módulos: visão geral, projetos, escopos/políticas, acessos do alvo, auditorias e detalhe, resultados/achados, fontes/segredos, evidências/relatórios, score, Performance Lab, plugins/controles, infraestrutura/filas, capacidades e identidade/acesso. O estado vem da API; gráficos e contadores informam o recorte consultado. Veja [Sentinel.Web/README.md](Sentinel.Web/README.md).
+Módulos: visão geral, projetos, escopos/políticas, acessos do alvo, auditorias e detalhe, resultados/achados, fontes/segredos, evidências/relatórios, score, Performance Lab, plugins/controles, infraestrutura/filas, capacidades e identidade/acesso. O estado vem da API; gráficos e contadores informam o recorte consultado. Veja [Sentinel.Web/README.md](Sentinel.Web/README.md).
 
 ## Controles atuais
 
@@ -151,7 +163,7 @@ Os testes de integração usam `sentinel_test`, aplicam migrações sem apagar d
 
 Os testes TLS locais usam o certificado HTTPS de desenvolvimento válido/confiável do usuário (`dotnet dev-certs https --trust`). Não instalam certificados de teste na confiança do sistema. O gateway usa HTTP/1.1 e autentica TLS com o nome do alvo autorizado antes de entregar o stream ao HttpClient; alterar Host no controle WEB-CFG-06 não altera SNI nem desabilita a validação de certificado. Certificados não confiáveis ou nomes divergentes geram resultado inconclusivo.
 
-O score `P0-1.0` expõe fórmula, componentes, cobertura, confiança e limitações. A fixture ainda participa do cálculo; cobertura observada é a proporção de auditorias que produziram controles. A nota não certifica segurança nem ausência de vulnerabilidades.
+O score `P0-2.0` usa somente controles Passed/Failed de auditorias Completed com origem SoftwareUnderTest. Corpus, origem Unknown e controles SIM-/DemonstrationOnly ficam fora da nota; contagens excluídas são expostas. Cobertura observada é a proporção de auditorias de software concluídas com controles não fixture, não cobertura de endpoints ou certificação de segurança. Tendências entre versões do algoritmo não são diretamente comparáveis.
 
 ## Cobertura e continuidade
 
