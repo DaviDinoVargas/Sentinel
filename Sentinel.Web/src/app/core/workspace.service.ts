@@ -37,7 +37,9 @@ export class WorkspaceService {
   readonly project = computed(() => this.context()?.project ?? null);
   readonly scopes = computed(() => this.context()?.scopes ?? []);
   readonly activeScopes = computed(() =>
-    this.scopes().filter((scope) => new Date(scope.expiresAtUtc).getTime() > this.now()),
+    this.scopes().filter(
+      (scope) => !scope.revokedAtUtc && new Date(scope.expiresAtUtc).getTime() > this.now(),
+    ),
   );
   readonly audits = computed(() => this.history()?.items ?? []);
   readonly controls = computed(() =>

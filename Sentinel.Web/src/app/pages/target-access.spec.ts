@@ -18,6 +18,19 @@ describe('Acessos do alvo', () => {
     });
     TestBed.inject(AuthSessionService).profile.set(adminIdentity);
     TestBed.inject(WorkspaceService).projectId.set('project-a');
+    TestBed.inject(WorkspaceService).context.set({
+      project: { id: 'project-a', name: 'Fixture', createdAtUtc: '2026-10-19T00:00:00Z' },
+      scopes: [
+        {
+          id: 'scope-a',
+          projectId: 'project-a',
+          targetBaseUri: 'http://localhost:8080/',
+          environment: 'laboratorio',
+          expiresAtUtc: '2099-01-01T00:00:00Z',
+          revokedAtUtc: null,
+        },
+      ],
+    });
     http = TestBed.inject(HttpTestingController);
     fixture = TestBed.createComponent(TargetAccessPage);
     fixture.detectChanges();
@@ -86,6 +99,26 @@ describe('Acessos do alvo', () => {
     fixture.componentInstance.scenarioForm.patchValue({ includeLoad: true, confirmed: true });
     fixture.componentInstance.execute();
     expect(fixture.componentInstance.error()).toContain('Carga exige');
+    http.expectNone('/api/v1/projects/project-a/audits');
+  });
+  it('credencial ainda válida não habilita execução em escopo revogado', () => {
+    http.expectOne('/api/v1/projects/project-a/target-credentials').flush([profile]);
+    const ws = TestBed.inject(WorkspaceService);
+    const context = ws.context()!;
+    ws.context.set({
+      ...context,
+      scopes: context.scopes.map((s) => ({ ...s, revokedAtUtc: '2026-10-20T00:00:00Z' })),
+    });
+    expect(fixture.componentInstance.available(profile)).toBe(false);
+    expect(fixture.componentInstance.availabilityLabel(profile)).toBe('Escopo revogado');
+    fixture.componentInstance.scenarioForm.setValue({
+      profileId: profile.id,
+      targetUrl: 'http://localhost:8080/recurso',
+      expectedAccess: 'allow',
+      includeLoad: false,
+      confirmed: true,
+    });
+    fixture.componentInstance.execute();
     http.expectNone('/api/v1/projects/project-a/audits');
   });
 });

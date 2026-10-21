@@ -13,6 +13,34 @@ export interface AuthorizedScope {
   targetBaseUri: string;
   environment: string;
   expiresAtUtc: string;
+  createdBy?: string | null;
+  revokedAtUtc?: string | null;
+  revokedBy?: string | null;
+  revocationReason?: string | null;
+}
+export interface ScopeEventPage {
+  scope: AuthorizedScope;
+  items: {
+    id: string;
+    kind: string;
+    actor: string;
+    reason: string;
+    createdAtUtc: string;
+    authorizedUntilUtc?: string | null;
+  }[];
+  totalCount: number;
+  offset: number;
+  limit: number;
+  sampledAtUtc: string;
+  activeAudits: { id: string; state: string }[];
+  activeAuditCount: number;
+  managedBy: string;
+  limitations: string[];
+}
+export interface ScopeRevocationResult {
+  scope: AuthorizedScope;
+  audits: { id: string; state: string }[];
+  pendingCancellations: number;
 }
 export interface AuditControlResult {
   location?: string | null;
@@ -283,6 +311,18 @@ export class SentinelApiService {
       environment,
       expiresAtUtc,
     });
+  }
+  scopeEvents(projectId: string, scopeId: string, offset = 0) {
+    return this.http.get<ScopeEventPage>(
+      `${this.baseUrl}/projects/${projectId}/scopes/${scopeId}/events`,
+      { params: { offset } },
+    );
+  }
+  revokeScope(projectId: string, scopeId: string, reason: string) {
+    return this.http.post<ScopeRevocationResult>(
+      `${this.baseUrl}/projects/${projectId}/scopes/${scopeId}/revoke`,
+      { reason },
+    );
   }
   targetCredentials(projectId: string) {
     return this.http.get<TargetCredential[]>(

@@ -162,7 +162,8 @@ export class CoveragePage {
     },
     {
       title: 'Autorização de escopo',
-      description: 'URL, ambiente, prefixo e validade; bloqueio fail-closed',
+      description:
+        'URL, ambiente, prefixo, validade e revogação com responsável, histórico e cancelamento',
       path: '/scopes',
       screen: 'Escopos e políticas',
     },
@@ -229,7 +230,7 @@ export class CoveragePage {
     {
       title: 'Governança ampliada',
       description:
-        'Permissões por projeto, aprovação humana, limites de produção e revogação de escopo.',
+        'Permissões por projeto, aprovação humana, limites de produção e métodos/exclusões/janelas avançados.',
     },
     {
       title: 'Credenciais e evidências ampliadas',

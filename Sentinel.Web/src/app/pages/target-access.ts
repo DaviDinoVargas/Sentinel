@@ -85,13 +85,7 @@ import { Badge, EmptyState } from '../design-system/ui';
                     <td>
                       <s-badge
                         [value]="available(profile) ? 'healthy' : 'unavailable'"
-                        [text]="
-                          profile.revokedAtUtc
-                            ? 'Revogado'
-                            : available(profile)
-                              ? 'Disponível'
-                              : 'Expirado'
-                        "
+                        [text]="availabilityLabel(profile)"
                       />
                     </td>
                     <td>
@@ -381,7 +375,17 @@ export class TargetAccessPage {
     });
   }
   available(profile: TargetCredential): boolean {
-    return !profile.revokedAtUtc && new Date(profile.expiresAtUtc).getTime() > Date.now();
+    return this.availabilityLabel(profile) === 'Disponível';
+  }
+  availabilityLabel(profile: TargetCredential): string {
+    if (profile.revokedAtUtc) return 'Credencial revogada';
+    if (new Date(profile.expiresAtUtc).getTime() <= this.ws.now()) return 'Credencial expirada';
+    const scope = this.ws.scopes().find((s) => s.id === profile.scopeId);
+    if (!scope) return 'Escopo não consultado';
+    if (scope.revokedAtUtc) return 'Escopo revogado';
+    return new Date(scope.expiresAtUtc).getTime() > this.ws.now()
+      ? 'Disponível'
+      : 'Escopo expirado';
   }
   private defaultExpiry(): string {
     const date = new Date(Date.now() + 10 * 60_000);
