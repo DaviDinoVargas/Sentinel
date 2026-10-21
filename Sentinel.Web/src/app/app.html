@@ -124,6 +124,27 @@
       </div>
     }
     @if (auth.profile()) {
+      @if (ws.project()?.purpose === 'SentinelValidation') {
+        <div class="banner" role="status">
+          Projeto de validação interna. Sem carregamento automático de corpus; os resultados são
+          separados do software avaliado.
+        </div>
+      }
+      @if (ws.history()?.originCounts; as counts) {
+        @if (
+          counts.unknown > 0 ||
+          (ws.dataOrigin() === 'SoftwareUnderTest' && counts.syntheticCorpus > 0)
+        ) {
+          <div class="banner" role="status">
+            <span
+              >{{ counts.unknown }} avaliação(ões) de origem não confirmada e
+              {{ counts.syntheticCorpus }} de corpus no histórico. Fora dos indicadores do
+              software.</span
+            >
+            <a class="text-link" routerLink="/data-origins">Consultar origem</a>
+          </div>
+        }
+      }
       <router-outlet />
     } @else {
       <s-identity-page />

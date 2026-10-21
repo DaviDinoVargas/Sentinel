@@ -163,7 +163,7 @@ export const findingPriorities = [
           <dt>Localização</dt>
           <dd class="url">{{ d.finding.location }}</dd>
           <dt>Origem</dt>
-          <dd>{{ d.finding.pluginId }}</dd>
+          <dd>{{ ws.originLabel(d.finding.dataOrigin) }} · {{ d.finding.pluginId }}</dd>
           <dt>Primeira / última falha</dt>
           <dd>
             {{ d.finding.firstSeenAtUtc | date: 'dd/MM/yyyy HH:mm' }} /
@@ -373,6 +373,7 @@ export class FindingRegister {
   constructor() {
     effect(() => {
       const project = this.ws.projectId();
+      const origin = this.ws.dataOrigin();
       const identity = this.auth.profile();
       this.contextChanged.next();
       this.page.set(null);
@@ -414,6 +415,7 @@ export class FindingRegister {
         priority: this.priority,
         search: this.search,
         offset: this.offset,
+        dataOrigin: this.ws.dataOrigin(),
       })
       .pipe(
         takeUntil(this.contextChanged),

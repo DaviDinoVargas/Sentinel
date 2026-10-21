@@ -2,6 +2,11 @@ import { Routes } from '@angular/router';
 
 export const routes: Routes = [
   {
+    path: 'data-origins',
+    title: 'Origem dos resultados · Sentinel',
+    loadComponent: () => import('./pages/data-origins').then((m) => m.DataOriginsPage),
+  },
+  {
     path: 'api-surface',
     title: 'Superfície de APIs · Sentinel',
     loadComponent: () => import('./pages/api-surface').then((m) => m.ApiSurfacePage),

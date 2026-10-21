@@ -322,7 +322,7 @@ export class SourceAnalysisPage {
     if (!this.ws.projectId() || !this.auth.profile()) return;
     this.listChanged.next();
     this.api
-      .list(this.ws.projectId(), this.offset)
+      .list(this.ws.projectId(), this.offset, this.ws.dataOrigin())
       .pipe(
         takeUntil(this.contextChanged),
         takeUntil(this.listChanged),
@@ -342,7 +342,7 @@ export class SourceAnalysisPage {
     this.error.set('');
     this.notice.set('');
     this.api
-      .upload(this.ws.projectId(), this.key, this.revision, this.file)
+      .upload(this.ws.projectId(), this.key, this.revision, this.file, this.ws.dataOrigin())
       .pipe(takeUntil(this.contextChanged), takeUntilDestroyed(this.destroy))
       .subscribe({
         next: () => {

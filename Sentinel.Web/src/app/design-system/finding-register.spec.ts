@@ -55,7 +55,14 @@ describe('Triagem canônica de achados', () => {
         provideRouter([]),
         provideHttpClient(),
         provideHttpClientTesting(),
-        { provide: WorkspaceService, useValue: { projectId: project } },
+        {
+          provide: WorkspaceService,
+          useValue: {
+            dataOrigin: () => 'SoftwareUnderTest',
+            originLabel: (v: string) => v,
+            projectId: project,
+          },
+        },
         {
           provide: AuthSessionService,
           useValue: { profile: identity, can: (p: string) => permissions.includes(p) },

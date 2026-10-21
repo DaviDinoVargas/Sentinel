@@ -28,7 +28,7 @@ describe('WorkspaceService', () => {
   function completeProject(id: string): void {
     http.expectOne(`/api/v1/projects/${id}`).flush({ project: project(id), scopes: [] });
     http
-      .expectOne(`/api/v1/projects/${id}/audits?limit=25&offset=0`)
+      .expectOne(`/api/v1/projects/${id}/audits?limit=25&offset=0&dataOrigin=SoftwareUnderTest`)
       .flush({ items: [], totalCount: 0, offset: 0, limit: 25 });
     http
       .expectOne(`/api/v1/projects/${id}/security-score`)
@@ -49,7 +49,9 @@ describe('WorkspaceService', () => {
   it('cancela leituras antigas ao trocar de projeto, impedindo mistura de dados', () => {
     ws.selectProject('a');
     const oldContext = http.expectOne('/api/v1/projects/a');
-    const oldHistory = http.expectOne('/api/v1/projects/a/audits?limit=25&offset=0');
+    const oldHistory = http.expectOne(
+      '/api/v1/projects/a/audits?limit=25&offset=0&dataOrigin=SoftwareUnderTest',
+    );
     const oldScore = http.expectOne('/api/v1/projects/a/security-score');
     ws.selectProject('b');
     expect(oldContext.cancelled).toBe(true);
@@ -77,7 +79,7 @@ describe('WorkspaceService', () => {
     http.expectOne('/api/v1/projects/a').flush({ project: project('a'), scopes: [] });
     http.expectOne('/api/v1/projects/a/security-score').flush({ score: null });
     http
-      .expectOne('/api/v1/projects/a/audits?limit=25&offset=25')
+      .expectOne('/api/v1/projects/a/audits?limit=25&offset=25&dataOrigin=SoftwareUnderTest')
       .flush(
         { detail: 'Histórico temporariamente indisponível.' },
         { status: 503, statusText: 'Unavailable' },

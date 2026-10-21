@@ -45,6 +45,8 @@ describe('Superfície de APIs no projeto e identidade atuais', () => {
         {
           provide: WorkspaceService,
           useValue: {
+            dataOrigin: () => 'SoftwareUnderTest',
+            originLabel: (v: string) => v,
             projectId: project,
             audits: signal([]),
             now: signal(Date.now()),

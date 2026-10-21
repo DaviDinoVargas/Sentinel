@@ -44,6 +44,8 @@ describe('Fontes autorizadas por snapshot', () => {
         {
           provide: WorkspaceService,
           useValue: {
+            dataOrigin: () => 'SoftwareUnderTest',
+            originLabel: (v: string) => v,
             projectId: project,
             audits: signal([]),
             now: signal(Date.now()),

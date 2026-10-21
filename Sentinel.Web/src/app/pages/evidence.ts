@@ -50,6 +50,7 @@ import { EvidencePolicyPanel } from '../design-system/evidence-policy';
                 <span class="evidence-icon"><s-icon name="document" /></span>
                 <div>
                   <h2 class="mono">{{ evidence.id }}</h2>
+                  <span class="tag">{{ ws.originLabel(evidence.dataOrigin) }}</span>
                   <p>
                     {{ evidence.collectedAtUtc | date: 'dd/MM/yyyy · HH:mm:ss' }} · horário local
                   </p>

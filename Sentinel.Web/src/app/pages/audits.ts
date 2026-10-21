@@ -179,6 +179,7 @@ import { EvidenceViewer } from '../design-system/evidence-viewer';
                     <td>
                       <strong class="mono">{{ audit.id.slice(0, 8) }}</strong
                       ><span class="subline" [title]="audit.targetUri">{{ audit.targetUri }}</span>
+                      <span class="tag">{{ ws.originLabel(audit.dataOrigin) }}</span>
                     </td>
                     <td>
                       <s-badge
@@ -311,6 +312,8 @@ export class AuditsPage {
         this.form.getRawValue().targetUrl,
         this.profile(),
         this.profile() === 'lab-active' && this.form.controls.confirmed.value,
+        undefined,
+        this.ws.dataOrigin(),
       )
       .subscribe({
         next: complete,
@@ -343,6 +346,13 @@ export class AuditsPage {
       <div class="banner warning" role="alert">{{ error() }}</div>
     }
     @if (audit(); as item) {
+      <div class="banner">
+        <span
+          >{{ ws.originLabel(item.dataOrigin) }} · declaração:
+          {{ item.originDeclaredBy || 'Não registrada no legado' }}. Corpus e origem não confirmada
+          não entram nos indicadores do software.</span
+        ><a class="text-link" routerLink="/data-origins">Consultar histórico de origem</a>
+      </div>
       <section class="panel panel-pad">
         <div class="panel-header" style="padding:0">
           <div>

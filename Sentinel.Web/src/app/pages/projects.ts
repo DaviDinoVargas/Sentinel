@@ -44,6 +44,9 @@ import { AuthSessionService } from '../core/auth-session.service';
                 <span class="project-symbol"><s-icon name="folder" /></span>
                 <div>
                   <h3>{{ project.name }}</h3>
+                  @if (project.purpose === 'SentinelValidation') {
+                    <span class="tag">VALIDAÇÃO INTERNA</span>
+                  }
                   <p>{{ project.description || 'Sem descrição.' }}</p>
                   <small class="mono">{{ project.id }}</small
                   ><small class="muted"
@@ -97,8 +100,19 @@ import { AuthSessionService } from '../core/auth-session.service';
                 rows="3"
                 maxlength="1000"
                 placeholder="Contexto da aplicação, sem credenciais ou segredos."
-              ></textarea></label
-            ><button
+              ></textarea>
+            </label>
+            @if (auth.can('platform.manage')) {
+              <label class="checkbox-line"
+                ><input type="checkbox" formControlName="validation" /> Projeto exclusivo de
+                validação interna do Sentinel</label
+              >
+              <p class="help">
+                Desmarcado: software real. Validação não carrega corpus automaticamente e seus
+                resultados não entram nos indicadores do software.
+              </p>
+            }
+            <button
               type="submit"
               class="button primary"
               [disabled]="saving() || !auth.can('projects.manage')"
@@ -185,6 +199,7 @@ export class ProjectsPage {
   readonly form = inject(FormBuilder).nonNullable.group({
     name: ['', [Validators.required, Validators.maxLength(180), Validators.pattern(/\S/)]],
     description: ['', Validators.maxLength(1000)],
+    validation: [false],
   });
   readonly filtered = computed(() =>
     this.ws
@@ -201,19 +216,27 @@ export class ProjectsPage {
     this.saving.set(true);
     this.ws.error.set('');
     const value = this.form.getRawValue();
-    this.ws.api.createProject(value.name, value.description).subscribe({
-      next: (project) => {
-        this.saving.set(false);
-        this.form.reset();
-        this.ws.refreshProjects(project.id);
-        this.ws.notice.set(
-          'Projeto criado. Registre um escopo autorizado para iniciar a primeira auditoria.',
-        );
-      },
-      error: (error) => {
-        this.saving.set(false);
-        this.ws.fail(error);
-      },
-    });
+    this.ws.api
+      .createProject(
+        value.name,
+        value.description,
+        value.validation && this.auth.can('platform.manage')
+          ? 'SentinelValidation'
+          : 'SoftwareUnderTest',
+      )
+      .subscribe({
+        next: (project) => {
+          this.saving.set(false);
+          this.form.reset();
+          this.ws.refreshProjects(project.id);
+          this.ws.notice.set(
+            'Projeto criado. Registre um escopo autorizado para iniciar a primeira auditoria.',
+          );
+        },
+        error: (error) => {
+          this.saving.set(false);
+          this.ws.fail(error);
+        },
+      });
   }
 }

@@ -77,6 +77,7 @@ import { FindingRegister } from '../design-system/finding-register';
               @for (control of filtered(); track control.auditId + ':' + $index) {
                 <tr>
                   <td>
+                    <span class="tag">{{ ws.originLabel(control.dataOrigin) }}</span>
                     <a class="text-link mono" [routerLink]="['/audits', control.auditId]"
                       >{{ control.controlId }} <s-icon name="arrow"
                     /></a>

@@ -1,7 +1,10 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { Audit } from './sentinel-api.service';
+import { Audit, DataOrigin } from './sentinel-api.service';
 export interface SourceSnapshot {
+  dataOrigin?: DataOrigin;
+  originDeclaredBy?: string | null;
+  originDeclaredAtUtc?: string | null;
   id: string;
   projectId: string;
   sourceKey: string;
@@ -33,13 +36,19 @@ export class SourceApiService {
   private url(project: string) {
     return `/api/v1/projects/${project}/source-snapshots`;
   }
-  list(project: string, offset = 0) {
-    return this.http.get<SourceSnapshotPage>(this.url(project), { params: { offset } });
+  list(project: string, offset = 0, dataOrigin: DataOrigin = 'SoftwareUnderTest') {
+    return this.http.get<SourceSnapshotPage>(this.url(project), { params: { offset, dataOrigin } });
   }
-  upload(project: string, key: string, revision: string, file: File) {
+  upload(
+    project: string,
+    key: string,
+    revision: string,
+    file: File,
+    dataOrigin: DataOrigin = 'SoftwareUnderTest',
+  ) {
     return this.http.post<SourceSnapshot>(this.url(project), file, {
       headers: { 'Content-Type': 'application/zip' },
-      params: { sourceKey: key, revision },
+      params: { sourceKey: key, revision, dataOrigin },
     });
   }
   execute(project: string, id: string) {

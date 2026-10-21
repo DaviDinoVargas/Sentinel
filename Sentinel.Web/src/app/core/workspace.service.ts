@@ -11,11 +11,14 @@ import {
   SecurityScore,
   SentinelApiService,
   SentinelProject,
+  DataOrigin,
+  originLabel,
 } from './sentinel-api.service';
 import { AuthSessionService } from './auth-session.service';
 
 @Injectable({ providedIn: 'root' })
 export class WorkspaceService {
+  readonly originLabel = originLabel;
   private readonly auth = inject(AuthSessionService);
   readonly api = inject(SentinelApiService);
   private readonly destroyRef = inject(DestroyRef);
@@ -35,6 +38,12 @@ export class WorkspaceService {
   readonly lastSync = signal<Date | null>(null);
   readonly now = signal(Date.now());
   readonly project = computed(() => this.context()?.project ?? null);
+  readonly dataOrigin = computed<DataOrigin>(() =>
+    (this.project() ?? this.projects().find((p) => p.id === this.projectId()))?.purpose ===
+    'SentinelValidation'
+      ? 'SyntheticCorpus'
+      : 'SoftwareUnderTest',
+  );
   readonly scopes = computed(() => this.context()?.scopes ?? []);
   readonly activeScopes = computed(() =>
     this.scopes().filter(
@@ -49,6 +58,7 @@ export class WorkspaceService {
         auditId: audit.id,
         targetUri: audit.targetUri,
         createdAtUtc: audit.createdAtUtc,
+        dataOrigin: audit.dataOrigin,
       })),
     ),
   );
@@ -57,7 +67,12 @@ export class WorkspaceService {
   );
   readonly evidence = computed(() =>
     this.audits().flatMap((audit) =>
-      audit.evidence.map((item) => ({ ...item, auditId: audit.id, targetUri: audit.targetUri })),
+      audit.evidence.map((item) => ({
+        ...item,
+        auditId: audit.id,
+        targetUri: audit.targetUri,
+        dataOrigin: audit.dataOrigin,
+      })),
     ),
   );
   private readonly selection = new Subject<{ id: string; offset: number }>();
@@ -72,7 +87,7 @@ export class WorkspaceService {
           this.loading.set(true);
           return forkJoin({
             context: this.api.project(id),
-            history: this.api.audits(id, offset),
+            history: this.api.audits(id, offset, this.dataOrigin()),
             score: this.api.securityScore(id),
           }).pipe(
             catchError((error) => {
@@ -127,7 +142,10 @@ export class WorkspaceService {
             /* Storage opcional. */
           }
           const next =
-            projects.find((project) => project.id === (id || saved))?.id ?? projects[0]?.id ?? '';
+            projects.find((project) => project.id === (id || saved))?.id ??
+            projects.find((p) => p.purpose !== 'SentinelValidation')?.id ??
+            projects[0]?.id ??
+            '';
           if (next && (next !== this.projectId() || !this.context())) this.selectProject(next);
         },
         error: (error) => {

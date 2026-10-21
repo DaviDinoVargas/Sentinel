@@ -497,11 +497,18 @@ export class TargetAccessPage {
     this.busy.set(true);
     this.error.set('');
     this.ws.api
-      .requestAudit(this.ws.projectId(), value.targetUrl, 'authenticated-lab', true, {
-        credentialProfileId: profile.id,
-        expectedAccess: value.expectedAccess,
-        includeAuthenticatedLoad: value.includeLoad,
-      })
+      .requestAudit(
+        this.ws.projectId(),
+        value.targetUrl,
+        'authenticated-lab',
+        true,
+        {
+          credentialProfileId: profile.id,
+          expectedAccess: value.expectedAccess,
+          includeAuthenticatedLoad: value.includeLoad,
+        },
+        this.ws.dataOrigin(),
+      )
       .pipe(takeUntil(this.contextChanged), takeUntilDestroyed(this.destroy))
       .subscribe({
         next: (audit) => {

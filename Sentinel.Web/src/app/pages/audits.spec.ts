@@ -66,6 +66,7 @@ describe('AuditsPage', () => {
       targetUrl: 'http://localhost:8080/',
       action: 'lab-active',
       confirmActive: true,
+      dataOrigin: 'SoftwareUnderTest',
     });
     request.flush({ id: 'audit', state: 'Queued' });
     http.verify();

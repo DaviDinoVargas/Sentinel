@@ -1,7 +1,22 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 
+export type DataOrigin = 'SoftwareUnderTest' | 'SyntheticCorpus' | 'Unknown';
+export interface OriginCounts {
+  softwareUnderTest: number;
+  syntheticCorpus: number;
+  unknown: number;
+}
+export function originLabel(value?: string) {
+  return value === 'SoftwareUnderTest'
+    ? 'Software avaliado'
+    : value === 'SyntheticCorpus'
+      ? 'Corpus sintético'
+      : 'Origem não confirmada';
+}
+
 export interface SentinelProject {
+  purpose?: 'SoftwareUnderTest' | 'SentinelValidation';
   id: string;
   name: string;
   description?: string | null;
@@ -94,6 +109,9 @@ export interface EvidencePolicy {
 // A auditoria nasce em 'Queued' e é processada de forma assíncrona pelo AuditWorker
 // (núcleo de execução real, D11); o cliente consulta getAudit até sair de 'Queued'.
 export interface Audit {
+  dataOrigin?: DataOrigin;
+  originDeclaredBy?: string | null;
+  originDeclaredAtUtc?: string | null;
   id: string;
   projectId: string;
   scopeId?: string | null;
@@ -115,6 +133,9 @@ export interface Audit {
   evidence: AuditEvidence[];
 }
 export interface AuditReport {
+  dataOrigin?: DataOrigin;
+  originDeclaredBy?: string | null;
+  originDeclaredAtUtc?: string | null;
   auditId: string;
   state: Audit['state'];
   statement: string;
@@ -188,6 +209,8 @@ export interface SecurityScoreComponent {
   influencesScore: boolean;
 }
 export interface SecurityScore {
+  originCounts?: OriginCounts;
+  fixtureControlsExcluded?: number;
   projectId: string;
   algorithmVersion: string;
   score: number | null;
@@ -210,6 +233,7 @@ export interface ProjectContext {
   scopes: AuthorizedScope[];
 }
 export interface AuditPage {
+  originCounts?: OriginCounts;
   items: Audit[];
   totalCount: number;
   limit: number;
@@ -288,9 +312,9 @@ export class SentinelApiService {
   project(projectId: string) {
     return this.http.get<ProjectContext>(`${this.baseUrl}/projects/${projectId}`);
   }
-  audits(projectId: string, offset = 0) {
+  audits(projectId: string, offset = 0, dataOrigin?: DataOrigin) {
     return this.http.get<AuditPage>(
-      `${this.baseUrl}/projects/${projectId}/audits?limit=25&offset=${offset}`,
+      `${this.baseUrl}/projects/${projectId}/audits?limit=25&offset=${offset}${dataOrigin ? '&dataOrigin=' + dataOrigin : ''}`,
     );
   }
   plugins() {
@@ -299,10 +323,11 @@ export class SentinelApiService {
   operations() {
     return this.http.get<OperationsSnapshot>(`${this.baseUrl}/operations`);
   }
-  createProject(name: string, description: string) {
+  createProject(name: string, description: string, purpose = 'SoftwareUnderTest') {
     return this.http.post<SentinelProject>(`${this.baseUrl}/projects`, {
       name,
       description: description || null,
+      purpose,
     });
   }
   createScope(projectId: string, targetBaseUrl: string, environment: string, expiresAtUtc: string) {
@@ -371,16 +396,35 @@ export class SentinelApiService {
       expectedAccess: string;
       includeAuthenticatedLoad: boolean;
     },
+    dataOrigin: DataOrigin = 'SoftwareUnderTest',
   ) {
     return this.http.post<Audit>(`${this.baseUrl}/projects/${projectId}/audits`, {
       targetUrl,
       action,
       confirmActive,
+      dataOrigin,
       ...authentication,
     });
   }
   getAudit(auditId: string) {
     return this.http.get<Audit>(`${this.baseUrl}/audits/${auditId}`);
+  }
+  originEvents(projectId: string, offset = 0) {
+    return this.http.get<OriginEventPage>(
+      `${this.baseUrl}/projects/${projectId}/data-origins/events`,
+      { params: { offset } },
+    );
+  }
+  classifyOrigins(projectId: string, auditIds: string[], dataOrigin: DataOrigin, reason: string) {
+    return this.http.post<{
+      auditsChanged: number;
+      snapshotsChanged: number;
+      findingsPreserved: number;
+    }>(`${this.baseUrl}/projects/${projectId}/data-origins/classify`, {
+      auditIds,
+      dataOrigin,
+      reason,
+    });
   }
   evidenceArtifact(auditId: string, evidenceId: string) {
     return this.http.get<VerifiedEvidenceArtifact>(
@@ -412,4 +456,20 @@ export class SentinelApiService {
   securityScore(projectId: string) {
     return this.http.get<SecurityScore>(`${this.baseUrl}/projects/${projectId}/security-score`);
   }
+}
+
+export interface OriginEventPage {
+  items: {
+    id: string;
+    auditId: string | null;
+    snapshotId: string | null;
+    fromOrigin: DataOrigin;
+    toOrigin: DataOrigin;
+    actor: string;
+    reason: string;
+    atUtc: string;
+  }[];
+  totalCount: number;
+  offset: number;
+  limit: number;
 }

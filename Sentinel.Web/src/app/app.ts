@@ -32,6 +32,7 @@ export class App {
     { path: '/performance', label: 'Performance Lab', icon: 'clock', group: '' },
     { path: '/plugins', label: 'Plugins e controles', icon: 'plugin', group: 'PLATAFORMA' },
     { path: '/operations', label: 'Infraestrutura e filas', icon: 'server', group: '' },
+    { path: '/data-origins', label: 'Origem dos resultados', icon: 'layers', group: '' },
     { path: '/coverage', label: 'Capacidades', icon: 'layers', group: '' },
     { path: '/identity', label: 'Identidade e acesso', icon: 'shield', group: '' },
   ];

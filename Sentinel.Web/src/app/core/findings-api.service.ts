@@ -2,6 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 
 export interface Finding {
+  dataOrigin?: string;
   id: string;
   projectId: string;
   fingerprint: string;
@@ -80,7 +81,14 @@ export class FindingsApiService {
   }
   list(
     project: string,
-    filters: { status: string; severity: string; priority: string; search: string; offset: number },
+    filters: {
+      status: string;
+      severity: string;
+      priority: string;
+      search: string;
+      offset: number;
+      dataOrigin?: string;
+    },
   ) {
     return this.http.get<FindingPage>(this.url(project), {
       params: new HttpParams({ fromObject: { ...filters, limit: 25 } }),

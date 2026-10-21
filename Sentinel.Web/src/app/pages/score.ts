@@ -48,8 +48,8 @@ import { Icon } from '../design-system/icon';
           <h3>Fórmula aplicada</h3>
           <code class="break-code">{{ score.formula }}</code>
           <p class="help">
-            O algoritmo atual inclui a fixture na amostra. Consulte as limitações e os resultados
-            individuais antes de interpretar a pontuação.
+            Somente avaliações concluídas de software avaliado entram na taxa. Corpus, origem não
+            confirmada e fixtures ficam fora da nota.
           </p>
         </section>
         <section class="panel panel-pad">
@@ -79,6 +79,22 @@ import { Icon } from '../design-system/icon';
           <div class="status-line">
             <span>Controles aprovados</span><strong>{{ score.controlsPassed }}</strong>
           </div>
+          @if (score.originCounts; as counts) {
+            <div class="status-line">
+              <span>Auditorias de software</span><strong>{{ counts.softwareUnderTest }}</strong>
+            </div>
+            <div class="status-line">
+              <span>Corpus excluído</span><strong>{{ counts.syntheticCorpus }}</strong>
+            </div>
+            <div class="status-line">
+              <span>Origem não confirmada excluída</span><strong>{{ counts.unknown }}</strong>
+            </div>
+            <div class="status-line">
+              <span>Controles fixture excluídos</span
+              ><strong>{{ score.fixtureControlsExcluded ?? 0 }}</strong>
+            </div>
+            <a class="text-link" routerLink="/data-origins">Consultar origem e histórico →</a>
+          }
         </section>
       </div>
       <div class="grid-2 section-gap">

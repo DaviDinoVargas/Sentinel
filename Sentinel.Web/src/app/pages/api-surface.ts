@@ -398,7 +398,7 @@ export class ApiSurfacePage {
     if (!this.ws.projectId() || !this.auth.profile()) return;
     this.listChanged.next();
     this.source
-      .list(this.ws.projectId())
+      .list(this.ws.projectId(), 0, this.ws.dataOrigin())
       .pipe(takeUntil(this.changed), takeUntil(this.listChanged), takeUntilDestroyed(this.destroy))
       .subscribe({
         next: (p) => this.sources.set(p),
