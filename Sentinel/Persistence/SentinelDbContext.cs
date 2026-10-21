@@ -100,6 +100,8 @@ public sealed class SentinelDbContext : DbContext
             entity.Property(project => project.Name).HasMaxLength(200).IsRequired();
             entity.Property(project => project.Description).HasMaxLength(2_000);
             entity.Property(project => project.CreatedAtUtc).IsRequired();
+            entity.HasIndex(project => new { project.OrganizationId, project.CreatedAtUtc, project.Id });
+            entity.HasIndex(project => new { project.OrganizationId, project.Name, project.Id });
         });
 
         modelBuilder.Entity<ScopeRow>(entity =>

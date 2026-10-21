@@ -669,7 +669,9 @@ namespace Sentinel.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("OrganizationId");
+                    b.HasIndex("OrganizationId", "CreatedAtUtc", "Id");
+
+                    b.HasIndex("OrganizationId", "Name", "Id");
 
                     b.ToTable("projects", (string)null);
                 });

@@ -25,6 +25,19 @@ public sealed class ProjectsController : ControllerBase
         return Ok(_auditService.GetProjects(limit));
     }
 
+    [HttpGet("search")]
+    [ProducesResponseType(typeof(ProjectPage), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ProjectPage>> SearchProjects(CancellationToken cancellationToken,
+        [FromQuery] string? search = null, [FromQuery] string? purpose = null,
+        [FromQuery] string sort = "newest", [FromQuery] int limit = 25, [FromQuery] int offset = 0)
+    {
+        try { return Ok(await _auditService.SearchProjectsAsync(new(search, purpose, sort, limit, offset), cancellationToken)); }
+        catch (ArgumentException exception)
+        {
+            return BadRequest(new ProblemDetails { Title = "Consulta inválida", Detail = exception.Message, Status = 400 });
+        }
+    }
+
     [HttpGet("{projectId:guid}")]
     [ProducesResponseType(typeof(ProjectContext), StatusCodes.Status200OK)]
     public ActionResult<ProjectContext> GetProject(Guid projectId)

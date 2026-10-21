@@ -47,6 +47,34 @@ public sealed class PostgresSentinelStore : ISentinelStore
             .ToArray();
     }
 
+    public async Task<ProjectPage> SearchProjectsAsync(ProjectQuery request, CancellationToken cancellationToken)
+    {
+        request.Validate();
+        await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+        // Count and page share a snapshot, including concurrent project registrations.
+        await using var transaction = await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.RepeatableRead, cancellationToken);
+        var query = db.Projects.AsNoTracking();
+        if (!string.IsNullOrWhiteSpace(request.Search))
+        {
+            var pattern = "%" + request.Search.Trim().Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_") + "%";
+            query = query.Where(p => EF.Functions.ILike(p.Name, pattern, "\\") ||
+                p.Description != null && EF.Functions.ILike(p.Description, pattern, "\\"));
+        }
+        if (request.Purpose is not null) query = query.Where(p => p.Purpose == request.Purpose);
+        var count = await query.CountAsync(cancellationToken);
+        var ordered = request.Sort switch
+        {
+            "name" => query.OrderBy(p => p.Name).ThenBy(p => p.Id),
+            "oldest" => query.OrderBy(p => p.CreatedAtUtc).ThenBy(p => p.Id),
+            _ => query.OrderByDescending(p => p.CreatedAtUtc).ThenBy(p => p.Id)
+        };
+        var items = await ordered.Skip(request.Offset).Take(request.Limit)
+            .Select(p => new SentinelProject(p.Id, p.Name, p.Description, p.CreatedAtUtc, p.Purpose))
+            .ToArrayAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return new(items, count, request.Limit, request.Offset);
+    }
+
     public AuthorizedScope CreateScope(Guid projectId, Uri targetBaseUri, string environment, DateTimeOffset expiresAtUtc, DateTimeOffset createdAtUtc, string? createdBy = null)
     {
         var row = new ScopeRow

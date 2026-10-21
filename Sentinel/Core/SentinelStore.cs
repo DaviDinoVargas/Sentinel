@@ -5,6 +5,7 @@ public interface ISentinelStore
     SentinelProject CreateProject(string name, string? description, DateTimeOffset createdAtUtc, string purpose = ProjectPurposes.Software);
     SentinelProject? FindProject(Guid projectId);
     IReadOnlyList<SentinelProject> GetProjects(int limit);
+    Task<ProjectPage> SearchProjectsAsync(ProjectQuery query, CancellationToken cancellationToken);
     AuthorizedScope CreateScope(Guid projectId, Uri targetBaseUri, string environment, DateTimeOffset expiresAtUtc, DateTimeOffset createdAtUtc, string? createdBy = null);
     IReadOnlyList<AuthorizedScope> GetScopes(Guid projectId);
 
