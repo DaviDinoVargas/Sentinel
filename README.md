@@ -202,3 +202,13 @@ Após verificar hash e origem da evidência no navegador, informe uma base HTTP(
 A prévia distingue templates sem valores, métodos ainda sem adaptador e URLs fora do escopo. O vínculo histórico exige mesma URL literal, operação GET, auditoria concluída e resultado Passed/Failed de plugin HTTP. Não significa cobertura por operação, parâmetros, papel, tenant, revisão ou todos os controles; nenhum percentual de cobertura completa é calculado. Toda execução manual passa novamente pela política e pelo gateway. A base é concatenada: `https://host/api` + `/cars` resulta em `https://host/api/cars`.
 
 Sem alterações de schema/banco nesta entrega: inventários usam as evidências cifradas e a retenção existentes. Referências: [OpenAPI3.0.4](https://spec.openapis.org/oas/v3.0.4.html) e [OpenAPI3.1.0](https://spec.openapis.org/oas/v3.1.0.html).
+
+## Revogação de escopos HTTP
+
+Em **Escopos e políticas** (`/scopes`), cada autorização HTTP apresenta estado, criador quando registrado e histórico paginado. Revogar exige `scopes.manage` e motivo de 8–1000 caracteres; a identidade vem do subject OIDC. A operação é idempotente: requisições concorrentes preservam o primeiro responsável/motivo e um único evento. Não há reativação: uma nova autorização exige novo registro.
+
+Rotas: `GET /api/v1/projects/{projectId}/scopes/{scopeId}/events?offset=0` (25 eventos e até 25 auditorias em andamento por amostra); `POST .../revoke` com `{ "reason": "motivo registrado" }`. Resposta 202 indica cancelamentos pendentes; 200 indica nenhum pendente no instante consultado. Atualize o histórico ou acompanhe cada auditoria na central. Autorização e isolamento de organização são aplicados no servidor.
+
+A transação persiste a revogação antes de solicitar cancelamentos. Workers verificam o estado persistido na aquisição, no início de plugins, no heartbeat e nas permissões HTTP. O reconciliador continua lotes de até 100 trabalhos após perda da API. A validade efetiva é encerrada, enquanto a janela originalmente autorizada permanece nos eventos append-only. Revogar não desfaz requisições já admitidas/transmitidas; aguarde o estado terminal das auditorias para confirmar encerramento. Outros escopos válidos continuam independentes.
+
+Migrações aditivas `AddScopeRevocationLifecycle` e `PreserveScopeAuthorizationWindow` preservam bases e histórico. Escopos legados podem não ter criador conhecido; a interface não inventa atribuição retroativa. Atualize todas as instâncias API/worker para obter as verificações distribuídas desta versão. Snapshots `source://` mantêm o fluxo próprio de revogação, retenção e expurgo em **Fontes e segredos**; a rota HTTP recusa esse uso. Métodos/categorias, exclusões, janelas avançadas e aprovações de produção continuam pendentes.
