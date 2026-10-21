@@ -1,5 +1,15 @@
 # Sentinel
 
+## Acessos por login JSON — V21
+
+**Acessos do alvo** aceita Bearer ou usuário/senha com empresa opcional. Cadastre a URL de login, os nomes dos campos JSON e o caminho do token retornado (por exemplo, `data.accessToken`). A primeira versão aceita somente POST com objeto JSON de primeiro nível e token Bearer na resposta JSON; não aceita redirecionamentos, cookies, CSRF, MFA ou renovação automática. Não cria contas ou empresas no alvo. Cadastrar não dispara tráfego: use **Testar autenticação e acesso**, informe um recurso protegido e confirme a execução.
+
+Usuário, senha e identificador da empresa ficam cifrados com Data Protection, separados por projeto/perfil. Consultas retornam apenas configuração sem segredos, versão, validade e último resultado. O token obtido fica somente na memória da sessão do gateway e não atravessa a fronteira dos plugins. Cada requisição revalida versão/revogação/expiração. Editar configuração e reenviar segredos usa a rotação com concorrência otimista; revogar remove o conteúdo cifrado. A migração aditiva `AddTargetJsonLogin` preserva Bearers existentes.
+
+Login continua restrito ao mesmo escopo de laboratório em loopback, incluindo esquema, host, porta e prefixo de caminho. Cada plugin pode obter **uma** permissão adicional para POST de login (até duas por auditoria com carga), contabilizada pelo mesmo orçamento distribuído de taxa/lease/cancelamento. A preparação antecede o plugin, com até dez segundos adicionais no prazo global, sempre limitada pela validade do escopo; GETs e tempo do plugin mantêm seus limites anteriores. Assim a autenticação não contamina a latência da carga. Falha não provoca nova tentativa automática; máximo de 32 KiB na resposta, sem corpo/cookies/headers secretos em resultados. O campo do token precisa ser inequívoco. Token obtido não prova autorização: o cenário verifica o recurso com e sem identidade; 401, erro ou inconclusão não equivalem a aprovação.
+
+Diagnósticos distinguem 401 (credencial recusada), 403 (empresa ou acesso recusado), 423 (conta bloqueada), 429 (limite), redirecionamento, resposta incompatível e indisponibilidade. São interpretações do status fornecido pelo alvo; sem contrato específico, não identificam a causa exata de um 403. `GET /api/v1/projects/{projectId}/target-credentials/{id}/events?offset=0` pagina eventos append-only de criação/rotação/revogação (ator OIDC) e login (auditoria/versão), sem segredos. Legado não recebe atribuição retroativa.
+
 ## Consultas e contexto de projetos — V20
 
 A tela **Projetos** pesquisa nome/descrição em todos os projetos autorizados da organização, combina propósito e ordenação e pagina 25 resumos por vez. A busca não interpreta `%`, `_` ou barras como curingas. Selecionar um projeto carrega seu contexto; pesquisar ou mudar de página preserva a seleção atual, inclusive quando ela está fora da lista. A preferência local guarda somente o identificador; o servidor revalida o acesso e o propósito antes de consultar resultados. Troca de identidade limpa dados e cancela consultas pendentes.

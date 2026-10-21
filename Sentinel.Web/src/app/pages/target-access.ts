@@ -317,7 +317,8 @@ import {
         <h2>Proteções e limitações</h2>
         <p class="help">
           Até três GETs de referência/verificação, dentro do escopo do perfil. Resposta 401 não
-          comprova isolamento; resulta inconclusiva. Nenhuma enumeração ou escrita de dados. Corpo e
+          comprova isolamento; resulta inconclusiva. Sem enumeração nem escrita de dados de negócio;
+          o POST de login pode criar uma sessão no alvo. Corpo e
           cabeçalhos da resposta autenticada não são entregues ao plugin. O resultado por status não
           comprova o conteúdo nem toda a autorização da aplicação.
         </p>
@@ -329,8 +330,8 @@ import {
         <p class="help">
           Chaves locais protegidas por DPAPI no Windows; outros hosts exigem certificado
           configurado. Workers distribuídos precisam compartilhar o keyring e a proteção de chaves.
-          Login automático, refresh e outros mecanismos de autenticação serão adicionados por
-          adaptadores.
+          Login JSON é preparado pelo gateway antes do plugin, em até dez segundos. Refresh,
+          cookies, MFA e outros mecanismos ainda não têm adaptador.
         </p>
         <a class="text-link" routerLink="/audits">Histórico e evidências das execuções</a> ·
         <a class="text-link" routerLink="/performance">Métricas no Performance Lab</a>
