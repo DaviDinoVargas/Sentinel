@@ -117,7 +117,8 @@ public sealed class IsolatedPluginRunner
             var inputJson = JsonSerializer.Serialize(request, JsonOptions);
             await process.StandardInput.WriteLineAsync(inputJson);
             await process.StandardInput.FlushAsync(linkedCts.Token);
-            while (await ReadBoundedLineAsync(process.StandardOutput, 64_000, linkedCts.Token) is { } line)
+            var protocol = new BoundedProtocolReader(process.StandardOutput.BaseStream, 64_000);
+            while (await protocol.ReadLineAsync(linkedCts.Token) is { } line)
             {
                 if (line == "{\"kind\":\"request-permit\"}")
                 {
@@ -204,19 +205,6 @@ public sealed class IsolatedPluginRunner
             var remaining = MaxCapturedOutputChars - builder.Length;
             if (remaining > 0) builder.Append(buffer, 0, Math.Min(count, remaining));
         }
-    }
-
-    private static async Task<string?> ReadBoundedLineAsync(StreamReader reader, int maximum, CancellationToken cancellationToken)
-    {
-        var result = new StringBuilder();
-        var character = new char[1];
-        while (await reader.ReadAsync(character.AsMemory(), cancellationToken) > 0)
-        {
-            if (character[0] == '\n') return result.ToString().TrimEnd('\r');
-            if (result.Length >= maximum) throw new InvalidOperationException("Linha do protocolo excedeu o limite.");
-            result.Append(character[0]);
-        }
-        return result.Length == 0 ? null : result.ToString();
     }
 
     internal static void RestrictEnvironment(ProcessStartInfo startInfo)
