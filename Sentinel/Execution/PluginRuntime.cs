@@ -81,7 +81,9 @@ public sealed class PluginRuntime(IOptions<PluginRuntimeOptions> options, IHostE
         // --rm, the runner and another worker's reaper may remove the same
         // container concurrently. A rejected rm is not proof that it still runs.
         // Confirm absence with a successful daemon query, never by swallowing errors.
-        var deadline = DateTimeOffset.UtcNow.AddSeconds(2);
+        // Concurrent rm can report removal-in-progress while the daemon still lists the container.
+        // Allow up to 15s to confirm daemon removal; this never extends plugin execution.
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(15);
         do
         {
             var present = await DockerAsync(CancellationToken.None, "ps", "-a", "--filter", "name=^/" + name + "$", "--format", "{{.Names}}");
