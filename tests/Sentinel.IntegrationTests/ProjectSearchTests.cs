@@ -75,5 +75,31 @@ public sealed class ProjectSearchTests : IDisposable
         Assert.Equal(HttpStatusCode.BadRequest, (await client.GetAsync("/api/v1/projects/search?search=" + new string('x', 181))).StatusCode);
     }
 
+    [Fact]
+    public async Task Historico_combina_estado_alvo_e_origem_antes_de_contar_e_paginar()
+    {
+        using var client = _host.CreateClient();
+        var store = _host.Services.GetRequiredService<ISentinelStore>();
+        var project = store.CreateProject("Filtros " + Guid.NewGuid(), null, DateTimeOffset.UtcNow);
+        for (var i = 0; i < 35; i++)
+        {
+            var id = Guid.NewGuid();
+            store.SaveBlockedAudit(new Audit(id, project.Id, null, new Uri(i == 34 ? "http://localhost/other" : "http://localhost/selected"),
+                i == 33 ? AuditState.Completed : AuditState.Blocked, id.ToString(), "Fixture sem execução", DateTimeOffset.UtcNow,
+                [], [], i == 32 ? DataOrigins.Synthetic : DataOrigins.Software, "fixture-operator", DateTimeOffset.UtcNow));
+        }
+        var url = $"/api/v1/projects/{project.Id}/audits?state=Blocked&target=selected&dataOrigin=SoftwareUnderTest&limit=25";
+        // Inspect JSON here because audit states are serialized by the API as strings.
+        using var first = JsonDocument.Parse(await client.GetStringAsync(url));
+        using var second = JsonDocument.Parse(await client.GetStringAsync(url + "&offset=25"));
+        Assert.Equal(32, first.RootElement.GetProperty("totalCount").GetInt32());
+        Assert.Equal(25, first.RootElement.GetProperty("items").GetArrayLength());
+        Assert.Equal(7, second.RootElement.GetProperty("items").GetArrayLength());
+        Assert.Equal(1, first.RootElement.GetProperty("originCounts").GetProperty("syntheticCorpus").GetInt32());
+        Assert.Equal(32, first.RootElement.GetProperty("originCounts").GetProperty("softwareUnderTest").GetInt32());
+        foreach (var query in new[] { "state=not-a-state", "state=1", "target=" + new string('x', 181) })
+            Assert.Equal(HttpStatusCode.BadRequest, (await client.GetAsync($"/api/v1/projects/{project.Id}/audits?{query}")).StatusCode);
+    }
+
     public void Dispose() => _host.Dispose();
 }

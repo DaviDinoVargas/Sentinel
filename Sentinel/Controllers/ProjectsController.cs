@@ -57,12 +57,14 @@ public sealed class ProjectsController : ControllerBase
     [HttpGet("{projectId:guid}/audits")]
     [ProducesResponseType(typeof(AuditHistoryPage), StatusCodes.Status200OK)]
     public async Task<ActionResult<AuditHistoryPage>> GetAudits(Guid projectId,
-        CancellationToken cancellationToken, [FromQuery] int limit = 25, [FromQuery] int offset = 0, [FromQuery] string? dataOrigin = null)
+        CancellationToken cancellationToken, [FromQuery] int limit = 25, [FromQuery] int offset = 0, [FromQuery] string? dataOrigin = null,
+        [FromQuery] string? state = null, [FromQuery] string? target = null)
     {
-        if (limit is < 1 or > 100 || offset < 0 || dataOrigin is not null && !DataOrigins.Valid(dataOrigin))
-            return BadRequest(new ProblemDetails { Title = "Paginação inválida", Detail = "Use limit entre 1 e 100 e offset não negativo.", Status = 400 });
+        if (limit is < 1 or > 100 || offset < 0 || dataOrigin is not null && !DataOrigins.Valid(dataOrigin) ||
+            state is not null && !Enum.GetNames<AuditState>().Contains(state) || target?.Length > 180)
+            return BadRequest(new ProblemDetails { Title = "Consulta inválida", Detail = "Use limit entre 1 e 100, offset não negativo, origem/estado válidos e alvo de até 180 caracteres.", Status = 400 });
 
-        var history = await _auditService.GetAuditHistoryAsync(projectId, limit, offset, cancellationToken, dataOrigin);
+        var history = await _auditService.GetAuditHistoryAsync(projectId, limit, offset, cancellationToken, dataOrigin, state, target);
         return history is null ? NotFound() : Ok(history);
     }
 

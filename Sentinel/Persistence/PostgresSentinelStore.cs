@@ -285,10 +285,17 @@ public sealed class PostgresSentinelStore : ISentinelStore
             .ToArray();
     }
 
-    public async Task<AuditHistoryPage> GetAuditHistoryAsync(Guid projectId, int limit, int offset, CancellationToken cancellationToken, string? dataOrigin = null)
+    public async Task<AuditHistoryPage> GetAuditHistoryAsync(Guid projectId, int limit, int offset, CancellationToken cancellationToken, string? dataOrigin = null, string? state = null, string? target = null)
     {
         await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
         var query = db.Audits.AsNoTracking().Where(audit => audit.ProjectId == projectId);
+        await using var transaction = await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.RepeatableRead, cancellationToken);
+        if (state is not null) query = query.Where(a => a.State == state);
+        if (!string.IsNullOrWhiteSpace(target))
+        {
+            var pattern = "%" + target.Trim().Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_") + "%";
+            query = query.Where(a => EF.Functions.ILike(a.TargetUrl, pattern, "\\"));
+        }
         var groups = await query.GroupBy(a => a.DataOrigin).Select(g => new { Origin = g.Key, Count = g.Count() }).ToArrayAsync(cancellationToken);
         var counts = new OriginCounts(groups.Where(g => g.Origin == DataOrigins.Software).Sum(g => g.Count), groups.Where(g => g.Origin == DataOrigins.Synthetic).Sum(g => g.Count), groups.Where(g => g.Origin == DataOrigins.Unknown).Sum(g => g.Count));
         if (dataOrigin is not null) { DataOrigins.Validate(dataOrigin); query = query.Where(a => a.DataOrigin == dataOrigin); }
@@ -296,6 +303,7 @@ public sealed class PostgresSentinelStore : ISentinelStore
         var rows = await query.OrderByDescending(audit => audit.CreatedAtUtc).ThenBy(audit => audit.Id)
             .Skip(offset).Take(limit).Include(audit => audit.Controls).Include(audit => audit.Evidence)
             .AsSplitQuery().ToArrayAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
         return new AuditHistoryPage(rows.Select(ToAudit).ToArray(), total, limit, offset, counts);
     }
 

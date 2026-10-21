@@ -168,10 +168,10 @@ public sealed class AuditService
     public IReadOnlyList<SentinelProject> GetProjects(int limit) => _store.GetProjects(limit);
     public Task<ProjectPage> SearchProjectsAsync(ProjectQuery query, CancellationToken cancellationToken) => _store.SearchProjectsAsync(query, cancellationToken);
 
-    public async Task<AuditHistoryPage?> GetAuditHistoryAsync(Guid projectId, int limit, int offset, CancellationToken cancellationToken, string? dataOrigin = null)
+    public async Task<AuditHistoryPage?> GetAuditHistoryAsync(Guid projectId, int limit, int offset, CancellationToken cancellationToken, string? dataOrigin = null, string? state = null, string? target = null)
     {
         if (_store.FindProject(projectId) is null) return null;
-        return await _store.GetAuditHistoryAsync(projectId, limit, offset, cancellationToken, dataOrigin);
+        return await _store.GetAuditHistoryAsync(projectId, limit, offset, cancellationToken, dataOrigin, state, target);
     }
 
     public ProjectContext? GetProjectContext(Guid projectId)
