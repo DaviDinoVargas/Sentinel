@@ -74,8 +74,8 @@ public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine po
                 while (true)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    var scopes = _gateway._store.GetScopes(_request.ProjectId).Where(scope => scope.Id == _request.ScopeId).ToArray();
-                    var decision = _gateway._policy.Evaluate(scopes, new Uri(call.Uri), _request.Action, _gateway._time.GetUtcNow(), ScopePolicyEngine.IsActive(_request.Action));
+                    var scopes = _gateway._store.GetScopes(_request.ProjectId);
+                    var decision = _gateway._policy.Evaluate(scopes, new Uri(call.Uri), _request.Action, _gateway._time.GetUtcNow(), ScopePolicyEngine.IsActive(_request.Action), requiredScopeId: _request.ScopeId);
                     if (!decision.IsAllowed || _gateway._time.GetUtcNow() >= _request.DeadlineUtc) return Denied(call.RequestId, "Gateway recusou escopo, consentimento ou prazo de execução.");
                     if (!dnsValidated) { await ValidateDns(cancellationToken); dnsValidated = true; }
                     if (_request.Action == "authenticated-lab")
@@ -168,7 +168,10 @@ public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine po
                     while (true)
                     {
                         ct.ThrowIfCancellationRequested();
-                        var scope = _gateway._store.GetScopes(_request.ProjectId).SingleOrDefault(s => s.Id == _request.ScopeId);
+                        var scopes = _gateway._store.GetScopes(_request.ProjectId);
+                        var scope = scopes.SingleOrDefault(s => s.Id == _request.ScopeId);
+                        if (!_gateway._policy.Evaluate(scopes, uri, _request.Action, _gateway._time.GetUtcNow(), true, "POST", _request.ScopeId).IsAllowed)
+                        { _loginStatus = "OutsideScope"; return null; }
                         if (scope is null) { _loginStatus = "OutsideScope"; return null; }
                         TargetJsonLogin.Validate(login, scope, _gateway._time.GetUtcNow());
                         _gateway._credentials!.Material(_request.ProjectId, _request.ScopeId, _credential!);

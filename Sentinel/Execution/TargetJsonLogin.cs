@@ -16,7 +16,7 @@ public static class TargetJsonLogin
         var c = input.Configuration;
         if (c.Method != "POST" || !Uri.TryCreate(c.Url, UriKind.Absolute, out var uri) || c.Url.Length > 2048 ||
             uri.Scheme is not ("http" or "https") || uri.UserInfo.Length != 0 || uri.Query.Length != 0 || uri.Fragment.Length != 0 ||
-            !new ScopePolicyEngine().Evaluate([scope], uri, "authenticated-lab", now, true).IsAllowed)
+            !new ScopePolicyEngine().Evaluate([scope], uri, "authenticated-lab", now, true, "POST").IsAllowed)
             throw new ArgumentException("Login exige POST JSON em URL sem query/credenciais, dentro do mesmo escopo de laboratório loopback.");
         var fields = new[] { c.UsernameField, c.PasswordField, c.TenantField }.Where(f => f is not null).ToArray();
         if (string.IsNullOrEmpty(c.UsernameField) || string.IsNullOrEmpty(c.PasswordField) || fields.Any(f => !ValidField(f!)) || fields.Distinct(StringComparer.Ordinal).Count() != fields.Length ||

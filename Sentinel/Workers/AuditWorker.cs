@@ -75,8 +75,8 @@ public sealed class AuditWorker(
                 executionCts.Token.ThrowIfCancellationRequested();
                 if (completed.Contains(manifest.Metadata.Id)) continue;
                 var now = timeProvider.GetUtcNow();
-                var decision = policy.Evaluate(store.GetScopes(payload.ProjectId).Where(scope => scope.Id == payload.ScopeId).ToArray(),
-                    target, payload.Action, now, payload.ConfirmActive);
+                var decision = policy.Evaluate(store.GetScopes(payload.ProjectId),
+                    target, payload.Action, now, payload.ConfirmActive, requiredScopeId: payload.ScopeId);
                 if (!decision.IsAllowed) { coordinator.Finish(lease, AuditState.Blocked, decision.Reason); return; }
                 stage = "snapshot";
                 using var sourceWorkspace = source ? await sources.MaterializeAsync(payload.ProjectId, payload.ScopeId, payload.Source!, executionCts.Token) : null;

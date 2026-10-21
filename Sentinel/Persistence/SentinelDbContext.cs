@@ -127,6 +127,7 @@ public sealed class SentinelDbContext : DbContext
             entity.Property(scope => scope.CreatedBy).HasMaxLength(200);
             entity.Property(scope => scope.RevokedBy).HasMaxLength(200);
             entity.Property(scope => scope.RevocationReason).HasMaxLength(1000);
+            entity.Property(scope => scope.RulesJson).HasMaxLength(32000);
             entity.HasOne(scope => scope.Project)
                 .WithMany(project => project.Scopes)
                 .HasForeignKey(scope => scope.ProjectId)
@@ -281,6 +282,7 @@ public sealed class ProjectRow
 
 public sealed class ScopeRow
 {
+    public string? RulesJson { get; set; }
     public Guid Id { get; set; }
     public Guid ProjectId { get; set; }
     public string TargetBaseUrl { get; set; } = string.Empty;
@@ -292,7 +294,8 @@ public sealed class ScopeRow
     public string? RevokedBy { get; set; }
     public string? RevocationReason { get; set; }
     public ProjectRow Project { get; set; } = null!;
-    public Sentinel.Core.AuthorizedScope ToDomain() => new(Id, ProjectId, new Uri(TargetBaseUrl), Environment, ExpiresAtUtc, CreatedAtUtc, CreatedBy, RevokedAtUtc, RevokedBy, RevocationReason);
+    public Sentinel.Core.AuthorizedScope ToDomain() => new(Id, ProjectId, new Uri(TargetBaseUrl), Environment, ExpiresAtUtc, CreatedAtUtc, CreatedBy, RevokedAtUtc, RevokedBy, RevocationReason,
+        RulesJson is null ? null : System.Text.Json.JsonSerializer.Deserialize<Sentinel.Core.ScopeRules>(RulesJson));
 }
 
 public sealed class ScopeEventRow

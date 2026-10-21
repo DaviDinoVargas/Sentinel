@@ -1,30 +1,38 @@
 namespace Sentinel.Core;
 
-public sealed record PolicyDecision(bool IsAllowed, AuthorizedScope? Scope, string? Reason)
+public sealed record PolicyDecision(bool IsAllowed, AuthorizedScope? Scope, string? Reason, string Disposition = "Forbidden")
 {
-    public static PolicyDecision Allow(AuthorizedScope scope) => new(true, scope, null);
-    public static PolicyDecision Block(string reason) => new(false, null, reason);
+    public static PolicyDecision Allow(AuthorizedScope scope) => new(true, scope, null, "Autonomous");
+    public static PolicyDecision Block(string reason) => new(false, null, "Forbidden: " + reason);
 }
 
 public sealed class ScopePolicyEngine
 {
     public static bool IsActive(string action) => action.Equals("lab-active", StringComparison.OrdinalIgnoreCase) || action.Equals("authenticated-lab", StringComparison.OrdinalIgnoreCase);
-    public PolicyDecision Evaluate(IReadOnlyList<AuthorizedScope> scopes, Uri targetUri, string action, DateTimeOffset nowUtc, bool confirmActive = false)
+    public PolicyDecision Evaluate(IReadOnlyList<AuthorizedScope> scopes, Uri targetUri, string action, DateTimeOffset nowUtc, bool confirmActive = false, string method = "GET", Guid? requiredScopeId = null)
     {
+        action = action.ToLowerInvariant();
         if (action == "source-analysis")
         {
-            var sourceScope = scopes.FirstOrDefault(s => s.Environment == "source-analysis" && s.RevokedAtUtc is null && s.ExpiresAtUtc > nowUtc && s.TargetBaseUri == targetUri);
+            var sourceScope = scopes.FirstOrDefault(s => (requiredScopeId is null || s.Id == requiredScopeId) && s.Environment == "source-analysis" && s.RevokedAtUtc is null && s.ExpiresAtUtc > nowUtc && s.TargetBaseUri == targetUri);
             return targetUri.Scheme == "source" && sourceScope is not null ? PolicyDecision.Allow(sourceScope) : PolicyDecision.Block("Snapshot sem escopo exato e válido para análise estática.");
         }
         var active = IsActive(action);
         if (targetUri.Scheme is not ("http" or "https")) return PolicyDecision.Block("O perfil HTTP não aceita este tipo de alvo.");
+        if (targetUri.UserInfo.Length != 0 || targetUri.Fragment.Length != 0 || !ScopeRules.SafePath(targetUri.AbsolutePath))
+            return PolicyDecision.Block("URL ambígua ou com credenciais/fragmento; percent-encoding no caminho ainda não é suportado.");
         if (!active && !string.Equals(action, "simulated", StringComparison.OrdinalIgnoreCase))
         {
             return PolicyDecision.Block("Ação bloqueada: perfil de execução não reconhecido.");
         }
 
-        var scope = scopes.FirstOrDefault(candidate => IsAuthorized(candidate, targetUri, nowUtc));
+        var candidates = scopes.Where(candidate => IsAuthorized(candidate, targetUri, nowUtc)).ToArray();
+        if (candidates.Any(s => (s.Rules ?? ScopeRules.LegacyHttp).Exclusions.Any(path => ScopeRules.Within(targetUri.AbsolutePath, path))))
+            return PolicyDecision.Block("Caminho explicitamente excluído; exclusões prevalecem sobre escopos sobrepostos.");
+        var scope = candidates.FirstOrDefault(s => (requiredScopeId is null || s.Id == requiredScopeId) && (s.Rules ?? ScopeRules.LegacyHttp).Methods.Contains(method) && (s.Rules ?? ScopeRules.LegacyHttp).Actions.Contains(action));
         if (scope is null) return PolicyDecision.Block("Ação bloqueada: o alvo não está em um escopo autorizado e válido.");
+        if (scope.Environment.Trim().ToLowerInvariant() is "producao" or "produção" or "production" or "prod")
+            return new(false, null, "ApprovalRequired: produção exige aprovação humana registrada, autorização do proprietário, janela e guardas completas; perfil de produção ainda indisponível.", "ApprovalRequired");
         if (active && (!confirmActive || !scope.Environment.Equals("laboratorio", StringComparison.OrdinalIgnoreCase) ||
             !IsLocalTarget(targetUri) || !string.IsNullOrEmpty(targetUri.UserInfo)))
             return PolicyDecision.Block("Testes ativos exigem confirmação explícita, escopo de ambiente 'laboratorio' e alvo em localhost/IP de loopback, sem credenciais na URL.");
@@ -36,7 +44,7 @@ public sealed class ScopePolicyEngine
 
     private static bool IsAuthorized(AuthorizedScope scope, Uri targetUri, DateTimeOffset nowUtc)
     {
-        if (scope.RevokedAtUtc is not null || scope.ExpiresAtUtc <= nowUtc ||
+        if (scope.RevokedAtUtc is not null || scope.ExpiresAtUtc <= nowUtc || scope.Rules?.StartsAtUtc > nowUtc ||
             !string.Equals(scope.TargetBaseUri.Scheme, targetUri.Scheme, StringComparison.OrdinalIgnoreCase) ||
             !string.Equals(scope.TargetBaseUri.Host, targetUri.Host, StringComparison.OrdinalIgnoreCase) ||
             scope.TargetBaseUri.Port != targetUri.Port)
@@ -86,7 +94,8 @@ public sealed class AuditService
         }
 
         if (!Uri.TryCreate(request.TargetBaseUrl, UriKind.Absolute, out var targetBaseUri) ||
-            (targetBaseUri.Scheme is not "http" and not "https"))
+            (targetBaseUri.Scheme is not "http" and not "https") || targetBaseUri.UserInfo.Length != 0 || targetBaseUri.Query.Length != 0 ||
+            targetBaseUri.Fragment.Length != 0 || !ScopeRules.SafePath(targetBaseUri.AbsolutePath))
         {
             throw new ArgumentException("TargetBaseUrl deve ser uma URL HTTP ou HTTPS absoluta.", nameof(request));
         }
@@ -104,7 +113,8 @@ public sealed class AuditService
         if (request.Environment.Trim().Equals("source-analysis", StringComparison.OrdinalIgnoreCase)) throw new ArgumentException("O ambiente source-analysis é reservado ao ciclo de snapshots.");
 
         if (actor is { Length: > 200 } || actor?.Any(char.IsControl) == true) throw new ArgumentException("Identidade do operador incompatível com o registro de escopo.");
-        return _store.CreateScope(projectId, targetBaseUri, request.Environment, request.ExpiresAtUtc, nowUtc, actor);
+        var rules = request.Rules ?? ScopeRules.LegacyHttp; rules.Validate(targetBaseUri, request.ExpiresAtUtc);
+        return _store.CreateScope(projectId, targetBaseUri, request.Environment, request.ExpiresAtUtc, nowUtc, actor, rules);
     }
 
     public Audit RequestAudit(Guid projectId, RequestAuditRequest request, string correlationId, string? actor = null)
@@ -125,12 +135,13 @@ public sealed class AuditService
         ProjectPurposes.ValidateOrigin(_store.FindProject(projectId)!.Purpose, request.DataOrigin);
         if (request.DataOrigin != DataOrigins.Unknown) DataOrigins.ValidateActor(actor);
         var scopes = _store.GetScopes(projectId);
+        Guid? requiredScopeId = null;
         if (request.Action.Equals("authenticated-lab", StringComparison.OrdinalIgnoreCase) && request.CredentialProfileId is { } profileId)
         {
             var scopeId = _credentials.ScopeId(projectId, profileId);
-            scopes = scopes.Where(scope => scope.Id == scopeId).ToArray();
+            requiredScopeId = scopeId;
         }
-        var decision = _policy.Evaluate(scopes, targetUri, request.Action, nowUtc, request.ConfirmActive);
+        var decision = _policy.Evaluate(scopes, targetUri, request.Action, nowUtc, request.ConfirmActive, requiredScopeId: requiredScopeId);
         if (!decision.IsAllowed)
         {
             return _store.SaveBlockedAudit(new Audit(

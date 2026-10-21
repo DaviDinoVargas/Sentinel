@@ -751,6 +751,10 @@ namespace Sentinel.Persistence.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
+                    b.Property<string>("RulesJson")
+                        .HasMaxLength(32000)
+                        .HasColumnType("character varying(32000)");
+
                     b.Property<string>("TargetBaseUrl")
                         .IsRequired()
                         .HasMaxLength(2048)

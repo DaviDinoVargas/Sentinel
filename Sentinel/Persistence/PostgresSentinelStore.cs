@@ -75,7 +75,7 @@ public sealed class PostgresSentinelStore : ISentinelStore
         return new(items, count, request.Limit, request.Offset);
     }
 
-    public AuthorizedScope CreateScope(Guid projectId, Uri targetBaseUri, string environment, DateTimeOffset expiresAtUtc, DateTimeOffset createdAtUtc, string? createdBy = null)
+    public AuthorizedScope CreateScope(Guid projectId, Uri targetBaseUri, string environment, DateTimeOffset expiresAtUtc, DateTimeOffset createdAtUtc, string? createdBy = null, ScopeRules? rules = null)
     {
         var row = new ScopeRow
         {
@@ -85,7 +85,8 @@ public sealed class PostgresSentinelStore : ISentinelStore
             Environment = environment.Trim(),
             ExpiresAtUtc = expiresAtUtc,
             CreatedAtUtc = createdAtUtc,
-            CreatedBy = createdBy
+            CreatedBy = createdBy,
+            RulesJson = System.Text.Json.JsonSerializer.Serialize(rules ?? ScopeRules.LegacyHttp)
         };
 
         using var db = _dbContextFactory.CreateDbContext();

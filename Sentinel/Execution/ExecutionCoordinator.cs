@@ -63,7 +63,7 @@ public sealed class ExecutionCoordinator(IDbContextFactory<SentinelDbContext> fa
         if (AuditStates.IsTerminal(Enum.Parse<AuditState>(audit.State))) return null;
         if (StopForRevokedScope(db, execution, audit, now))
         {
-            if (execution.LeaseToken is null) FinishRow(db, execution, audit, now, AuditState.Cancelled, "Escopo revogado antes da execução.");
+            if (execution.LeaseToken is null) FinishRow(db, execution, audit, now, AuditState.Cancelled, "Política de escopo invalidada antes da execução.");
             return null;
         }
         if (execution.CancelRequestedAtUtc is not null || execution.LeaseToken is not null) return null;
@@ -135,11 +135,17 @@ public sealed class ExecutionCoordinator(IDbContextFactory<SentinelDbContext> fa
 
     private static bool StopForRevokedScope(SentinelDbContext db, AuditExecutionRow execution, AuditRow audit, DateTimeOffset now)
     {
-        if (!db.Scopes.Any(scope => scope.Id == audit.ScopeId && scope.RevokedAtUtc != null)) return false;
+        var scopes = db.Scopes.AsNoTracking().Where(scope => scope.ProjectId == audit.ProjectId).ToArray().Select(scope => scope.ToDomain()).ToArray();
+        var revoked = scopes.Any(scope => scope.Id == audit.ScopeId && scope.RevokedAtUtc != null);
+        var json = db.AuditOutbox.AsNoTracking().Where(row => row.Id == audit.Id).Select(row => row.PayloadJson).SingleOrDefault();
+        var payload = json is null ? null : JsonSerializer.Deserialize<OutboxMessagePayload>(json, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        var decision = payload is null ? PolicyDecision.Block("Mensagem de execução ausente.") :
+            new ScopePolicyEngine().Evaluate(scopes, new Uri(audit.TargetUrl), payload.Action, now, payload.ConfirmActive, requiredScopeId: audit.ScopeId);
+        if (decision.IsAllowed) return false;
         if (execution.CancelRequestedAtUtc is null)
         {
             execution.CancelRequestedAtUtc = now;
-            Event(db, execution, now, "ScopeRevoked", "Escopo revogado; novas permissões recusadas e encerramento solicitado.");
+            Event(db, execution, now, revoked ? "ScopeRevoked" : "PolicyInvalidated", decision.Reason ?? "Forbidden: política invalidada.");
         }
         audit.State = nameof(AuditState.Cancelling);
         return true;

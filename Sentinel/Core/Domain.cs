@@ -16,7 +16,7 @@ public sealed record AuthorizedScope(
     string? CreatedBy = null,
     DateTimeOffset? RevokedAtUtc = null,
     string? RevokedBy = null,
-    string? RevocationReason = null);
+    string? RevocationReason = null, ScopeRules? Rules = null);
 
 public enum AuditState
 {
@@ -117,7 +117,7 @@ public sealed class Audit
 
 public sealed record CreateProjectRequest(string Name, string? Description, string Purpose = ProjectPurposes.Software);
 
-public sealed record CreateScopeRequest(string TargetBaseUrl, string Environment, DateTimeOffset ExpiresAtUtc);
+public sealed record CreateScopeRequest(string TargetBaseUrl, string Environment, DateTimeOffset ExpiresAtUtc, ScopeRules? Rules = null);
 
 public sealed record RequestAuditRequest(string TargetUrl, string Action = "simulated", bool ConfirmActive = false,
     Guid? CredentialProfileId = null, string? ExpectedAccess = null, bool IncludeAuthenticatedLoad = false, string DataOrigin = DataOrigins.Unknown);

@@ -61,7 +61,7 @@ public sealed class ApiSurfaceController(ISentinelStore store, EvidenceArtifactS
         var rows = report.Operations.Select((operation, index) =>
         {
             var target = destinations[index];
-            var decision = target is null ? null : policy.Evaluate(authorized, target, "simulated", now);
+            var decision = target is null ? null : policy.Evaluate(authorized, target, "simulated", now, method: operation.Method);
             var prior = operation.Method == "GET" && target is not null ? history.FirstOrDefault(a => a.TargetUrl == target.AbsoluteUri) : null;
             return new SurfaceOperationPreview(operation, target?.AbsoluteUri, decision?.IsAllowed, decision?.Scope?.Id,
                 target is null ? "ConcreteInputRequired" : operation.Method != "GET" ? "MethodAdapterRequired" : decision?.IsAllowed != true ? "UrlScopeRequired" : "ManualAuditAvailable",
@@ -72,7 +72,7 @@ public sealed class ApiSurfaceController(ISentinelStore store, EvidenceArtifactS
             limitations = new[] {
                 "Prévia sem requisições, DNS ou alteração de escopos; a política e o gateway revalidam tudo na execução efetiva.",
                 "Base informada manualmente, concatenada aos paths. servers e $ref do contrato não escolhem destinos.",
-                "Escopo mostrado apenas por URL vigente neste instante, não autorização de método/papel/dados. GET é o único adaptador HTTP atual; templates exigem valores concretos.",
+                "Escopo mostrado considera URL, método, janela, perfil e exclusões neste instante; não comprova autorização de papel/dados. GET é o único adaptador HTTP atual; templates exigem valores concretos.",
                 "Vínculo histórico exige mesma URL literal, GET, auditoria concluída e resultado Passed/Failed de plugin HTTP. Não comprova cobertura da operação, parâmetros, todos os controles, papéis ou revisão do contrato.",
                 "A ausência de vínculo não prova ausência de testes externos. Recortes não entram em um percentual de cobertura completa."
             } });
