@@ -86,6 +86,67 @@ describe('Acessos do alvo', () => {
     expect(fixture.componentInstance.profiles()).toEqual([]);
   });
 
+  it('cadastra login configurável sem Bearer e limpa usuário, senha e empresa', () => {
+    http.expectOne('/api/v1/projects/project-a/target-credentials').flush([]);
+    const page = fixture.componentInstance;
+    page.changeType({ target: { value: 'JsonLogin' } } as unknown as Event);
+    page.credentialForm.patchValue({
+      scopeId: 'scope-a',
+      name: 'Login',
+      persona: 'Leitura',
+      tenantLabel: 'A',
+      expires: '2026-10-22T12:00',
+    });
+    page.login.patchValue({
+      url: 'http://localhost:8080/login',
+      username: 'synthetic-user',
+      password: 'synthetic-password',
+      tenantField: 'company',
+      tenant: 'synthetic-company',
+      tokenPath: 'data.token',
+    });
+    page.create();
+    const request = http.expectOne('/api/v1/projects/project-a/target-credentials');
+    expect(request.request.body.credentialType).toBe('JsonLogin');
+    expect(request.request.body.token).toBe('');
+    expect(request.request.body.login.configuration).toEqual({
+      url: 'http://localhost:8080/login',
+      method: 'POST',
+      usernameField: 'email',
+      passwordField: 'password',
+      tenantField: 'company',
+      tokenPath: 'data.token',
+    });
+    expect(request.request.body.login.password).toBe('synthetic-password');
+    expect(page.login.controls.password.value).toBe('');
+    expect(page.login.controls.username.value).toBe('');
+    expect(page.login.controls.tenant.value).toBe('');
+    request.flush({ ...profile, credentialType: 'JsonLogin' });
+    fixture.detectChanges();
+    http
+      .expectOne('/api/v1/projects/project-a/target-credentials')
+      .flush([{ ...profile, credentialType: 'JsonLogin' }]);
+  });
+
+  it('trocar identidade limpa login e edição sem manter senha ou configuração anterior', () => {
+    http.expectOne('/api/v1/projects/project-a/target-credentials').flush([]);
+    const page = fixture.componentInstance;
+    page.changeType({ target: { value: 'JsonLogin' } } as unknown as Event);
+    page.login.patchValue({
+      username: 'old-user',
+      password: 'old-password',
+      tenant: 'old-company',
+    });
+    page.rotationLogin.patchValue({ password: 'rotating-password' });
+    TestBed.inject(WorkspaceService).projectId.set('project-b');
+    fixture.detectChanges();
+    http.expectOne('/api/v1/projects/project-b/target-credentials').flush([]);
+    expect(page.login.controls.password.value).toBe('');
+    expect(page.rotationLogin.controls.password.value).toBe('');
+    expect(page.credentialType()).toBe('Bearer');
+    expect(page.credentialForm.controls.token.invalid).toBe(true);
+  });
+
   it('não inicia carga para expectativa de negação nem executa sem confirmação', () => {
     http.expectOne('/api/v1/projects/project-a/target-credentials').flush([profile]);
     fixture.componentInstance.scenarioForm.setValue({

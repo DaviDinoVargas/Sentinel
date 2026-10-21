@@ -8,9 +8,16 @@ import { WorkspaceService } from '../core/workspace.service';
 import { AuthSessionService } from '../core/auth-session.service';
 import { TargetCredential } from '../core/sentinel-api.service';
 import { Badge, EmptyState } from '../design-system/ui';
+import {
+  TargetLoginFields,
+  loginForm,
+  loginInput,
+  resetLogin,
+  clearLoginSecrets,
+} from './target-login-fields';
 
 @Component({
-  imports: [CommonModule, ReactiveFormsModule, RouterLink, Badge, EmptyState],
+  imports: [CommonModule, ReactiveFormsModule, RouterLink, Badge, EmptyState, TargetLoginFields],
   template: `
     <div class="page-heading">
       <div>
@@ -30,9 +37,9 @@ import { Badge, EmptyState } from '../design-system/ui';
     } @else {
       <div class="banner">
         <span
-          >Use tokens da aplicação testada e contas sintéticas. O login OIDC do Sentinel é separado.
-          O segredo é cifrado no backend, nunca retornado pela consulta e usado somente pelo
-          gateway.</span
+          >Use tokens ou usuário/senha da aplicação testada e contas sintéticas. O login OIDC do
+          Sentinel é separado. O segredo é cifrado no backend, nunca retornado pela consulta e usado
+          somente pelo gateway.</span
         >
       </div>
       @if (error()) {
@@ -45,7 +52,7 @@ import { Badge, EmptyState } from '../design-system/ui';
         <div class="panel-header">
           <div>
             <h2 id="credentials-title">Perfis de credenciais</h2>
-            <p>Até 100 perfis · Bearer · laboratório em loopback</p>
+            <p>Até 100 perfis · Bearer ou login JSON · laboratório em loopback</p>
           </div>
         </div>
         @if (loading()) {
@@ -73,6 +80,19 @@ import { Badge, EmptyState } from '../design-system/ui';
                         }}</span
                       >
                       <span class="subline mono">Escopo {{ profile.scopeId.slice(0, 8) }}</span>
+                      <span class="subline">{{
+                        profile.credentialType === 'JsonLogin'
+                          ? 'Usuário/senha · POST JSON'
+                          : 'Bearer'
+                      }}</span>
+                      @if (profile.credentialType === 'JsonLogin') {
+                        <span class="subline"
+                          >Último login: {{ loginStatus(profile.lastLoginStatus) }} ·
+                          {{
+                            (profile.lastLoginAtUtc | date: 'dd/MM HH:mm:ss') || 'Não testado'
+                          }}</span
+                        >
+                      }
                       <span class="subline"
                         >Referência protegida:
                         {{
@@ -114,8 +134,14 @@ import { Badge, EmptyState } from '../design-system/ui';
         }
         @if (auth.can('scopes.manage')) {
           <details class="section-gap">
-            <summary>Cadastrar perfil Bearer</summary>
+            <summary>Cadastrar perfil de acesso</summary>
             <form class="form-stack section-gap" [formGroup]="credentialForm" (ngSubmit)="create()">
+              <label
+                >Tipo de acesso<select [value]="credentialType()" (change)="changeType($event)">
+                  <option value="Bearer">Token Bearer</option>
+                  <option value="JsonLogin">Usuário/senha e empresa</option>
+                </select></label
+              >
               <div class="form-grid">
                 <label
                   >Nome do perfil<input
@@ -144,22 +170,34 @@ import { Badge, EmptyState } from '../design-system/ui';
                     maxlength="100"
                     placeholder="Empresa A"
                 /></label>
-                <label
-                  >Token Bearer do alvo<input
-                    type="password"
-                    autocomplete="off"
-                    formControlName="token"
-                    maxlength="16000"
-                /></label>
+                @if (credentialType() === 'Bearer') {
+                  <label
+                    >Token Bearer do alvo<input
+                      type="password"
+                      autocomplete="off"
+                      formControlName="token"
+                      maxlength="16000"
+                  /></label>
+                }
                 <label
                   >Expira em (horário local)<input type="datetime-local" formControlName="expires"
                 /></label>
               </div>
+              @if (credentialType() === 'JsonLogin') {
+                <s-target-login-fields [form]="login" />
+              }
               <p class="help">
                 Informe a validade real do token: máximo 24 horas, dentro do escopo. O Sentinel não
                 renova sessões do alvo automaticamente. O campo secreto é limpo após o envio.
               </p>
-              <button class="button primary" [disabled]="busy() || credentialForm.invalid">
+              <button
+                class="button primary"
+                [disabled]="
+                  busy() ||
+                  credentialForm.invalid ||
+                  (credentialType() === 'JsonLogin' && login.invalid)
+                "
+              >
                 Cadastrar perfil
               </button>
             </form>
@@ -167,13 +205,17 @@ import { Badge, EmptyState } from '../design-system/ui';
           @if (rotating(); as profile) {
             <form class="form-stack section-gap" [formGroup]="rotationForm" (ngSubmit)="rotate()">
               <h3>Rotacionar {{ profile.name }}</h3>
-              <label
-                >Novo token Bearer<input
-                  type="password"
-                  autocomplete="off"
-                  formControlName="token"
-                  maxlength="16000"
-              /></label>
+              @if (profile.credentialType === 'JsonLogin') {
+                <s-target-login-fields [form]="rotationLogin" />
+              } @else {
+                <label
+                  >Novo token Bearer<input
+                    type="password"
+                    autocomplete="off"
+                    formControlName="token"
+                    maxlength="16000"
+                /></label>
+              }
               <label
                 >Nova expiração (horário local)<input
                   type="datetime-local"
@@ -185,7 +227,14 @@ import { Badge, EmptyState } from '../design-system/ui';
               <div class="actions">
                 <button class="button" type="button" (click)="closeRotation()">
                   Fechar rotação</button
-                ><button class="button primary" [disabled]="busy() || rotationForm.invalid">
+                ><button
+                  class="button primary"
+                  [disabled]="
+                    busy() ||
+                    rotationForm.invalid ||
+                    (profile.credentialType === 'JsonLogin' && rotationLogin.invalid)
+                  "
+                >
                   Salvar nova versão
                 </button>
               </div>
@@ -199,7 +248,7 @@ import { Badge, EmptyState } from '../design-system/ui';
         }
       </section>
       <section class="panel panel-pad section-gap" aria-labelledby="scenario-title">
-        <h2 id="scenario-title">Executar cenário autenticado</h2>
+        <h2 id="scenario-title">Testar autenticação e acesso</h2>
         <p class="help">
           Teste uma URL com uma identidade: acesso próprio esperado ou negação esperada para outro
           papel/empresa. Cada execução preserva perfil e versão nas evidências de acompanhamento.
@@ -246,8 +295,9 @@ import { Badge, EmptyState } from '../design-system/ui';
           >
           <label class="check-field"
             ><input type="checkbox" formControlName="confirmed" /><span
-              >Confirmo o uso desta identidade sintética e a execução de GETs no laboratório
-              autorizado.</span
+              >Confirmo o uso desta identidade sintética e os GETs no laboratório autorizado.
+              Perfis de usuário/senha também enviam um POST de login por plugin, no máximo dois
+              quando a carga está incluída, dentro do mesmo orçamento de taxa.</span
             ></label
           >
           <button
@@ -289,6 +339,35 @@ import { Badge, EmptyState } from '../design-system/ui';
   `,
 })
 export class TargetAccessPage {
+  readonly credentialType = signal('Bearer');
+  readonly login = loginForm();
+  readonly rotationLogin = loginForm();
+  changeType(event: Event): void {
+    this.credentialType.set((event.target as HTMLSelectElement).value);
+    const token = this.credentialForm.controls.token;
+    token.setValidators(this.credentialType() === 'Bearer' ? [Validators.required] : []);
+    token.reset();
+    token.updateValueAndValidity();
+    resetLogin(this.login);
+  }
+  loginStatus(status?: string | null): string {
+    const labels: Record<string, string> = {
+      Authenticated: 'Token obtido; acesso avaliado no cenário',
+      InvalidCredentials: 'Credenciais recusadas (401)',
+      TenantOrAccessDenied: 'Empresa ou acesso recusado (403)',
+      AccountLocked: 'Conta bloqueada (423)',
+      RateLimited: 'Limite do alvo (429)',
+      RedirectUnsupported: 'Redirecionamento não suportado',
+      Unavailable: 'Indisponível',
+      UnsupportedResponse: 'Resposta não suportada',
+      TokenMissingOrUnsupported: 'Token ausente ou incompatível',
+      UnavailableOrRevoked: 'Indisponível, cancelado ou revogado',
+      ResponseTooLarge: 'Resposta excede limite',
+      OutsideScope: 'Fora do escopo',
+      CancelledOrBudgetDenied: 'Cancelamento ou limite',
+    };
+    return status ? (labels[status] ?? 'Não concluído') : 'Não testado';
+  }
   private readonly contextChanged = new Subject<void>();
   readonly ws = inject(WorkspaceService);
   readonly auth = inject(AuthSessionService);
@@ -348,6 +427,11 @@ export class TargetAccessPage {
         this.contextChanged.next();
         this.busy.set(false);
         this.credentialForm.reset({ expires: this.defaultExpiry() });
+        this.credentialType.set('Bearer');
+        this.credentialForm.controls.token.setValidators([Validators.required]);
+        this.credentialForm.controls.token.updateValueAndValidity();
+        resetLogin(this.login);
+        resetLogin(this.rotationLogin);
         this.rotationForm.reset({ expires: this.defaultExpiry() });
         this.scenarioForm.reset();
         this.rotating.set(null);
@@ -372,6 +456,8 @@ export class TargetAccessPage {
       this.contextChanged.complete();
       this.credentialForm.controls.token.reset();
       this.rotationForm.controls.token.reset();
+      clearLoginSecrets(this.login);
+      clearLoginSecrets(this.rotationLogin);
     });
   }
   available(profile: TargetCredential): boolean {
@@ -409,33 +495,47 @@ export class TargetAccessPage {
   }
   create(): void {
     if (this.busy() || this.credentialForm.invalid || !this.auth.can('scopes.manage')) return;
+    if (this.credentialType() === 'JsonLogin' && this.login.invalid) return;
     const value = this.credentialForm.getRawValue();
     const expiresAtUtc = this.expiry(value.expires);
     if (!expiresAtUtc) return;
     this.busy.set(true);
     this.error.set('');
     this.ws.api
-      .createTargetCredential(this.ws.projectId(), { ...value, expiresAtUtc })
+      .createTargetCredential(this.ws.projectId(), {
+        ...value,
+        expiresAtUtc,
+        credentialType: this.credentialType(),
+        ...(this.credentialType() === 'JsonLogin' ? { login: loginInput(this.login) } : {}),
+      })
       .pipe(takeUntil(this.contextChanged), takeUntilDestroyed(this.destroy))
       .subscribe({
         next: () => this.complete('Perfil cadastrado; segredo cifrado no backend.'),
         error: () => this.fail(),
       });
     this.credentialForm.controls.token.reset();
+    clearLoginSecrets(this.login);
   }
   selectRotation(profile: TargetCredential): void {
     this.rotating.set(profile);
     this.rotationForm.reset({ expires: this.defaultExpiry() });
+    this.rotationForm.controls.token.setValidators(
+      profile.credentialType === 'JsonLogin' ? [] : [Validators.required],
+    );
+    this.rotationForm.controls.token.updateValueAndValidity();
+    resetLogin(this.rotationLogin, profile.loginConfiguration);
   }
   closeRotation(): void {
     this.rotating.set(null);
     this.rotationForm.reset();
+    resetLogin(this.rotationLogin);
   }
   rotate(): void {
     const profile = this.rotating();
     if (!profile || this.busy() || this.rotationForm.invalid || !this.auth.can('scopes.manage'))
       return;
     const value = this.rotationForm.getRawValue();
+    if (profile.credentialType === 'JsonLogin' && this.rotationLogin.invalid) return;
     const expiresAtUtc = this.expiry(value.expires);
     if (!expiresAtUtc) return;
     this.busy.set(true);
@@ -445,6 +545,9 @@ export class TargetAccessPage {
         expectedVersion: profile.version,
         token: value.token,
         expiresAtUtc,
+        ...(profile.credentialType === 'JsonLogin'
+          ? { login: loginInput(this.rotationLogin) }
+          : {}),
       })
       .pipe(takeUntil(this.contextChanged), takeUntilDestroyed(this.destroy))
       .subscribe({
@@ -455,6 +558,7 @@ export class TargetAccessPage {
         error: () => this.fail(),
       });
     this.rotationForm.controls.token.reset();
+    clearLoginSecrets(this.rotationLogin);
   }
   revoke(profile: TargetCredential): void {
     if (this.busy() || !this.auth.can('scopes.manage')) return;

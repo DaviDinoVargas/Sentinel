@@ -201,6 +201,10 @@ export interface ExecutionSnapshot {
   } | null;
 }
 export interface TargetCredential {
+  credentialType?: 'Bearer' | 'JsonLogin';
+  loginConfiguration?: JsonLoginConfiguration | null;
+  lastLoginStatus?: string | null;
+  lastLoginAtUtc?: string | null;
   id: string;
   projectId: string;
   scopeId: string;
@@ -212,6 +216,20 @@ export interface TargetCredential {
   expiresAtUtc: string;
   revokedAtUtc: string | null;
   baselineVerifiedAtUtc?: string | null;
+}
+export interface JsonLoginConfiguration {
+  url: string;
+  method: string;
+  usernameField: string;
+  passwordField: string;
+  tenantField: string | null;
+  tokenPath: string;
+}
+export interface JsonLoginInput {
+  configuration: JsonLoginConfiguration;
+  username: string;
+  password: string;
+  tenant: string | null;
 }
 export interface SecurityScoreComponent {
   id: string;
@@ -385,6 +403,8 @@ export class SentinelApiService {
       tenantLabel: string;
       token: string;
       expiresAtUtc: string;
+      credentialType?: string;
+      login?: JsonLoginInput;
     },
   ) {
     return this.http.post<TargetCredential>(
@@ -395,7 +415,12 @@ export class SentinelApiService {
   rotateTargetCredential(
     projectId: string,
     id: string,
-    request: { expectedVersion: number; token: string; expiresAtUtc: string },
+    request: {
+      expectedVersion: number;
+      token: string;
+      expiresAtUtc: string;
+      login?: JsonLoginInput;
+    },
   ) {
     return this.http.put<TargetCredential>(
       `${this.baseUrl}/projects/${projectId}/target-credentials/${id}`,
