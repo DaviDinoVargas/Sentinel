@@ -1,5 +1,15 @@
 # Sentinel
 
+## Consultas e contexto de projetos — V20
+
+A tela **Projetos** pesquisa nome/descrição em todos os projetos autorizados da organização, combina propósito e ordenação e pagina 25 resumos por vez. A busca não interpreta `%`, `_` ou barras como curingas. Selecionar um projeto carrega seu contexto; pesquisar ou mudar de página preserva a seleção atual, inclusive quando ela está fora da lista. A preferência local guarda somente o identificador; o servidor revalida o acesso e o propósito antes de consultar resultados. Troca de identidade limpa dados e cancela consultas pendentes.
+
+`GET /api/v1/projects/search` aceita `search` (até 180 caracteres), `purpose=SoftwareUnderTest|SentinelValidation`, `sort=newest|oldest|name`, `limit` (1–100) e `offset` não negativo. Retorna `items`, `totalCount`, `limit` e `offset`. Contagem e página compartilham um snapshot transacional; a ordenação desempata pelo identificador. A rota anterior `GET /api/v1/projects?limit=100` continua disponível para clientes existentes. A migração `AddProjectQueryIndexes` cria índices por organização/data e organização/nome, sem apagar registros. Busca por trecho ainda pode exigir varredura; não há promessa de desempenho para grandes volumes sem benchmark.
+
+Na **Central de auditorias**, estado e trecho do alvo agora filtram todo o conjunto elegível no servidor, combinados com a origem do contexto. A rota de histórico aceita `state` e `target` (até 180 caracteres). Contagens, páginas e contagens por origem usam os mesmos filtros de estado/alvo; as contagens por origem continuam mostrando as origens excluídas. Filtros da central são independentes das outras telas e se reiniciam na troca de projeto. Consultas anteriores são canceladas, sem misturar respostas de contextos diferentes.
+
+Esta entrega mantém contexto único. Multisseleção, filtros por revisão/ambiente/período/severidade/controle, agregação SQL do score, enriquecimento dos demais formatos de exportação e perfis de login do alvo por usuário/senha/empresa continuam pendentes. O acesso ao alvo permanece Bearer nesta versão.
+
 ## Origem dos resultados — V19
 
 Projetos comuns usam somente entradas do software avaliado. Não há carregamento automático de corpus, nem necessidade de enviar fixtures para auditar outro projeto. Administradores da plataforma podem criar um projeto dedicado `SentinelValidation`; isso não importa arquivos nem inicia testes. O fluxo normal da interface declara `SoftwareUnderTest` para projetos comuns e `SyntheticCorpus` para validações. A API rejeita envio sintético novo a projetos comuns e software real a projetos de validação. Clientes antigos que omitem origem conservam `Unknown`.
