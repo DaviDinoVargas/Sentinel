@@ -20,7 +20,7 @@ public sealed class JsonLoginTests : IDisposable
         var client = _host.CreateClient();
         var project = (await (await client.PostAsJsonAsync("/api/v1/projects", new CreateProjectRequest("JSON " + Guid.NewGuid(), null))).Content.ReadFromJsonAsync<SentinelProject>())!;
         var uri = new Uri(_host.LabTarget.BaseUri, "authenticated/" + Guid.NewGuid().ToString("N"));
-        var scope = (await (await client.PostAsJsonAsync($"/api/v1/projects/{project.Id}/scopes", new CreateScopeRequest(uri.AbsoluteUri, "laboratorio", DateTimeOffset.UtcNow.AddMinutes(10)))).Content.ReadFromJsonAsync<AuthorizedScope>())!;
+        var scope = (await (await client.PostAsJsonAsync($"/api/v1/projects/{project.Id}/scopes", new CreateScopeRequest(uri.AbsoluteUri, "laboratorio", DateTimeOffset.UtcNow.AddMinutes(10), ScopeRules.LegacyHttp with { Methods = ["GET", "POST"] }))).Content.ReadFromJsonAsync<AuthorizedScope>())!;
         return (client, project, scope, new(new(uri + "/login", "email", "password", "data.token", "company"), "synthetic@example.invalid", "synthetic-password", "tenant-a"));
     }
     private static CreateTargetCredential Input(AuthorizedScope scope, JsonLoginInput login) =>
@@ -107,7 +107,7 @@ public sealed class JsonLoginTests : IDisposable
         using var host = new SentinelApiFactory(); using var client = host.CreateClient();
         var project = (await (await client.PostAsJsonAsync("/api/v1/projects", new CreateProjectRequest("Preparação login", null))).Content.ReadFromJsonAsync<SentinelProject>())!;
         var uri = new Uri(host.LabTarget.BaseUri, "authenticated/" + Guid.NewGuid().ToString("N"));
-        var scope = (await (await client.PostAsJsonAsync($"/api/v1/projects/{project.Id}/scopes", new CreateScopeRequest(uri.AbsoluteUri, "laboratorio", DateTimeOffset.UtcNow.AddMinutes(5)))).Content.ReadFromJsonAsync<AuthorizedScope>())!;
+        var scope = (await (await client.PostAsJsonAsync($"/api/v1/projects/{project.Id}/scopes", new CreateScopeRequest(uri.AbsoluteUri, "laboratorio", DateTimeOffset.UtcNow.AddMinutes(5), ScopeRules.LegacyHttp with { Methods = ["GET", "POST"] }))).Content.ReadFromJsonAsync<AuthorizedScope>())!;
         var login = new JsonLoginInput(new(uri + "/login", "email", "password", "data.token", "company"), "slow-fixture", "synthetic-password", "tenant-a");
         var profile = (await (await client.PostAsJsonAsync($"/api/v1/projects/{project.Id}/target-credentials", Input(scope, login))).Content.ReadFromJsonAsync<TargetCredentialInfo>())!;
         var response = await client.PostAsJsonAsync($"/api/v1/projects/{project.Id}/audits", new RequestAuditRequest(uri + "/tenant-a", "authenticated-lab", true, profile.Id, "allow", true)); response.EnsureSuccessStatusCode();
