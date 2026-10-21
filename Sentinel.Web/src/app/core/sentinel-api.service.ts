@@ -22,6 +22,18 @@ export interface SentinelProject {
   description?: string | null;
   createdAtUtc: string;
 }
+export interface ProjectPage {
+  items: SentinelProject[];
+  totalCount: number;
+  limit: number;
+  offset: number;
+}
+export interface ProjectQuery {
+  search: string;
+  purpose: string;
+  sort: string;
+  offset: number;
+}
 export interface AuthorizedScope {
   id: string;
   projectId: string;
@@ -309,12 +321,22 @@ export class SentinelApiService {
   projects() {
     return this.http.get<SentinelProject[]>(`${this.baseUrl}/projects?limit=100`);
   }
+  searchProjects(query: ProjectQuery) {
+    const params = new URLSearchParams({
+      limit: '25',
+      offset: String(query.offset),
+      sort: query.sort,
+    });
+    if (query.search.trim()) params.set('search', query.search.trim());
+    if (query.purpose) params.set('purpose', query.purpose);
+    return this.http.get<ProjectPage>(`${this.baseUrl}/projects/search?${params}`);
+  }
   project(projectId: string) {
     return this.http.get<ProjectContext>(`${this.baseUrl}/projects/${projectId}`);
   }
-  audits(projectId: string, offset = 0, dataOrigin?: DataOrigin) {
+  audits(projectId: string, offset = 0, dataOrigin?: DataOrigin, state = '', target = '') {
     return this.http.get<AuditPage>(
-      `${this.baseUrl}/projects/${projectId}/audits?limit=25&offset=${offset}${dataOrigin ? '&dataOrigin=' + dataOrigin : ''}`,
+      `${this.baseUrl}/projects/${projectId}/audits?limit=25&offset=${offset}${dataOrigin ? '&dataOrigin=' + dataOrigin : ''}${state ? '&state=' + encodeURIComponent(state) : ''}${target.trim() ? '&target=' + encodeURIComponent(target.trim()) : ''}`,
     );
   }
   plugins() {

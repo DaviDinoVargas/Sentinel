@@ -57,7 +57,7 @@ describe('Proteção da sessão OIDC', () => {
     const testing = TestBed.inject(HttpTestingController);
     ws.selectProject('old-organization-project');
     const requests = testing.match((request) => request.url.includes('old-organization-project'));
-    expect(requests.length).toBe(3);
+    expect(requests.length).toBe(1);
     ws.reset();
     expect(requests.every((request) => request.cancelled)).toBe(true);
     expect(ws.projectId()).toBe('');

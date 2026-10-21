@@ -26,7 +26,9 @@ describe('Central Sentinel', () => {
     const fixture = TestBed.createComponent(App);
     fixture.detectChanges();
     const http = TestBed.inject(HttpTestingController);
-    http.expectOne('/api/v1/projects?limit=100').flush([]);
+    http
+      .expectOne('/api/v1/projects/search?limit=25&offset=0&sort=newest')
+      .flush({ items: [], totalCount: 0, limit: 25, offset: 0 });
     http
       .expectOne('/api/v1/plugins')
       .flush({ plugins: [], rejectedCount: 0, approvalMode: 'automatic-schema-validation' });

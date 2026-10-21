@@ -8,6 +8,8 @@ import {
   OperationsSnapshot,
   PluginCatalog,
   ProjectContext,
+  ProjectPage,
+  ProjectQuery,
   SecurityScore,
   SentinelApiService,
   SentinelProject,
@@ -23,6 +25,20 @@ export class WorkspaceService {
   readonly api = inject(SentinelApiService);
   private readonly destroyRef = inject(DestroyRef);
   readonly projects = signal<SentinelProject[]>([]);
+  readonly projectPage = signal<ProjectPage | null>(null);
+  readonly projectQuery = signal<ProjectQuery>({
+    search: '',
+    purpose: '',
+    sort: 'newest',
+    offset: 0,
+  });
+  readonly projectsError = signal('');
+  readonly selectableProjects = computed(() => {
+    const selected = this.project();
+    return selected && !this.projects().some((p) => p.id === selected.id)
+      ? [selected, ...this.projects()]
+      : this.projects();
+  });
   readonly context = signal<ProjectContext | null>(null);
   readonly projectId = signal('');
   readonly history = signal<AuditPage | null>(null);
@@ -77,6 +93,7 @@ export class WorkspaceService {
   );
   private readonly selection = new Subject<{ id: string; offset: number }>();
   private readonly sessionChanged = new Subject<void>();
+  private readonly projectSearchChanged = new Subject<void>();
   private started = false;
 
   constructor() {
@@ -85,11 +102,20 @@ export class WorkspaceService {
         switchMap(({ id, offset }) => {
           if (!id) return EMPTY;
           this.loading.set(true);
-          return forkJoin({
-            context: this.api.project(id),
-            history: this.api.audits(id, offset, this.dataOrigin()),
-            score: this.api.securityScore(id),
-          }).pipe(
+          return this.api.project(id).pipe(
+            switchMap((context) =>
+              forkJoin({
+                context: of(context),
+                history: this.api.audits(
+                  id,
+                  offset,
+                  context.project.purpose === 'SentinelValidation'
+                    ? 'SyntheticCorpus'
+                    : 'SoftwareUnderTest',
+                ),
+                score: this.api.securityScore(id),
+              }),
+            ),
             catchError((error) => {
               this.contextError.set(this.errorMessage(error));
               this.loading.set(false);
@@ -126,12 +152,20 @@ export class WorkspaceService {
       });
   }
   refreshProjects(preferredId?: string): void {
+    this.projectSearchChanged.next();
     this.projectsLoading.set(true);
+    this.projectsError.set('');
     this.api
-      .projects()
-      .pipe(takeUntil(this.sessionChanged), takeUntilDestroyed(this.destroyRef))
+      .searchProjects(this.projectQuery())
+      .pipe(
+        takeUntil(this.projectSearchChanged),
+        takeUntil(this.sessionChanged),
+        takeUntilDestroyed(this.destroyRef),
+      )
       .subscribe({
-        next: (projects) => {
+        next: (page) => {
+          const projects = page.items;
+          this.projectPage.set(page);
           this.projects.set(projects);
           this.projectsLoading.set(false);
           const id = preferredId ?? this.projectId();
@@ -142,17 +176,24 @@ export class WorkspaceService {
             /* Storage opcional. */
           }
           const next =
-            projects.find((project) => project.id === (id || saved))?.id ??
-            projects.find((p) => p.purpose !== 'SentinelValidation')?.id ??
-            projects[0]?.id ??
+            id ||
+            saved ||
+            projects.find((p) => p.purpose !== 'SentinelValidation')?.id ||
+            projects[0]?.id ||
             '';
           if (next && (next !== this.projectId() || !this.context())) this.selectProject(next);
         },
         error: (error) => {
           this.projectsLoading.set(false);
-          this.fail(error);
+          this.projectsError.set(this.errorMessage(error));
         },
       });
+  }
+  searchProjects(query: Partial<ProjectQuery>): void {
+    this.projectQuery.update((current) => ({ ...current, ...query }));
+    this.projectPage.set(null);
+    this.projects.set([]);
+    this.refreshProjects();
   }
   selectProject(id: string): void {
     if (!id || (id === this.projectId() && this.context())) return;
@@ -202,6 +243,9 @@ export class WorkspaceService {
     this.refreshing.set(false);
     this.projectId.set('');
     this.projects.set([]);
+    this.projectPage.set(null);
+    this.projectQuery.set({ search: '', purpose: '', sort: 'newest', offset: 0 });
+    this.projectsError.set('');
     this.context.set(null);
     this.history.set(null);
     this.score.set(null);

@@ -38,7 +38,9 @@ describe('WorkspaceService', () => {
   it('retoma um projeto persistido e recupera contexto, histórico e score pela API', () => {
     localStorage.setItem('sentinel.project', 'b');
     ws.refreshProjects();
-    http.expectOne('/api/v1/projects?limit=100').flush([project('a'), project('b')]);
+    http
+      .expectOne('/api/v1/projects/search?limit=25&offset=0&sort=newest')
+      .flush({ items: [project('a'), project('b')], totalCount: 2, limit: 25, offset: 0 });
     completeProject('b');
     expect(ws.projectId()).toBe('b');
     expect(ws.project()?.name).toBe('Projeto b');
@@ -49,12 +51,12 @@ describe('WorkspaceService', () => {
   it('cancela leituras antigas ao trocar de projeto, impedindo mistura de dados', () => {
     ws.selectProject('a');
     const oldContext = http.expectOne('/api/v1/projects/a');
+    oldContext.flush({ project: project('a'), scopes: [] });
     const oldHistory = http.expectOne(
       '/api/v1/projects/a/audits?limit=25&offset=0&dataOrigin=SoftwareUnderTest',
     );
     const oldScore = http.expectOne('/api/v1/projects/a/security-score');
     ws.selectProject('b');
-    expect(oldContext.cancelled).toBe(true);
     expect(oldHistory.cancelled).toBe(true);
     expect(oldScore.cancelled).toBe(true);
     expect(ws.context()).toBeNull();
@@ -70,6 +72,57 @@ describe('WorkspaceService', () => {
     expect(ws.catalog()).toBeNull();
     expect(ws.refreshing()).toBe(false);
     expect(ws.lastSync()).toBeNull();
+  });
+
+  it('cancela busca anterior e preserva seleção fora da página', () => {
+    ws.selectProject('selected');
+    completeProject('selected');
+    ws.searchProjects({ search: 'antiga', offset: 0 });
+    const old = http.expectOne(
+      '/api/v1/projects/search?limit=25&offset=0&sort=newest&search=antiga',
+    );
+    ws.searchProjects({ search: 'nova', purpose: 'SoftwareUnderTest', sort: 'name', offset: 25 });
+    expect(old.cancelled).toBe(true);
+    http
+      .expectOne(
+        '/api/v1/projects/search?limit=25&offset=25&sort=name&search=nova&purpose=SoftwareUnderTest',
+      )
+      .flush({ items: [project('other')], totalCount: 26, offset: 25, limit: 25 });
+    expect(ws.projectId()).toBe('selected');
+    expect(ws.selectableProjects().map((p) => p.id)).toEqual(['selected', 'other']);
+    expect(ws.projectPage()?.totalCount).toBe(26);
+  });
+
+  it('retoma projeto fora da página e só consulta corpus após resolver seu propósito', () => {
+    localStorage.setItem('sentinel.project', 'validation');
+    ws.refreshProjects();
+    http
+      .expectOne('/api/v1/projects/search?limit=25&offset=0&sort=newest')
+      .flush({ items: [project('other')], totalCount: 30, limit: 25, offset: 0 });
+    http.expectNone(
+      '/api/v1/projects/validation/audits?limit=25&offset=0&dataOrigin=SoftwareUnderTest',
+    );
+    http
+      .expectOne('/api/v1/projects/validation')
+      .flush({ project: { ...project('validation'), purpose: 'SentinelValidation' }, scopes: [] });
+    http
+      .expectOne('/api/v1/projects/validation/audits?limit=25&offset=0&dataOrigin=SyntheticCorpus')
+      .flush({ items: [], totalCount: 0, limit: 25, offset: 0 });
+    http.expectOne('/api/v1/projects/validation/security-score').flush({ score: null });
+    expect(ws.dataOrigin()).toBe('SyntheticCorpus');
+    expect(ws.selectableProjects()[0].id).toBe('validation');
+  });
+
+  it('limpa busca, páginas e requisições ao encerrar a identidade', () => {
+    ws.searchProjects({ search: 'privado', offset: 25 });
+    const pending = http.expectOne(
+      '/api/v1/projects/search?limit=25&offset=25&sort=newest&search=privado',
+    );
+    ws.reset();
+    expect(pending.cancelled).toBe(true);
+    expect(ws.projects()).toEqual([]);
+    expect(ws.projectPage()).toBeNull();
+    expect(ws.projectQuery().search).toBe('');
   });
 
   it('preserva a página solicitada e não trata falha de consulta como histórico vazio', () => {

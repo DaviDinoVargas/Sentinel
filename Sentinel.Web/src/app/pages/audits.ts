@@ -14,10 +14,11 @@ import { WorkspaceService } from '../core/workspace.service';
 import { Badge, EmptyState } from '../design-system/ui';
 import { Icon } from '../design-system/icon';
 import { AuthSessionService } from '../core/auth-session.service';
+import { AuditHistory } from './audit-history';
 import { EvidenceViewer } from '../design-system/evidence-viewer';
 
 @Component({
-  imports: [CommonModule, ReactiveFormsModule, RouterLink, Badge, EmptyState, Icon],
+  imports: [CommonModule, ReactiveFormsModule, RouterLink, EmptyState, Icon, AuditHistory],
   template: `
     <div class="page-heading">
       <div>
@@ -143,98 +144,11 @@ import { EvidenceViewer } from '../design-system/evidence-viewer';
           </p>
         }
       </section>
-      <section class="panel section-gap">
-        <div class="panel-header">
-          <div>
-            <h2>Histórico de execuções</h2>
-            <p>
-              Mais recentes primeiro · {{ ws.history()?.totalCount ?? 0 }} auditoria(s) no projeto
-            </p>
-          </div>
-        </div>
-        <div class="toolbar">
-          <div class="state-tabs" aria-label="Filtrar histórico">
-            @for (state of states; track state.value) {
-              <button
-                [attr.aria-pressed]="filter() === state.value"
-                (click)="filter.set(state.value)"
-              >
-                {{ state.label }}
-              </button>
-            }
-          </div>
-          <span class="count">Filtro aplicado à página atual</span>
-        </div>
-        @if (!ws.history() && ws.loading()) {
-          <p class="loading-line" role="status">Carregando histórico…</p>
-        } @else if (filtered().length) {
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Execução / alvo</th>
-                  <th>Estado</th>
-                  <th>Data local</th>
-                  <th>Controles</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                @for (audit of filtered(); track audit.id) {
-                  <tr>
-                    <td>
-                      <strong class="mono">{{ audit.id.slice(0, 8) }}</strong
-                      ><span class="subline" [title]="audit.targetUri">{{ audit.targetUri }}</span>
-                      <span class="tag">{{ ws.originLabel(audit.dataOrigin) }}</span>
-                    </td>
-                    <td>
-                      <s-badge
-                        [value]="audit.state"
-                        [text]="audit.state === 'Failed' ? 'Falhou' : ''"
-                      />
-                    </td>
-                    <td>
-                      {{ audit.createdAtUtc | date: 'dd/MM/yyyy'
-                      }}<span class="subline">{{ audit.createdAtUtc | date: 'HH:mm:ss' }}</span>
-                    </td>
-                    <td class="mono">{{ audit.controls.length }}</td>
-                    <td>
-                      <a class="text-link" [routerLink]="['/audits', audit.id]"
-                        >Abrir <s-icon name="arrow"
-                      /></a>
-                    </td>
-                  </tr>
-                }
-              </tbody>
-            </table>
-          </div>
-        } @else {
-          <s-empty
-            title="Nenhuma execução nesta seleção"
-            description="Inicie uma auditoria ou ajuste o filtro de estado para explorar o histórico."
-          />
+      @if (ws.project(); as selectedProject) {
+        @for (id of [selectedProject.id]; track id) {
+          <s-audit-history />
         }
-        @if (ws.history(); as page) {
-          <div class="pagination">
-            <span
-              >{{ page.totalCount ? page.offset + 1 : 0 }}–{{ page.offset + page.items.length }} de
-              {{ page.totalCount }}</span
-            ><button
-              class="button small"
-              [disabled]="page.offset === 0 || ws.loading()"
-              (click)="ws.refreshProject(page.offset - page.limit)"
-            >
-              Anterior</button
-            ><button
-              class="button small"
-              [disabled]="page.offset + page.limit >= page.totalCount || ws.loading()"
-              (click)="ws.refreshProject(page.offset + page.limit)"
-            >
-              Próxima
-            </button>
-          </div>
-        }
-      </section>
+      }
     }
   `,
   styles: `
@@ -260,19 +174,6 @@ export class AuditsPage {
   readonly ws = inject(WorkspaceService);
   private readonly router = inject(Router);
   readonly submitting = signal(false);
-  readonly filter = signal('');
-  readonly states = [
-    { value: '', label: 'Todas' },
-    { value: 'Queued', label: 'Na fila' },
-    { value: 'WaitingForBudget', label: 'Aguardando orçamento' },
-    { value: 'Running', label: 'Em execução' },
-    { value: 'Cancelling', label: 'Cancelando' },
-    { value: 'Cancelled', label: 'Canceladas' },
-    { value: 'Interrupted', label: 'Interrompidas' },
-    { value: 'Completed', label: 'Concluídas' },
-    { value: 'Blocked', label: 'Bloqueadas' },
-    { value: 'Failed', label: 'Falhas' },
-  ];
   readonly form = inject(FormBuilder).nonNullable.group({
     targetUrl: [
       '',
@@ -292,9 +193,6 @@ export class AuditsPage {
         ).length ?? 0,
   );
   readonly profile = signal('simulated');
-  readonly filtered = computed(() =>
-    this.ws.audits().filter((audit) => !this.filter() || audit.state === this.filter()),
-  );
   useScope(url: string): void {
     if (url) this.form.controls.targetUrl.setValue(url);
   }

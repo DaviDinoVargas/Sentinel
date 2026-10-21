@@ -59,10 +59,10 @@
         ><span class="sr-only">Projeto ativo</span><s-icon name="folder" /><select
           [value]="ws.projectId()"
           (change)="ws.selectProject($any($event.target).value)"
-          [disabled]="ws.projectsLoading() || !ws.projects().length"
+          [disabled]="ws.projectsLoading() || !ws.selectableProjects().length"
         >
           <option value="" [selected]="!ws.projectId()">Selecione um projeto</option>
-          @for (project of ws.projects(); track project.id) {
+          @for (project of ws.selectableProjects(); track project.id) {
             <option [value]="project.id" [selected]="project.id === ws.projectId()">
               {{ project.name }}
             </option>

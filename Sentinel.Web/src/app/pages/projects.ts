@@ -1,4 +1,4 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { RouterLink } from '@angular/router';
@@ -16,30 +16,50 @@ import { AuthSessionService } from '../core/auth-session.service';
         <h1>Projetos</h1>
         <p>Um contexto para cada aplicação. Escopos, execuções e evidências reunidos.</p>
       </div>
-      <span class="tag">{{ ws.projects().length }} PROJETO(S) CARREGADO(S)</span>
+      <span class="tag">{{ ws.projectPage()?.totalCount ?? 0 }} PROJETO(S) NA CONSULTA</span>
     </div>
     <div class="grid-main">
       <section class="panel">
         <div class="panel-header">
           <div>
             <h2>Seus projetos</h2>
-            <p>Até 100 registros mais recentes · selecione para retomar o contexto</p>
+            <p>Busca em todos os projetos autorizados · selecionar altera o contexto</p>
           </div>
         </div>
         <div class="toolbar">
-          <label class="sr-only" for="project-search">Buscar projetos carregados</label
+          <label class="sr-only" for="project-search">Buscar projetos</label
           ><input
             id="project-search"
             placeholder="Buscar por nome ou descrição…"
-            [value]="search()"
-            (input)="search.set($any($event.target).value)"
+            maxlength="180"
+            [value]="ws.projectQuery().search"
+            (input)="search($event)"
           />
+          <label
+            >Propósito<select [value]="ws.projectQuery().purpose" (change)="purpose($event)">
+              <option value="">Todos</option>
+              <option value="SoftwareUnderTest">Software avaliado</option>
+              <option value="SentinelValidation">Validação interna</option>
+            </select></label
+          >
+          <label
+            >Ordenar<select [value]="ws.projectQuery().sort" (change)="sort($event)">
+              <option value="newest">Mais recentes</option>
+              <option value="oldest">Mais antigos</option>
+              <option value="name">Nome</option>
+            </select></label
+          >
         </div>
-        @if (ws.projectsLoading() && !ws.projects().length) {
+        @if (ws.projectsError()) {
+          <div class="banner warning" role="alert">
+            {{ ws.projectsError() }}
+            <button class="button small" (click)="ws.refreshProjects()">Tentar novamente</button>
+          </div>
+        } @else if (ws.projectsLoading()) {
           <p class="loading-line" role="status">Carregando projetos…</p>
-        } @else if (filtered().length) {
+        } @else if (ws.projects().length) {
           <div class="project-list">
-            @for (project of filtered(); track project.id) {
+            @for (project of ws.projects(); track project.id) {
               <article class="project-row" [class.selected]="ws.projectId() === project.id">
                 <span class="project-symbol"><s-icon name="folder" /></span>
                 <div>
@@ -65,9 +85,33 @@ import { AuthSessionService } from '../core/auth-session.service';
           </div>
         } @else {
           <s-empty
-            [title]="search() ? 'Nenhum projeto encontrado' : 'Crie seu primeiro projeto'"
+            title="Nenhum projeto nesta consulta"
             description="Use o formulário ao lado para cadastrar a aplicação que será acompanhada."
           />
+        }
+        @if (ws.projectPage(); as page) {
+          <div class="pagination">
+            <span
+              >{{ page.items.length ? page.offset + 1 : 0 }}–{{
+                page.items.length ? page.offset + page.items.length : 0
+              }}
+              de {{ page.totalCount }}</span
+            >
+            <button
+              class="button small"
+              [disabled]="page.offset === 0 || ws.projectsLoading()"
+              (click)="ws.searchProjects({ offset: Math.max(0, page.offset - page.limit) })"
+            >
+              Anterior
+            </button>
+            <button
+              class="button small"
+              [disabled]="page.offset + page.limit >= page.totalCount || ws.projectsLoading()"
+              (click)="ws.searchProjects({ offset: page.offset + page.limit })"
+            >
+              Próxima
+            </button>
+          </div>
         }
       </section>
       <div>
@@ -168,6 +212,7 @@ import { AuthSessionService } from '../core/auth-session.service';
     }
     .project-row h3 {
       margin: 0 0 4px;
+      overflow-wrap: anywhere;
     }
     .project-row p {
       margin: 0 0 10px;
@@ -188,26 +233,31 @@ import { AuthSessionService } from '../core/auth-session.service';
       .project-row .button {
         margin-left: 53px;
       }
+      .project-row > div {
+        flex-basis: calc(100% - 53px);
+      }
     }
   `,
 })
 export class ProjectsPage {
   readonly auth = inject(AuthSessionService);
   readonly ws = inject(WorkspaceService);
-  readonly search = signal('');
+  readonly Math = Math;
   readonly saving = signal(false);
   readonly form = inject(FormBuilder).nonNullable.group({
     name: ['', [Validators.required, Validators.maxLength(180), Validators.pattern(/\S/)]],
     description: ['', Validators.maxLength(1000)],
     validation: [false],
   });
-  readonly filtered = computed(() =>
-    this.ws
-      .projects()
-      .filter((p) =>
-        `${p.name} ${p.description ?? ''}`.toLowerCase().includes(this.search().toLowerCase()),
-      ),
-  );
+  search(event: Event): void {
+    this.ws.searchProjects({ search: (event.target as HTMLInputElement).value, offset: 0 });
+  }
+  purpose(event: Event): void {
+    this.ws.searchProjects({ purpose: (event.target as HTMLSelectElement).value, offset: 0 });
+  }
+  sort(event: Event): void {
+    this.ws.searchProjects({ sort: (event.target as HTMLSelectElement).value, offset: 0 });
+  }
   create(): void {
     if (this.form.invalid) {
       this.form.markAllAsTouched();
