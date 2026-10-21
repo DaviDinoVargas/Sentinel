@@ -53,12 +53,27 @@ if (-not $listener) {
         $mqContainer = docker inspect sentinel-rabbitmq | ConvertFrom-Json
         $env:SENTINEL_POSTGRES_PASSWORD = (($pgContainer.Config.Env | Where-Object { $_.StartsWith('POSTGRES_PASSWORD=') }) -split '=', 2)[1]
         $env:SENTINEL_RABBITMQ_PASSWORD = (($mqContainer.Config.Env | Where-Object { $_.StartsWith('RABBITMQ_DEFAULT_PASS=') }) -split '=', 2)[1]
+        # A configuração privada habilita novos artefatos S3; os volumes legados continuam legíveis.
+        $objectConfigPath = Join-Path $logDirectory 'storage/runtime.json'
+        if (Test-Path -LiteralPath $objectConfigPath) {
+            $objectConfig = Get-Content -LiteralPath $objectConfigPath -Raw | ConvertFrom-Json
+            $objectCredential = Import-Clixml -LiteralPath (Join-Path $logDirectory 'storage/app.credential.xml')
+            $env:Evidence__Provider = 'S3'
+            $env:Evidence__S3__Endpoint = $objectConfig.endpoint
+            $env:Evidence__S3__Bucket = $objectConfig.bucket
+            $env:Evidence__S3__StorageId = $objectConfig.storageId
+            $env:Evidence__S3__AccessKey = $objectCredential.UserName
+            $env:Evidence__S3__SecretKey = $objectCredential.GetNetworkCredential().Password
+        }
         $env:ASPNETCORE_ENVIRONMENT = 'Development'
         $env:ASPNETCORE_URLS = 'http://localhost:5161'
         Set-Item -Path 'Env:Logging__LogLevel__Microsoft.EntityFrameworkCore' -Value 'Warning'
         $apiDll = Join-Path $repoRoot 'Sentinel\bin\Release\net8.0\Sentinel.dll'
         Start-Process -FilePath 'dotnet' -ArgumentList @($apiDll) -WorkingDirectory (Join-Path $repoRoot 'Sentinel') -WindowStyle Hidden -RedirectStandardOutput (Join-Path $logDirectory 'api.log') -RedirectStandardError (Join-Path $logDirectory 'api-error.log') | Out-Null
-    } finally { Pop-Location }
+    } finally {
+        Remove-Item Env:Evidence__S3__AccessKey,Env:Evidence__S3__SecretKey -ErrorAction SilentlyContinue
+        Pop-Location
+    }
 }
 $frontend = Get-NetTCPConnection -State Listen -LocalPort 4200 -ErrorAction SilentlyContinue | Select-Object -First 1
 if (-not $frontend) {
