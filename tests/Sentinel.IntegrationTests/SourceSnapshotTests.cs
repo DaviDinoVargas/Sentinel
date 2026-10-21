@@ -119,7 +119,13 @@ public sealed class SourceContainerTests
             var body=new ByteArrayContent(zip);body.Headers.ContentType=new("application/zip");
             var uploaded=await client.PostAsync($"/api/v1/projects/{project.Id}/source-snapshots?sourceKey=principal&revision=synthetic",body);uploaded.EnsureSuccessStatusCode();using var snapshot=JsonDocument.Parse(await uploaded.Content.ReadAsStringAsync());
             var requested=await client.PostAsJsonAsync($"/api/v1/projects/{project.Id}/source-snapshots/{snapshot.RootElement.GetProperty("id").GetGuid()}/audits",new{});requested.EnsureSuccessStatusCode();var audit=(await requested.Content.ReadFromJsonAsync<Audit>(Json))!;
-            var deadline=DateTime.UtcNow.AddSeconds(100);while(DateTime.UtcNow<deadline){audit=(await client.GetFromJsonAsync<Audit>($"/api/v1/audits/{audit.Id}",Json))!;if(AuditStates.IsTerminal(audit.State))return audit;await Task.Delay(200);}throw new TimeoutException("Source pipeline não concluiu.");
+            // The source pipeline runs sequential plugins; Trivy alone may use 150s.
+            // The harness must allow their declared deadlines, not stop a healthy worker at 100s.
+            var pluginBudget=host.Services.GetRequiredService<PluginRegistry>().Approved
+                .Where(p=>p.Spec.Capabilities.SourceRead&&p.Spec.Capabilities.Network=="false").Sum(p=>p.Spec.Resources.TimeoutSeconds);
+            var deadline=DateTime.UtcNow.AddSeconds(pluginBudget+30);
+            while(DateTime.UtcNow<deadline){audit=(await client.GetFromJsonAsync<Audit>($"/api/v1/audits/{audit.Id}",Json))!;if(AuditStates.IsTerminal(audit.State))return audit;await Task.Delay(200);}
+            throw new TimeoutException($"Source pipeline {audit.Id} não concluiu no orçamento declarado; último estado: {audit.State}.");
         }
         var audit=await Run(SourceSnapshotTests.Zip(("keys/test.pem",canary),("package.json","{\"dependencies\":{\"example-package\":\"1.2.3\"}}"),(".gitleaksignore","keys/test.pem:private-key:1")));
         Assert.Equal(AuditState.Completed,audit.State);Assert.Contains(audit.Controls,c=>c.ControlId=="SUP-04"&&c.State=="Failed"&&c.Location=="keys/test.pem"&&c.SourceRuleId=="private-key");
