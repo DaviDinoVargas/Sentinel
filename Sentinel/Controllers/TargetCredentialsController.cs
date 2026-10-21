@@ -16,17 +16,20 @@ public sealed class TargetCredentialsController(TargetCredentialVault vault, ISe
 
     [HttpPost]
     [Authorize(Policy = Permissions.ManageScopes)]
-    public IActionResult Create(Guid projectId, CreateTargetCredential request) => Execute(() => vault.Create(projectId, request));
+    public IActionResult Create(Guid projectId, CreateTargetCredential request) => Execute(() => vault.Create(projectId, request, User.FindFirst("sub")?.Value));
 
     [HttpPut("{id:guid}")]
     [Authorize(Policy = Permissions.ManageScopes)]
-    public IActionResult Rotate(Guid projectId, Guid id, RotateTargetCredential request) => Execute(() => vault.Rotate(projectId, id, request));
+    public IActionResult Rotate(Guid projectId, Guid id, RotateTargetCredential request) => Execute(() => vault.Rotate(projectId, id, request, User.FindFirst("sub")?.Value));
 
     [HttpPost("{id:guid}/revoke")]
     [Authorize(Policy = Permissions.ManageScopes)]
-    public IActionResult Revoke(Guid projectId, Guid id) => Execute(() => vault.Revoke(projectId, id));
+    public IActionResult Revoke(Guid projectId, Guid id) => Execute(() => vault.Revoke(projectId, id, User.FindFirst("sub")?.Value));
 
-    private IActionResult Execute(Func<TargetCredentialInfo> operation)
+    [HttpGet("{id:guid}/events")]
+    public IActionResult Events(Guid projectId, Guid id, [FromQuery] int offset = 0) => Execute(() => vault.Events(projectId, id, offset));
+
+    private IActionResult Execute(Func<object> operation)
     {
         try { return Ok(operation()); }
         catch (KeyNotFoundException) { return NotFound(); }

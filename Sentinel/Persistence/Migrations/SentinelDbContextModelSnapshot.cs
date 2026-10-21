@@ -780,6 +780,45 @@ namespace Sentinel.Persistence.Migrations
                     b.ToTable("target_budgets", (string)null);
                 });
 
+            modelBuilder.Entity("Sentinel.Persistence.TargetCredentialEventRow", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("Actor")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTimeOffset>("AtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("AuditId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CredentialId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<int>("Version")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CredentialId", "Id");
+
+                    b.ToTable("target_credential_events", null, t =>
+                        {
+                            t.HasTrigger("target_credential_events_append_only");
+                        });
+                });
+
             modelBuilder.Entity("Sentinel.Persistence.TargetCredentialRow", b =>
                 {
                     b.Property<Guid>("Id")
@@ -789,8 +828,26 @@ namespace Sentinel.Persistence.Migrations
                     b.Property<DateTimeOffset>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("CredentialType")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasDefaultValue("Bearer");
+
                     b.Property<DateTimeOffset>("ExpiresAtUtc")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("LastLoginAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastLoginStatus")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("LoginConfigurationJson")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -1078,6 +1135,17 @@ namespace Sentinel.Persistence.Migrations
                         .IsRequired();
 
                     b.Navigation("Project");
+                });
+
+            modelBuilder.Entity("Sentinel.Persistence.TargetCredentialEventRow", b =>
+                {
+                    b.HasOne("Sentinel.Persistence.TargetCredentialRow", "Credential")
+                        .WithMany()
+                        .HasForeignKey("CredentialId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Credential");
                 });
 
             modelBuilder.Entity("Sentinel.Persistence.TargetCredentialRow", b =>

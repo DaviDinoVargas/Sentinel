@@ -51,9 +51,20 @@ public sealed class SentinelDbContext : DbContext
             entity.ToTable("target_credentials"); entity.HasKey(row => row.Id);
             entity.Property(row => row.Name).HasMaxLength(100); entity.Property(row => row.Persona).HasMaxLength(100); entity.Property(row => row.TenantLabel).HasMaxLength(100);
             entity.Property(row => row.ProtectedToken).HasMaxLength(32_000); entity.Property(row => row.Version).IsConcurrencyToken();
+            entity.Property(row => row.CredentialType).HasMaxLength(20).HasDefaultValue("Bearer");
+            entity.Property(row => row.LoginConfigurationJson).HasMaxLength(4000);
+            entity.Property(row => row.LastLoginStatus).HasMaxLength(64);
             entity.HasOne(row => row.Project).WithMany().HasForeignKey(row => row.ProjectId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<ScopeRow>().WithMany().HasForeignKey(row => row.ScopeId).OnDelete(DeleteBehavior.Restrict);
             entity.HasQueryFilter(row => IsSystem || row.Project.OrganizationId == CurrentOrganizationId);
+        });
+        modelBuilder.Entity<TargetCredentialEventRow>(entity =>
+        {
+            entity.ToTable("target_credential_events", table => table.HasTrigger("target_credential_events_append_only"));
+            entity.HasKey(r => r.Id); entity.Property(r => r.Kind).HasMaxLength(64); entity.Property(r => r.Actor).HasMaxLength(200);
+            entity.HasOne(r => r.Credential).WithMany().HasForeignKey(r => r.CredentialId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(r => new { r.CredentialId, r.Id });
+            entity.HasQueryFilter(r => IsSystem || r.Credential.Project.OrganizationId == CurrentOrganizationId);
         });
         modelBuilder.Entity<OrganizationRow>(entity =>
         {
@@ -199,6 +210,10 @@ public sealed class SentinelDbContext : DbContext
 
 public sealed class TargetCredentialRow
 {
+    public string CredentialType { get; set; } = "Bearer";
+    public string? LoginConfigurationJson { get; set; }
+    public string? LastLoginStatus { get; set; }
+    public DateTimeOffset? LastLoginAtUtc { get; set; }
     public Guid Id { get; set; }
     public Guid ProjectId { get; set; }
     public ProjectRow Project { get; set; } = null!;

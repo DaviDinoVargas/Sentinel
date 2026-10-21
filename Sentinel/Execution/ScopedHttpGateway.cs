@@ -29,6 +29,10 @@ public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine po
         private readonly SemaphoreSlim _concurrency = new(2, 2);
         private IPAddress[]? _approvedAddresses;
         private readonly SemaphoreSlim _dnsLock = new(1, 1);
+        private readonly SemaphoreSlim _loginLock = new(1, 1);
+        private bool _loginAttempted;
+        private string? _loginToken;
+        private string _loginStatus = "NotTested";
         private static readonly HashSet<string> AllowedHeaders = new(StringComparer.OrdinalIgnoreCase) { "Origin", "Host", "X-Forwarded-Host", "Authorization" };
 
         internal Session(ScopedHttpGateway gateway, ExecutionLease lease, PluginExecutionRequest request, PluginManifest manifest, CredentialBinding? credential)
@@ -78,7 +82,16 @@ public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine po
                     {
                         if (_credential is null || call.Headers.Keys.Any(header => header.Equals("Authorization", StringComparison.OrdinalIgnoreCase)))
                             return Denied(call.RequestId, "Perfil autenticado ausente ou tentativa de substituir credencial do gateway.");
-                        try { bearer = _gateway._credentials!.Token(_request.ProjectId, _request.ScopeId, _credential); }
+                        try
+                        {
+                            var material = _gateway._credentials!.Material(_request.ProjectId, _request.ScopeId, _credential);
+                            bearer = material.Bearer;
+                            if (!call.Anonymous && material.Login is { } login)
+                            {
+                                bearer = await LoginAsync(login, cancellationToken);
+                                if (bearer is null) return Denied(call.RequestId, "Login do alvo: " + _loginStatus + ". Nenhuma aprovação inferida.");
+                            }
+                        }
                         catch (Exception exception) when (exception is InvalidOperationException or KeyNotFoundException or System.Security.Cryptography.CryptographicException)
                         { return Denied(call.RequestId, "Credencial indisponível, expirada, revogada ou rotacionada."); }
                     }
@@ -125,6 +138,72 @@ public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine po
                 return Denied(call.RequestId, "Gateway não completou transporte/TLS, DNS aprovado ou prazo; nenhuma aprovação inferida.");
             }
             finally { _concurrency.Release(); }
+        }
+
+        private async Task<string?> LoginAsync(JsonLoginInput login, CancellationToken cancellationToken)
+        {
+            await _loginLock.WaitAsync(cancellationToken);
+            try
+            {
+                if (_loginAttempted) return _loginToken;
+                _loginAttempted = true;
+                _loginStatus = "Unavailable";
+                using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                var remaining = _request.DeadlineUtc - _gateway._time.GetUtcNow();
+                if (remaining <= TimeSpan.Zero) return null;
+                deadline.CancelAfter(remaining < TimeSpan.FromSeconds(10) ? remaining : TimeSpan.FromSeconds(10));
+                var ct = deadline.Token;
+                try
+                {
+                    var uri = new Uri(login.Configuration.Url);
+                    if (uri.Scheme != _target.Scheme || uri.IdnHost != _target.IdnHost || uri.Port != _target.Port)
+                    { _loginStatus = "OutsideScope"; return null; }
+                    while (true)
+                    {
+                        ct.ThrowIfCancellationRequested();
+                        var scope = _gateway._store.GetScopes(_request.ProjectId).SingleOrDefault(s => s.Id == _request.ScopeId);
+                        if (scope is null) { _loginStatus = "OutsideScope"; return null; }
+                        TargetJsonLogin.Validate(login, scope, _gateway._time.GetUtcNow());
+                        _gateway._credentials!.Material(_request.ProjectId, _request.ScopeId, _credential!);
+                        var permit = _gateway._coordinator.Permit(_lease, login: true);
+                        if (permit.Allowed) break;
+                        if (permit.RetryAfterMs == 0) { _loginStatus = "CancelledOrBudgetDenied"; return null; }
+                        await Task.Delay(Math.Min(permit.RetryAfterMs, 200), ct);
+                    }
+                    var bytes = TargetJsonLogin.Body(login);
+                    try
+                    {
+                        using var message = new HttpRequestMessage(HttpMethod.Post, uri) { Content = new ByteArrayContent(bytes) };
+                        message.Content.Headers.ContentType = new("application/json");
+                        using var response = await _client.SendAsync(message, HttpCompletionOption.ResponseHeadersRead, ct);
+                        _loginStatus = (int)response.StatusCode switch
+                        {
+                            401 => "InvalidCredentials", 403 => "TenantOrAccessDenied", 423 => "AccountLocked", 429 => "RateLimited",
+                            >= 300 and < 400 => "RedirectUnsupported", >= 500 => "Unavailable", _ => "UnsupportedResponse"
+                        };
+                        if (!response.IsSuccessStatusCode || response.Content.Headers.ContentType?.MediaType != "application/json") return null;
+                        await using var stream = await response.Content.ReadAsStreamAsync(ct);
+                        var buffer = new byte[32769]; var count = 0;
+                        try
+                        {
+                            while (count < buffer.Length)
+                            { var n = await stream.ReadAsync(buffer.AsMemory(count), ct); if (n == 0) break; count += n; }
+                            if (count == buffer.Length) { _loginStatus = "ResponseTooLarge"; return null; }
+                            _loginToken = TargetJsonLogin.Extract(buffer[..count], login.Configuration.TokenPath);
+                            _loginStatus = _loginToken is null ? "TokenMissingOrUnsupported" : "Authenticated";
+                            // A rotation/revocation during login prevents using the returned token.
+                            _gateway._credentials!.Material(_request.ProjectId, _request.ScopeId, _credential!);
+                            return _loginToken;
+                        }
+                        finally { System.Security.Cryptography.CryptographicOperations.ZeroMemory(buffer); }
+                    }
+                    finally { System.Security.Cryptography.CryptographicOperations.ZeroMemory(bytes); }
+                }
+                catch (Exception e) when (e is HttpRequestException or IOException or OperationCanceledException or ArgumentException or InvalidOperationException or KeyNotFoundException or System.Text.Json.JsonException)
+                { _loginToken = null; _loginStatus = "UnavailableOrRevoked"; return null; }
+                finally { _gateway._credentials!.RecordLogin(_request.ProjectId, _credential!, _loginStatus, _lease.AuditId); }
+            }
+            finally { _loginLock.Release(); }
         }
 
         private async Task ValidateDns(CancellationToken cancellationToken)
@@ -191,6 +270,6 @@ public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine po
         }
 
         public static HttpRelayResponse Denied(Guid id, string reason) => new("http-response", id, 0, [], "", 0, reason);
-        public void Dispose() { _client.Dispose(); _concurrency.Dispose(); _dnsLock.Dispose(); }
+        public void Dispose() { _loginToken = null; _client.Dispose(); _concurrency.Dispose(); _dnsLock.Dispose(); _loginLock.Dispose(); }
     }
 }

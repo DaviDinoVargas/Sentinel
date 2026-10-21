@@ -48,6 +48,22 @@ public sealed class LabTargetServer : IDisposable
     {
         var path = context.Request.Url?.AbsolutePath ?? "/";
         _requests.AddOrUpdate(path, 1, (_, count) => count + 1);
+        if (path.Contains("authenticated/", StringComparison.Ordinal) && path.EndsWith("/login", StringComparison.Ordinal))
+        {
+            using var reader = new StreamReader(context.Request.InputStream);
+            using var json = System.Text.Json.JsonDocument.Parse(reader.ReadToEnd());
+            var root = json.RootElement;
+            context.Response.ContentType = "application/json";
+            var password = root.GetProperty("password").GetString();
+            if (password == "redirect-fixture") { context.Response.StatusCode = 302; context.Response.RedirectLocation = new Uri(BaseUri, "login-must-not-follow").AbsoluteUri; context.Response.Close(); return; }
+            if (password == "oversized-fixture") { WriteBody(context, "{\"data\":\"" + new string('x', 40000) + "\"}"); return; }
+            if (password == "duplicate-fixture") { WriteBody(context, "{\"data\":{\"token\":\"first\",\"token\":\"second\"}}"); return; }
+            if (root.GetProperty("company").GetString() != "tenant-a") context.Response.StatusCode = 403;
+            else if (password == "locked-fixture") context.Response.StatusCode = 423;
+            else if (password != "synthetic-password") context.Response.StatusCode = 401;
+            else if (context.Request.HttpMethod != "POST") context.Response.StatusCode = 405;
+            WriteBody(context, context.Response.StatusCode == 200 ? "{\"data\":{\"token\":\"sentinel-tenant-a\"}}" : "{\"error\":\"synthetic-password must never escape\"}"); return;
+        }
         if (path.Contains("authenticated/", StringComparison.Ordinal))
         {
             var token = context.Request.Headers["Authorization"] ?? "";
