@@ -63,7 +63,10 @@ export class WorkspaceService {
   readonly scopes = computed(() => this.context()?.scopes ?? []);
   readonly activeScopes = computed(() =>
     this.scopes().filter(
-      (scope) => !scope.revokedAtUtc && new Date(scope.expiresAtUtc).getTime() > this.now(),
+      (scope) =>
+        !scope.revokedAtUtc &&
+        new Date(scope.expiresAtUtc).getTime() > this.now() &&
+        (!scope.rules?.startsAtUtc || new Date(scope.rules.startsAtUtc).getTime() <= this.now()),
     ),
   );
   readonly audits = computed(() => this.history()?.items ?? []);

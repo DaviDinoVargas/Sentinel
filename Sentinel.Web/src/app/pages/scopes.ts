@@ -80,12 +80,24 @@ export function localExpiry(): string {
                           <strong class="url">{{ scope.targetBaseUri }}</strong
                           ><span class="subline">{{ scope.environment }}</span
                           ><span class="subline mono">{{ scope.id }}</span>
+                          @if (scope.rules; as rules) {
+                            <span class="subline">Métodos: {{ rules.methods.join(', ') }}</span>
+                            <span class="subline">Perfis: {{ rules.actions.join(', ') }}</span>
+                            @for (path of rules.exclusions; track path) {
+                              <span class="subline url">Excluído: {{ path }}</span>
+                            }
+                          }
                           <span class="subline"
                             >Criador:
                             {{ scope.createdBy || 'Não registrado no escopo legado' }}</span
                           >
                         </td>
                         <td>
+                          @if (scope.rules?.startsAtUtc) {
+                            <span class="subline"
+                              >Início: {{ scope.rules.startsAtUtc | date: 'dd/MM HH:mm' }}</span
+                            >
+                          }
                           {{ scope.expiresAtUtc | date: 'dd/MM/yyyy'
                           }}<span class="subline">{{ scope.expiresAtUtc | date: 'HH:mm' }}</span>
                         </td>
@@ -94,16 +106,18 @@ export function localExpiry(): string {
                             [value]="
                               scope.revokedAtUtc
                                 ? 'unavailable'
-                                : isValid(scope.expiresAtUtc)
+                                : isValid(scope.expiresAtUtc) && started(scope)
                                   ? 'healthy'
                                   : 'Inconclusive'
                             "
                             [text]="
                               scope.revokedAtUtc
                                 ? 'Revogado'
-                                : isValid(scope.expiresAtUtc)
+                                : isValid(scope.expiresAtUtc) && started(scope)
                                   ? 'Válido'
-                                  : 'Expirado'
+                                  : !started(scope)
+                                    ? 'Aguardando início'
+                                    : 'Expirado'
                             "
                           />
                           @if (scope.revokedAtUtc) {
@@ -316,8 +330,9 @@ export function localExpiry(): string {
               </li>
             </ul>
             <p class="help">
-              O orçamento global pode ser acompanhado no detalhe da auditoria. Métodos/categorias,
-              exclusões de rotas, janelas avançadas e aprovação de produção ainda serão ampliados.
+              Métodos, perfis, início e exclusões são revalidados antes das requisições. Exclusões
+              de escopos vigentes sobrepostos prevalecem. Produção exige aprovação humana e guardas
+              ainda indisponíveis; permanece bloqueada.
             </p>
           </section>
         </div>
@@ -353,6 +368,49 @@ export function localExpiry(): string {
                 informado.</span
               ></label
             >
+            <div class="form-stack" [formGroup]="rulesForm">
+              <label
+                >Início opcional<input type="datetime-local" formControlName="startsAtLocal"
+              /></label>
+              <label
+                >Métodos permitidos<input
+                  formControlName="methods"
+                  maxlength="60"
+                  aria-describedby="methods-help"
+              /></label>
+              <p id="methods-help" class="help">
+                Separe por vírgula. GET para verificações; POST também é necessário para login JSON.
+                Autorizar um método não habilita novos plugins.
+              </p>
+              <label class="check-field"
+                ><input type="checkbox" formControlName="passive" /><span
+                  >Verificações HTTP de baixo risco</span
+                ></label
+              >
+              <label class="check-field"
+                ><input type="checkbox" formControlName="active" /><span
+                  >Testes ativos no laboratório local</span
+                ></label
+              >
+              <label class="check-field"
+                ><input type="checkbox" formControlName="authenticated" /><span
+                  >Testes autenticados no laboratório local</span
+                ></label
+              >
+              <label
+                >Caminhos excluídos<textarea
+                  rows="3"
+                  formControlName="exclusions"
+                  maxlength="25650"
+                  placeholder="/minha-app/admin"
+                ></textarea>
+              </label>
+              <p class="help">
+                Um prefixo de caminho por linha, dentro da URL base. Exclui o caminho e seus
+                descendentes; até 50, sem query ou codificação percentual. Para mudar regras,
+                revogue e registre outro escopo.
+              </p>
+            </div>
             @if (form.controls.authorized.touched && form.controls.authorized.invalid) {
               <p class="field-error">Confirme a autorização para continuar.</p>
             }
@@ -405,6 +463,14 @@ export class ScopesPage {
       ],
     ],
   });
+  readonly rulesForm = inject(FormBuilder).nonNullable.group({
+    startsAtLocal: [''],
+    methods: ['GET'],
+    passive: [true],
+    active: [false],
+    authenticated: [false],
+    exclusions: [''],
+  });
   readonly form = inject(FormBuilder).nonNullable.group({
     targetBaseUrl: [
       '',
@@ -440,6 +506,7 @@ export class ScopesPage {
         expiresAtLocal: localExpiry(),
         authorized: false,
       });
+      this.rulesForm.reset();
       this.revokeForm.reset();
     });
     effect(() => {
@@ -579,6 +646,11 @@ export class ScopesPage {
         },
       });
   }
+  started(scope: AuthorizedScope): boolean {
+    return (
+      !scope.rules?.startsAtUtc || new Date(scope.rules.startsAtUtc).getTime() <= this.ws.now()
+    );
+  }
   isValid(expiry: string): boolean {
     return new Date(expiry).getTime() > this.ws.now();
   }
@@ -594,6 +666,39 @@ export class ScopesPage {
       this.ws.error.set('A validade precisa estar no futuro.');
       return;
     }
+    const config = this.rulesForm.getRawValue();
+    const start = config.startsAtLocal ? new Date(config.startsAtLocal) : null;
+    const methods = config.methods
+      .split(',')
+      .map((m) => m.trim().toUpperCase())
+      .filter(Boolean);
+    const actions = [
+      config.passive ? 'simulated' : '',
+      config.active ? 'lab-active' : '',
+      config.authenticated ? 'authenticated-lab' : '',
+    ].filter(Boolean);
+    const exclusions = config.exclusions
+      .split(/\r?\n/)
+      .map((p) => p.trim())
+      .filter(Boolean);
+    if (
+      (start && (!Number.isFinite(start.getTime()) || start >= expires)) ||
+      !methods.length ||
+      methods.some(
+        (m) => !['GET', 'HEAD', 'OPTIONS', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(m),
+      ) ||
+      !actions.length ||
+      exclusions.length > 50
+    ) {
+      this.error.set('Revise a janela, os métodos, pelo menos um perfil e até 50 exclusões.');
+      return;
+    }
+    const rules = {
+      startsAtUtc: start?.toISOString() ?? null,
+      methods: [...new Set(methods)],
+      actions,
+      exclusions,
+    };
     const projectId = this.ws.projectId();
     if (!projectId) return;
     this.saving.set(true);
@@ -601,7 +706,7 @@ export class ScopesPage {
     this.notice.set('');
     const epoch = this.epoch;
     this.ws.api
-      .createScope(projectId, value.targetBaseUrl, value.environment, expires.toISOString())
+      .createScope(projectId, value.targetBaseUrl, value.environment, expires.toISOString(), rules)
       .pipe(takeUntil(this.changed), takeUntilDestroyed(this.destroy))
       .subscribe({
         next: () => {
@@ -614,6 +719,7 @@ export class ScopesPage {
             authorized: false,
           });
           if (projectId === this.ws.projectId()) this.ws.refreshProject();
+          this.rulesForm.reset();
           this.notice.set('Escopo autorizado registrado.');
         },
         error: (error) => {

@@ -40,6 +40,39 @@ describe('Revogação e histórico no contexto do escopo', () => {
       auth,
     };
   }
+  it('envia regras explícitas e exclui a janela futura das autorizações vigentes', () => {
+    const { fixture, page, http, ws } = render();
+    vi.spyOn(ws, 'refreshProject').mockImplementation(() => {});
+    page.form.setValue({
+      targetBaseUrl: scope.targetBaseUri,
+      environment: 'laboratorio',
+      expiresAtLocal: '2099-01-02T12:00',
+      authorized: true,
+    });
+    page.rulesForm.setValue({
+      startsAtLocal: '2099-01-01T12:00',
+      methods: 'GET, POST',
+      passive: false,
+      active: false,
+      authenticated: true,
+      exclusions: '/private\n/payments',
+    });
+    page.create();
+    const request = http.expectOne('/api/v1/projects/project-a/scopes');
+    const rules = request.request.body.rules;
+    expect(rules.methods).toEqual(['GET', 'POST']);
+    expect(rules.actions).toEqual(['authenticated-lab']);
+    expect(rules.exclusions).toEqual(['/private', '/payments']);
+    expect(rules.startsAtUtc).toBe(new Date('2099-01-01T12:00').toISOString());
+    ws.context.update((c) => c && { ...c, scopes: [{ ...scope, rules }] });
+    expect(ws.activeScopes()).toHaveLength(0);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('Aguardando início');
+    request.flush({ ...scope, rules });
+    expect(page.rulesForm.controls.methods.value).toBe('GET');
+    fixture.destroy();
+    http.verify({ ignoreCancelled: true });
+  });
   it('trocar projeto cancela consulta e limpa alvo, motivo e histórico', () => {
     const { fixture, page, http, ws } = render();
     page.select(scope);

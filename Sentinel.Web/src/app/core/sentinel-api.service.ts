@@ -34,7 +34,14 @@ export interface ProjectQuery {
   sort: string;
   offset: number;
 }
+export interface ScopeRules {
+  startsAtUtc: string | null;
+  methods: string[];
+  actions: string[];
+  exclusions: string[];
+}
 export interface AuthorizedScope {
+  rules?: ScopeRules | null;
   id: string;
   projectId: string;
   targetBaseUri: string;
@@ -370,11 +377,18 @@ export class SentinelApiService {
       purpose,
     });
   }
-  createScope(projectId: string, targetBaseUrl: string, environment: string, expiresAtUtc: string) {
+  createScope(
+    projectId: string,
+    targetBaseUrl: string,
+    environment: string,
+    expiresAtUtc: string,
+    rules?: ScopeRules,
+  ) {
     return this.http.post<AuthorizedScope>(`${this.baseUrl}/projects/${projectId}/scopes`, {
       targetBaseUrl,
       environment,
       expiresAtUtc,
+      rules,
     });
   }
   scopeEvents(projectId: string, scopeId: string, offset = 0) {

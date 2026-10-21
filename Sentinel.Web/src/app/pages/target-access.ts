@@ -295,9 +295,9 @@ import {
           >
           <label class="check-field"
             ><input type="checkbox" formControlName="confirmed" /><span
-              >Confirmo o uso desta identidade sintética e os GETs no laboratório autorizado.
-              Perfis de usuário/senha também enviam um POST de login por plugin, no máximo dois
-              quando a carga está incluída, dentro do mesmo orçamento de taxa.</span
+              >Confirmo o uso desta identidade sintética e os GETs no laboratório autorizado. Perfis
+              de usuário/senha também enviam um POST de login por plugin, no máximo dois quando a
+              carga está incluída, dentro do mesmo orçamento de taxa.</span
             ></label
           >
           <button
@@ -318,9 +318,9 @@ import {
         <p class="help">
           Até três GETs de referência/verificação, dentro do escopo do perfil. Resposta 401 não
           comprova isolamento; resulta inconclusiva. Sem enumeração nem escrita de dados de negócio;
-          o POST de login pode criar uma sessão no alvo. Corpo e
-          cabeçalhos da resposta autenticada não são entregues ao plugin. O resultado por status não
-          comprova o conteúdo nem toda a autorização da aplicação.
+          o POST de login pode criar uma sessão no alvo. Corpo e cabeçalhos da resposta autenticada
+          não são entregues ao plugin. O resultado por status não comprova o conteúdo nem toda a
+          autorização da aplicação.
         </p>
         <p class="help">
           Token expirado, revogado ou rotacionado é recusado antes das novas permissões. Uma
@@ -470,6 +470,8 @@ export class TargetAccessPage {
     const scope = this.ws.scopes().find((s) => s.id === profile.scopeId);
     if (!scope) return 'Escopo não consultado';
     if (scope.revokedAtUtc) return 'Escopo revogado';
+    if (scope.rules?.startsAtUtc && new Date(scope.rules.startsAtUtc).getTime() > this.ws.now())
+      return 'Escopo aguardando início';
     return new Date(scope.expiresAtUtc).getTime() > this.ws.now()
       ? 'Disponível'
       : 'Escopo expirado';
