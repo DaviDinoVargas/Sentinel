@@ -140,6 +140,13 @@ public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine po
             finally { _concurrency.Release(); }
         }
 
+        public async Task PrepareAuthenticationAsync(CancellationToken cancellationToken)
+        {
+            if (_credential?.CredentialType != "JsonLogin") return;
+            var material = _gateway._credentials!.Material(_request.ProjectId, _request.ScopeId, _credential);
+            if (material.Login is { } login) await LoginAsync(login, cancellationToken);
+        }
+
         private async Task<string?> LoginAsync(JsonLoginInput login, CancellationToken cancellationToken)
         {
             await _loginLock.WaitAsync(cancellationToken);

@@ -10,7 +10,7 @@ public sealed record TargetCredentialInfo(Guid Id, Guid ProjectId, Guid ScopeId,
     string CredentialType = "Bearer", JsonLoginConfiguration? LoginConfiguration = null, string? LastLoginStatus = null, DateTimeOffset? LastLoginAtUtc = null);
 public sealed record CreateTargetCredential(Guid ScopeId, string Name, string Persona, string TenantLabel, string Token, DateTimeOffset ExpiresAtUtc, string CredentialType = "Bearer", JsonLoginInput? Login = null);
 public sealed record RotateTargetCredential(int ExpectedVersion, string Token, DateTimeOffset ExpiresAtUtc, JsonLoginInput? Login = null);
-public sealed record CredentialBinding(Guid Id, int Version, string Name, string Persona, string TenantLabel, string? BaselineUri = null, DateTimeOffset? BaselineVerifiedAtUtc = null);
+public sealed record CredentialBinding(Guid Id, int Version, string Name, string Persona, string TenantLabel, string? BaselineUri = null, DateTimeOffset? BaselineVerifiedAtUtc = null, string CredentialType = "Bearer");
 
 public sealed class TargetCredentialVault(IDbContextFactory<SentinelDbContext> factory, IDataProtectionProvider protection, TimeProvider time)
 {
@@ -75,7 +75,7 @@ public sealed class TargetCredentialVault(IDbContextFactory<SentinelDbContext> f
         if (row.ScopeId != scopeId || row.RevokedAtUtc is not null || row.ExpiresAtUtc <= time.GetUtcNow()) throw new ArgumentException("Perfil indisponível, expirado ou fora do escopo selecionado.");
         var baseline = expectedAccess == "deny" ? Baselines(db, projectId).GetValueOrDefault((row.Id, row.Version)) : default;
         if (expectedAccess == "deny" && baseline.Uri is null) throw new ArgumentException("Execute primeiro acesso permitido em recurso protegido com este perfil/versão; baseline válido por cinco minutos.");
-        return new(row.Id, row.Version, row.Name, row.Persona, row.TenantLabel, baseline.Uri, baseline.AtUtc);
+        return new(row.Id, row.Version, row.Name, row.Persona, row.TenantLabel, baseline.Uri, baseline.AtUtc, row.CredentialType);
     }
 
     internal string Token(Guid projectId, Guid scopeId, CredentialBinding binding)

@@ -24,7 +24,7 @@ public sealed class JsonLoginTests : IDisposable
         return (client, project, scope, new(new(uri + "/login", "email", "password", "data.token", "company"), "synthetic@example.invalid", "synthetic-password", "tenant-a"));
     }
     private static CreateTargetCredential Input(AuthorizedScope scope, JsonLoginInput login) =>
-        new(scope.Id, "Perfil JSON", "Leitura", "Empresa sintética", "", DateTimeOffset.UtcNow.AddMinutes(5), "JsonLogin", login);
+        new(scope.Id, "Perfil JSON", "Leitura", "Empresa sintética", "", DateTimeOffset.UtcNow.AddMinutes(2), "JsonLogin", login);
 
     [Theory]
     [InlineData("synthetic-password", "tenant-a", 200, "Authenticated")]
@@ -100,4 +100,25 @@ public sealed class JsonLoginTests : IDisposable
         await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
     }
     public void Dispose() => _host.Dispose();
+
+    [Fact]
+    public async Task Worker_prepara_login_lento_antes_do_plugin_sem_contaminar_carga()
+    {
+        using var host = new SentinelApiFactory(); using var client = host.CreateClient();
+        var project = (await (await client.PostAsJsonAsync("/api/v1/projects", new CreateProjectRequest("Preparação login", null))).Content.ReadFromJsonAsync<SentinelProject>())!;
+        var uri = new Uri(host.LabTarget.BaseUri, "authenticated/" + Guid.NewGuid().ToString("N"));
+        var scope = (await (await client.PostAsJsonAsync($"/api/v1/projects/{project.Id}/scopes", new CreateScopeRequest(uri.AbsoluteUri, "laboratorio", DateTimeOffset.UtcNow.AddMinutes(5)))).Content.ReadFromJsonAsync<AuthorizedScope>())!;
+        var login = new JsonLoginInput(new(uri + "/login", "email", "password", "data.token", "company"), "slow-fixture", "synthetic-password", "tenant-a");
+        var profile = (await (await client.PostAsJsonAsync($"/api/v1/projects/{project.Id}/target-credentials", Input(scope, login))).Content.ReadFromJsonAsync<TargetCredentialInfo>())!;
+        var response = await client.PostAsJsonAsync($"/api/v1/projects/{project.Id}/audits", new RequestAuditRequest(uri + "/tenant-a", "authenticated-lab", true, profile.Id, "allow", true)); response.EnsureSuccessStatusCode();
+        var audit = (await response.Content.ReadFromJsonAsync<Audit>(Json))!;
+        var deadline = DateTime.UtcNow.AddSeconds(45);
+        while (!AuditStates.IsTerminal(audit.State) && DateTime.UtcNow < deadline)
+        { await Task.Delay(100); audit = (await client.GetFromJsonAsync<Audit>($"/api/v1/audits/{audit.Id}", Json))!; }
+        Assert.Equal(AuditState.Completed, audit.State); Assert.Equal(2, audit.Controls.Count);
+        Assert.Equal("Passed", audit.Controls.Single(c => c.ControlId == "LAB-ACCESS-01").State);
+        Assert.Equal("Informational", audit.Controls.Single(c => c.ControlId == "LAB-PERF-01").State);
+        Assert.Equal(2, host.LabTarget.RequestsFor(new Uri(login.Configuration.Url).AbsolutePath));
+        Assert.Equal(42, host.LabTarget.RequestsFor(new Uri(uri + "/tenant-a").AbsolutePath));
+    }
 }

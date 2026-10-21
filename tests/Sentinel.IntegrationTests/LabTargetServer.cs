@@ -53,6 +53,7 @@ public sealed class LabTargetServer : IDisposable
             using var reader = new StreamReader(context.Request.InputStream);
             using var json = System.Text.Json.JsonDocument.Parse(reader.ReadToEnd());
             var root = json.RootElement;
+            if (root.GetProperty("email").GetString() == "slow-fixture") Thread.Sleep(4000);
             context.Response.ContentType = "application/json";
             var password = root.GetProperty("password").GetString();
             if (password == "redirect-fixture") { context.Response.StatusCode = 302; context.Response.RedirectLocation = new Uri(BaseUri, "login-must-not-follow").AbsoluteUri; context.Response.Close(); return; }

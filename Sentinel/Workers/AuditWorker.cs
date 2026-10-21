@@ -80,15 +80,19 @@ public sealed class AuditWorker(
                 if (!decision.IsAllowed) { coordinator.Finish(lease, AuditState.Blocked, decision.Reason); return; }
                 stage = "snapshot";
                 using var sourceWorkspace = source ? await sources.MaterializeAsync(payload.ProjectId, payload.ScopeId, payload.Source!, executionCts.Token) : null;
-                var timeout = now.AddSeconds(manifest.Spec.Resources.TimeoutSeconds);
+                var loginPreparationSeconds = authenticated && payload.Credential?.CredentialType == "JsonLogin" ? 10 : 0;
+                var timeout = now.AddSeconds(manifest.Spec.Resources.TimeoutSeconds + loginPreparationSeconds);
                 var deadline = timeout < decision.Scope!.ExpiresAtUtc ? timeout : decision.Scope.ExpiresAtUtc;
                 var runtimeDetail = runtime.Container
                     ? $"container {runtime.Options.Image}; {Math.Clamp(manifest.Spec.Resources.MemoryMiB, 64, 512)} MiB; CPU 0.5; PIDs 64; rede none; {(source ? "snapshot somente leitura; sem gateway" : "HTTP via gateway")}"
                     : "processo de desenvolvimento; HTTP via gateway; sem sandbox de filesystem";
+                if (loginPreparationSeconds != 0) runtimeDetail += "; preparação de login JSON até 10s antes do plugin; prazo do plugin inalterado";
                 if (!coordinator.BeginPlugin(lease, manifest.Metadata.Id, deadline, runtimeDetail)) return;
                 var request = new PluginExecutionRequest(manifest.Spec.ContractVersion, Guid.NewGuid(), payload.AuditId, payload.ProjectId,
                     payload.ScopeId, existing.CorrelationId, target.AbsoluteUri, payload.Action, deadline, now, RequireRequestPermits: !source, UseHttpRelay: !source, ExpectedAccess: payload.ExpectedAccess, BaselineUri: payload.Credential?.BaselineUri ?? target.AbsoluteUri, SourceRoot: source ? "/source" : null, SourceSha256: payload.Source?.Sha256);
                 using var gatewaySession = source ? null : gateway.Open(lease, request, manifest, payload.Credential);
+                stage = "login";
+                if (loginPreparationSeconds != 0) await gatewaySession!.PrepareAuthenticationAsync(executionCts.Token);
                 childStopped = false;
                 stage = "sandbox";
                 var result = await runner.RunAsync(manifest, request, executionCts.Token, async token =>
