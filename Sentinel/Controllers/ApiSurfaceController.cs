@@ -45,7 +45,7 @@ public sealed class ApiSurfaceController(ISentinelStore store, EvidenceArtifactS
                 return Problem(statusCode: 409, detail: "Inventário incompatível ou inválido.");
         }
         catch (EvidenceExpiredException) { return Problem(statusCode: 410, detail: "Evidência expirada; metadados e hash permanecem."); }
-        catch (EvidenceStorageUnavailableException) { return Problem(statusCode: 503, detail: "Volume privado indisponível neste worker."); }
+        catch (EvidenceStorageUnavailableException) { return Problem(statusCode: 503, detail: "Armazenamento privado indisponível neste worker."); }
         catch (Exception ex) when (ex is CryptographicException or JsonException) { return Problem(statusCode: 409, detail: "Integridade ou formato não confirmados."); }
         catch (IOException) { return Problem(statusCode: 503, detail: "Artefato indisponível no armazenamento."); }
 

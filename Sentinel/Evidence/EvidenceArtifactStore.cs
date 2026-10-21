@@ -11,15 +11,26 @@ using Microsoft.EntityFrameworkCore;
 namespace Sentinel.Evidence;
 
 public sealed record EvidenceArtifactMetadata(string Reference, string ContentType, string SourcePluginId, string SourcePluginVersion,
-    string Classification, DateTimeOffset RetainUntilUtc, string RedactionStrategy, bool Redacted, bool Truncated, DateTimeOffset? PurgedAtUtc = null, string? StorageId = null);
+    string Classification, DateTimeOffset RetainUntilUtc, string RedactionStrategy, bool Redacted, bool Truncated, DateTimeOffset? PurgedAtUtc = null, string? StorageId = null, string? ObjectVersion = null);
 public sealed record EvidenceArtifactDocument(string Format, Guid AuditId, Guid ProjectId, string SourcePluginId, string SourcePluginVersion,
     IReadOnlyList<string> Controls, string TargetUri, DateTimeOffset CollectedAtUtc, DateTimeOffset RetainUntilUtc, string Summary, string Details, string RedactionStrategy, bool Redacted, bool Truncated, string? StorageId = null);
 public sealed record VerifiedEvidenceArtifact(string Sha256, string Content, bool IntegrityVerified, EvidenceArtifactMetadata Metadata);
 
-public sealed class EvidenceArtifactStore(IConfiguration configuration, IHostEnvironment environment, IDataProtectionProvider protection, TimeProvider time, IDbContextFactory<SentinelDbContext> factory)
+public sealed class EvidenceArtifactStore(IConfiguration configuration, IHostEnvironment environment, IDataProtectionProvider protection, TimeProvider time, IDbContextFactory<SentinelDbContext> factory) : IDisposable
 {
     public string RootDirectory { get; } = Path.GetFullPath(configuration["Evidence:RootDirectory"] ?? "../.local/evidence", environment.ContentRootPath);
-    public string StorageId { get; } = CreateStorageId(configuration, environment);
+    private readonly S3EvidenceStorage? _objects = CreateObjectStorage(configuration, environment);
+    internal S3EvidenceStorage? Objects => _objects;
+    public string LocalStorageId { get; } = CreateStorageId(configuration, environment);
+    public string StorageId => _objects?.StorageId ?? LocalStorageId;
+    internal bool Owns(string? storageId) => storageId is null || storageId == LocalStorageId || storageId == _objects?.StorageId;
+    private static S3EvidenceStorage? CreateObjectStorage(IConfiguration config, IHostEnvironment environment) => config["Evidence:Provider"] switch
+    {
+        null or "Filesystem" => null,
+        "S3" when config["Evidence:S3:StorageId"] != config["Evidence:StorageId"] => new(config, environment),
+        _ => throw new InvalidOperationException("Evidence:Provider desconhecido.")
+    };
+    public void Dispose() => _objects?.Dispose();
     private readonly IDataProtectionProvider _protection = protection;
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     public const int RetentionDays = 30;
@@ -52,32 +63,42 @@ public sealed class EvidenceArtifactStore(IConfiguration configuration, IHostEnv
         }
         if (content.Length > MaximumContentBytes) throw new InvalidOperationException("Artefato excedeu o limite de 64 KiB.");
         var hash = Convert.ToHexString(SHA256.HashData(content)).ToLowerInvariant();
-        var reference = "sha256:" + hash; var path = PathFor(reference);
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
-        try
+        var reference = "sha256:" + hash;
+        string? objectVersion = null;
+        if (_objects is not null)
         {
-            await File.WriteAllBytesAsync(temporary, Protector(projectId, auditId, StorageId).Protect(content), cancellationToken);
-            try { File.Move(temporary, path, overwrite: false); }
-            catch (IOException) when (File.Exists(path)) { await VerifyBytesAsync(reference, hash, projectId, auditId, StorageId, cancellationToken); }
+            objectVersion = await _objects.PutAsync(projectId, auditId, reference, Protector(projectId, auditId, StorageId).Protect(content), cancellationToken, retainUntil);
+            await VerifyBytesAsync(reference, hash, projectId, auditId, StorageId, cancellationToken, objectVersion);
         }
-        finally { if (File.Exists(temporary)) File.Delete(temporary); }
+        else
+        {
+            var path = PathFor(reference);
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+            try
+            {
+                await File.WriteAllBytesAsync(temporary, Protector(projectId, auditId, StorageId).Protect(content), cancellationToken);
+                try { File.Move(temporary, path, overwrite: false); }
+                catch (IOException) when (File.Exists(path)) { await VerifyBytesAsync(reference, hash, projectId, auditId, StorageId, cancellationToken); }
+            }
+            finally { if (File.Exists(temporary)) File.Delete(temporary); }
+        }
         return new(Guid.NewGuid().ToString("N"), hash, summary.Value, now,
-            new(reference, "application/json; charset=utf-8", manifest.Metadata.Id, manifest.Metadata.Version, "InternalRedacted", retainUntil, "basic-v1", redacted, document.Truncated, StorageId: StorageId));
+            new(reference, "application/json; charset=utf-8", manifest.Metadata.Id, manifest.Metadata.Version, "InternalRedacted", retainUntil, "basic-v1", redacted, document.Truncated, StorageId: StorageId, ObjectVersion: objectVersion));
     }
 
     public async Task<VerifiedEvidenceArtifact> ReadAsync(Guid projectId, Guid auditId, AuditEvidence evidence, CancellationToken cancellationToken)
     {
         var metadata = evidence.Artifact ?? throw new InvalidOperationException("Registro legado sem artefato recuperável.");
         if (metadata.RetainUntilUtc <= time.GetUtcNow() || metadata.PurgedAtUtc is not null) throw new EvidenceExpiredException();
-        if (metadata.StorageId is { } storage && storage != StorageId) throw new EvidenceStorageUnavailableException();
-        var content = await VerifyBytesAsync(metadata.Reference, evidence.Sha256, projectId, auditId, metadata.StorageId, cancellationToken);
+        if (!Owns(metadata.StorageId)) throw new EvidenceStorageUnavailableException();
+        var content = await VerifyBytesAsync(metadata.Reference, evidence.Sha256, projectId, auditId, metadata.StorageId, cancellationToken, metadata.ObjectVersion);
         EvidenceArtifactDocument? document;
         try { document = JsonSerializer.Deserialize<EvidenceArtifactDocument>(content, Json); }
         catch (JsonException exception) { throw new CryptographicException("Documento de evidência inválido.", exception); }
         if (document is null || document.AuditId != auditId || document.ProjectId != projectId || document.Format != "sentinel-evidence-v1" ||
             document.SourcePluginId != metadata.SourcePluginId || document.SourcePluginVersion != metadata.SourcePluginVersion) throw new CryptographicException("Proveniência de evidência divergente.");
-        if (document.StorageId is { } documentStorage && documentStorage != StorageId) throw new CryptographicException("Volume de evidência divergente.");
+        if (document.StorageId is { } documentStorage && documentStorage != metadata.StorageId) throw new CryptographicException("Volume de evidência divergente.");
         if (document.RetainUntilUtc <= time.GetUtcNow()) throw new EvidenceExpiredException();
         return new(evidence.Sha256, Encoding.UTF8.GetString(content), true, metadata);
     }
@@ -87,11 +108,21 @@ public sealed class EvidenceArtifactStore(IConfiguration configuration, IHostEnv
         var scoped = _protection.CreateProtector("Sentinel.EvidenceArtifact.v1", projectId.ToString("N"), auditId.ToString("N"));
         return storageId is null ? scoped : scoped.CreateProtector(storageId);
     }
-    private async Task<byte[]> VerifyBytesAsync(string reference, string expectedHash, Guid projectId, Guid auditId, string? storageId, CancellationToken cancellationToken)
+    private async Task<byte[]> VerifyBytesAsync(string reference, string expectedHash, Guid projectId, Guid auditId, string? storageId, CancellationToken cancellationToken, string? objectVersion = null)
     {
-        var path = PathFor(reference);
-        if (new FileInfo(path).Length > 128 * 1024) throw new CryptographicException("Tamanho de artefato inválido.");
-        var content = Protector(projectId, auditId, storageId).Unprotect(await File.ReadAllBytesAsync(path, cancellationToken));
+        byte[] encrypted;
+        if (storageId is not null && storageId == _objects?.StorageId)
+        {
+            if (objectVersion is null) throw new CryptographicException("Versão de objeto ausente.");
+            encrypted = (await _objects.ReadAsync(projectId, auditId, reference, objectVersion, cancellationToken)).Bytes;
+        }
+        else
+        {
+            var path = PathFor(reference);
+            if (new FileInfo(path).Length > 128 * 1024) throw new CryptographicException("Tamanho de artefato inválido.");
+            encrypted = await File.ReadAllBytesAsync(path, cancellationToken);
+        }
+        var content = Protector(projectId, auditId, storageId).Unprotect(encrypted);
         if (content.Length > MaximumContentBytes || !Convert.ToHexString(SHA256.HashData(content)).Equals(expectedHash, StringComparison.OrdinalIgnoreCase))
             throw new CryptographicException("Hash de artefato divergente.");
         return content;
@@ -105,7 +136,13 @@ public sealed class EvidenceArtifactStore(IConfiguration configuration, IHostEnv
         if (!path.StartsWith(root, StringComparison.OrdinalIgnoreCase)) throw new CryptographicException("Caminho de artefato recusado.");
         return path;
     }
-    internal void Delete(string reference) => File.Delete(PathFor(reference));
+    internal async Task DeleteAsync(Guid projectId, Guid auditId, EvidenceArtifactMetadata metadata, CancellationToken ct)
+    {
+        if (!Owns(metadata.StorageId)) throw new EvidenceStorageUnavailableException();
+        if (metadata.StorageId is not null && metadata.StorageId == _objects?.StorageId)
+            await _objects.DeleteAsync(projectId, auditId, metadata.Reference, metadata.ObjectVersion ?? throw new CryptographicException("Versão ausente."), ct);
+        else File.Delete(PathFor(metadata.Reference));
+    }
 }
 public sealed class EvidenceExpiredException : Exception;
 public sealed class EvidenceStorageUnavailableException : Exception;
