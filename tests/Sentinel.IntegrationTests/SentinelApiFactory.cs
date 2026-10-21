@@ -14,6 +14,7 @@ public sealed class SentinelApiFactory : WebApplicationFactory<Program>
     public string PluginImage { get; init; } = "";
     public string? EvidenceDirectory { get; init; }
     public string? SourceDirectory { get; init; }
+    public Dictionary<string, string?> EvidenceSettings { get; init; } = [];
     public TestIdentityProvider Identity { get; } = new();
     public new HttpClient CreateClient()
     {
@@ -46,6 +47,7 @@ public sealed class SentinelApiFactory : WebApplicationFactory<Program>
                 ["Evidence:RootDirectory"] = EvidenceDirectory ?? Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../.local/evidence-tests")),
                 ["SourceSnapshots:RootDirectory"] = SourceDirectory ?? Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../.local/source-tests")),
             });
+            configuration.AddInMemoryCollection(EvidenceSettings);
         });
     }
 
