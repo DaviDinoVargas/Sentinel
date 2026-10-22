@@ -40,6 +40,7 @@ public static class Program
         ["sentinel.source.lockfile-integrity"] = () => new LockfileIntegrityCheck(),
         ["sentinel.http.csp-quality"] = () => new CspQualityCheck(),
         ["sentinel.source.unused-dependencies"] = () => new UnusedDependenciesCheck(),
+        ["sentinel.source.sbom-diff"] = () => new SbomDiffCheck(),
     };
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)

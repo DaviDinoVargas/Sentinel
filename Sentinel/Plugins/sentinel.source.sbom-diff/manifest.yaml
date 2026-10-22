@@ -1,0 +1,22 @@
+apiVersion: sentinel.dev/v1
+kind: PluginManifest
+metadata:
+  id: sentinel.source.sbom-diff
+  version: 1.0.0
+  name: Diferença de dependências entre revisões (SUP-06)
+spec:
+  type: dependency-analyzer
+  contractVersion: "1.0"
+  mode: passive
+  controls: [SUP-06]
+  capabilities:
+    network: "false"
+    sourceRead: true
+    artifactWrite: false
+  resources:
+    timeoutSeconds: 15
+    memoryMiB: 128
+  permissions: [target.source.read]
+  execution:
+    isolation: container
+  riskClass: low

@@ -19,7 +19,12 @@ public sealed record PluginExecutionRequest(
     string? ExpectedAccess = null,
     string? BaselineUri = null,
     string? SourceRoot = null,
-    string? SourceSha256 = null);
+    string? SourceSha256 = null,
+    // SUP-06: o host já leu os dois inventários (SRC-INV-01, desta e da revisão anterior
+    // completada para o mesmo sourceKey) antes de lançar sentinel.source.sbom-diff; o
+    // plugin nunca consulta o histórico de auditorias por conta própria.
+    string? CurrentSourceInventoryJson = null,
+    string? PriorSourceInventoryJson = null);
 
 public sealed record HttpRelayRequest(string Kind, Guid RequestId, string Method, string Uri, Dictionary<string, string[]> Headers, bool Anonymous = false);
 public sealed record HttpRelayResponse(string Kind, Guid RequestId, int StatusCode, Dictionary<string, string[]> Headers, string BodyBase64, double ElapsedMs, string? Error);
