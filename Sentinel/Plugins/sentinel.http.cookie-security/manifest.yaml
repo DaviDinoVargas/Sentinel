@@ -1,0 +1,22 @@
+apiVersion: sentinel.dev/v1
+kind: PluginManifest
+metadata:
+  id: sentinel.http.cookie-security
+  version: 1.0.0
+  name: Atributos de cookies de sessão (TLS-02)
+spec:
+  type: dast
+  contractVersion: "1.0"
+  mode: passive
+  controls: [TLS-02]
+  capabilities:
+    network: scoped-egress
+    sourceRead: false
+    artifactWrite: false
+  resources:
+    timeoutSeconds: 10
+    memoryMiB: 128
+  permissions: [target.http.passive]
+  execution:
+    isolation: container
+  riskClass: low

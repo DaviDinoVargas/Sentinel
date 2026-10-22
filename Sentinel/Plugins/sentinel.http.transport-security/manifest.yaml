@@ -1,0 +1,22 @@
+apiVersion: sentinel.dev/v1
+kind: PluginManifest
+metadata:
+  id: sentinel.http.transport-security
+  version: 1.0.0
+  name: HSTS e protocolo TLS negociado (TLS-01, parcial)
+spec:
+  type: dast
+  contractVersion: "1.0"
+  mode: passive
+  controls: [TLS-01]
+  capabilities:
+    network: scoped-egress
+    sourceRead: false
+    artifactWrite: false
+  resources:
+    timeoutSeconds: 10
+    memoryMiB: 128
+  permissions: [target.http.passive]
+  execution:
+    isolation: container
+  riskClass: low

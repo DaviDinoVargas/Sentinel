@@ -96,6 +96,22 @@ public sealed class LabTargetServer : IDisposable
             context.Response.Headers.Add("Strict-Transport-Security", "max-age=63072000; includeSubDomains");
             context.Response.Headers.Add("X-Content-Type-Options", "nosniff");
             context.Response.Headers.Add("Content-Security-Policy", "default-src 'self'");
+            // Cookie de sessão com todos os atributos recomendados: caso aprovado real
+            // para o TLS-02.
+            context.Response.Headers.Add("Set-Cookie", "session=opaque-value-not-a-real-secret; Secure; HttpOnly; SameSite=Strict; Path=/");
+        }
+
+        if (path.Contains("cookie-vulneravel", StringComparison.OrdinalIgnoreCase))
+        {
+            // Cookie de sessão sem Secure nem HttpOnly — caso reprovado real para o TLS-02
+            // (Finding-Model.md: toda verificação precisa poder falhar).
+            context.Response.Headers.Add("Set-Cookie", "session=opaque-value-not-a-real-secret; Path=/");
+        }
+
+        if (path.Contains("waf-presente", StringComparison.OrdinalIgnoreCase))
+        {
+            // Assinatura conhecida de um WAF/CDN — caso real detectado pelo NET-WAF-01.
+            context.Response.Headers.Add("CF-RAY", "8f3a9c2e1b004d2e-GRU");
         }
 
         if (path.Contains("cors-vulneravel", StringComparison.OrdinalIgnoreCase))

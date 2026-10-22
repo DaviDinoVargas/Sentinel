@@ -28,7 +28,12 @@ public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine po
         private readonly HttpClient _client;
         private readonly SemaphoreSlim _concurrency = new(2, 2);
         private IPAddress[]? _approvedAddresses;
+        private System.Security.Authentication.SslProtocols? _negotiatedProtocol;
         private readonly SemaphoreSlim _dnsLock = new(1, 1);
+        // Esses dois plugins só recebem metadados sintéticos (não o cabeçalho HTTP
+        // original): nome do cookie + atributos, com o valor sempre trocado por
+        // <redacted>. Nenhum outro plugin vê Set-Cookie, mesmo redigido.
+        private static readonly HashSet<string> CookieAwarePlugins = new(StringComparer.Ordinal) { "sentinel.http.cookie-security", "sentinel.http.waf-fingerprint" };
         private readonly SemaphoreSlim _loginLock = new(1, 1);
         private bool _loginAttempted;
         private string? _loginToken;
@@ -107,20 +112,40 @@ public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine po
                 var clock = Stopwatch.StartNew();
                 using var response = await _client.SendAsync(message, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
                 var elapsed = clock.Elapsed.TotalMilliseconds;
-                // Responses are bounded before crossing the process boundary. Cookies
-                // and transport lengths are not exposed to the current plugins.
+                // Responses are bounded before crossing the process boundary. Cookie
+                // VALUES are never exposed; only name+attributes, and only to the two
+                // plugins that need them (redacted even for those).
                 var headers = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
                 var headerSize = 0;
+                var cookieAware = CookieAwarePlugins.Contains(_manifest.Metadata.Id);
                 foreach (var header in response.Headers.Concat(response.Content.Headers))
                 {
                     // Authenticated plugins only need status/timing. A target may
                     // reflect Authorization in arbitrary response headers.
                     if (_credential is not null) break;
-                    if (header.Key.Equals("Set-Cookie", StringComparison.OrdinalIgnoreCase) || header.Key.Equals("Content-Length", StringComparison.OrdinalIgnoreCase) || header.Key.Equals("Transfer-Encoding", StringComparison.OrdinalIgnoreCase)) continue;
+                    if (header.Key.Equals("Content-Length", StringComparison.OrdinalIgnoreCase) || header.Key.Equals("Transfer-Encoding", StringComparison.OrdinalIgnoreCase)) continue;
+                    if (header.Key.Equals("Set-Cookie", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (!cookieAware) continue;
+                        var redacted = header.Value.Take(8).Select(RedactCookieValue).ToArray();
+                        headerSize += header.Key.Length + redacted.Sum(value => value.Length);
+                        if (headerSize > 8000 || headers.Count >= 32) break;
+                        headers[header.Key] = redacted;
+                        continue;
+                    }
                     var values = header.Value.Take(2).Select(value => value.Length > 512 ? value[..512] : value).ToArray();
                     headerSize += header.Key.Length + values.Sum(value => value.Length);
                     if (headerSize > 8000 || headers.Count >= 32) break;
                     headers[header.Key] = values;
+                }
+                // Metadados sintéticos do próprio gateway (não vieram na resposta HTTP):
+                // protocolo TLS já negociado nesta conexão e os endereços já resolvidos e
+                // aprovados para o alvo nesta execução. Baixa sensibilidade — qualquer
+                // cliente de rede já enxergaria isso ao conectar no mesmo alvo.
+                if (_credential is null)
+                {
+                    if (_negotiatedProtocol is { } protocol) headers["X-Sentinel-Tls-Protocol"] = [protocol.ToString()];
+                    if (_approvedAddresses is { Length: > 0 } addresses) headers["X-Sentinel-Resolved-Addresses"] = [string.Join(",", addresses.Select(address => address.ToString()))];
                 }
                 var readBody = _manifest.Metadata.Id is "sentinel.http.host-header-trust" or "sentinel.http.error-disclosure" or "sentinel.lab.input-probes";
                 var buffer = new byte[readBody ? 8192 : 0]; var length = 0;
@@ -257,8 +282,10 @@ public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine po
                     var stream = new NetworkStream(socket, true);
                     // Return an authenticated stream (.NET 7+) so a Host-header probe
                     // cannot change SNI or the certificate name being validated.
-                    return _target.Scheme == Uri.UriSchemeHttps
-                        ? await AuthenticateTlsAsync(stream, _target.IdnHost.Trim('[', ']'), cancellationToken) : stream;
+                    if (_target.Scheme != Uri.UriSchemeHttps) return stream;
+                    var tls = await AuthenticateTlsAsync(stream, _target.IdnHost.Trim('[', ']'), cancellationToken);
+                    _negotiatedProtocol = tls.SslProtocol;
+                    return tls;
                 }
                 catch (Exception exception) { socket.Dispose(); last = exception; }
             }
@@ -277,6 +304,19 @@ public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine po
                 return tls;
             }
             catch { await tls.DisposeAsync(); throw; }
+        }
+
+        // Mantém o nome do cookie e todos os atributos (Secure/HttpOnly/SameSite/Path/
+        // Expires/Max-Age/Domain); troca só o valor pelo marcador, nunca o segredo.
+        private static string RedactCookieValue(string setCookie)
+        {
+            if (setCookie.Length > 1024) setCookie = setCookie[..1024];
+            var separator = setCookie.IndexOf(';');
+            var firstPair = separator < 0 ? setCookie : setCookie[..separator];
+            var rest = separator < 0 ? "" : setCookie[separator..];
+            var equals = firstPair.IndexOf('=');
+            var name = equals < 0 ? firstPair : firstPair[..equals];
+            return $"{name.Trim()}=<redacted>{rest}";
         }
 
         public static HttpRelayResponse Denied(Guid id, string reason) => new("http-response", id, 0, [], "", 0, reason);

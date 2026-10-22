@@ -55,11 +55,13 @@ public sealed class AuditApiTests : IClassFixture<SentinelApiFactory>
         var audit = await PollAuditUntilCompletedAsync(queuedAudit.Id);
         Assert.Equal(AuditState.Completed, audit.State);
         // Sem fixture no projeto real: WEB-CFG-01 (cabeçalhos) + WEB-CFG-02 (CORS) + WEB-CFG-04
-        // (erro/stack trace) + WEB-CFG-06 (host header) + WEB-CFG-09 (fingerprinting). O
-        // HttpListener de teste sempre envia "Server: Microsoft-HTTPAPI/2.0", então
-        // WEB-CFG-09 reprova mesmo em /area-segura — é um caso real, não simulado.
-        Assert.Equal(5, audit.Controls.Count);
-        Assert.Equal(5, audit.Evidence.Count);
+        // (erro/stack trace) + WEB-CFG-06 (host header) + WEB-CFG-09 (fingerprinting) +
+        // TLS-01 (transporte, parcial) + TLS-02 (cookies) + NET-WAF-01 (fingerprint) +
+        // NET-DNS-01 (DNS). O HttpListener de teste sempre envia "Server:
+        // Microsoft-HTTPAPI/2.0", então WEB-CFG-09 reprova mesmo em /area-segura — é um
+        // caso real, não simulado.
+        Assert.Equal(9, audit.Controls.Count);
+        Assert.Equal(9, audit.Evidence.Count);
 
         Assert.DoesNotContain(audit.Controls, c => c.ControlId == "SIM-001");
 
@@ -83,24 +85,41 @@ public sealed class AuditApiTests : IClassFixture<SentinelApiFactory>
         var hostControl = Assert.Single(audit.Controls, control => control.ControlId == "WEB-CFG-06");
         Assert.Equal("Passed", hostControl.State);
 
+        // Alvo é HTTP, não HTTPS: TLS-01 não tem o que avaliar.
+        var transportControl = Assert.Single(audit.Controls, control => control.ControlId == "TLS-01");
+        Assert.Equal("Inconclusive", transportControl.State);
+
+        // /area-segura envia um cookie com Secure/HttpOnly/SameSite: TLS-02 aprova.
+        var cookieControl = Assert.Single(audit.Controls, control => control.ControlId == "TLS-02");
+        Assert.Equal("Passed", cookieControl.State);
+        Assert.Equal("Reproduced", cookieControl.Confidence);
+
+        var wafControl = Assert.Single(audit.Controls, control => control.ControlId == "NET-WAF-01");
+        Assert.Equal("Informational", wafControl.State);
+
+        var dnsControl = Assert.Single(audit.Controls, control => control.ControlId == "NET-DNS-01");
+        Assert.Equal("Informational", dnsControl.State);
+        Assert.Contains("127.0.0.1", dnsControl.Summary);
+
         var reportResponse = await _client.GetAsync($"/api/v1/audits/{audit.Id}/report");
         Assert.Equal(HttpStatusCode.OK, reportResponse.StatusCode);
         var report = await ReadRequiredAsync<AuditReport>(reportResponse);
         Assert.Equal(AuditState.Completed, report.State);
-        Assert.Equal(5, report.Evidence.Count);
+        Assert.Equal(9, report.Evidence.Count);
         Assert.All(report.Evidence, evidence => Assert.Matches("^[a-f0-9]{64}$", evidence.Sha256));
 
         var scoreResponse = await _client.GetAsync($"/api/v1/projects/{project.Id}/security-score");
         Assert.Equal(HttpStatusCode.OK, scoreResponse.StatusCode);
         var score = await ReadRequiredAsync<SecurityScore>(scoreResponse);
         Assert.Equal("P0-2.0", score.AlgorithmVersion);
-        // Somente controles reais da auditoria Completed entram. 3 de 4 passam; os controles HTTP são
-        // Reproduced; fixture e inconclusivos não elevam a nota.
-        // (WEB-CFG-04 fica Inconclusive e não entra na amostra avaliada).
-        Assert.Equal(75m, score.Score);
+        // Somente controles reais e avaliáveis (Passed/Failed) entram na amostra: WEB-CFG-01,
+        // WEB-CFG-02, WEB-CFG-06, TLS-02 passam e WEB-CFG-09 reprova; WEB-CFG-04
+        // (Inconclusive), TLS-01 (Inconclusive), NET-WAF-01/NET-DNS-01 (Informational) não
+        // entram na amostra.
+        Assert.Equal(80m, score.Score);
         Assert.Equal("Observed", score.Confidence);
-        Assert.Equal(4, score.ControlsEvaluated);
-        Assert.Equal(3, score.ControlsPassed);
+        Assert.Equal(5, score.ControlsEvaluated);
+        Assert.Equal(4, score.ControlsPassed);
     }
 
     [Fact]
