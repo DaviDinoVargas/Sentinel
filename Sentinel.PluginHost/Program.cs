@@ -37,6 +37,7 @@ public static class Program
         ["sentinel.net.asn-info"] = () => new AsnInfoCheck(),
         ["sentinel.net.port-scan"] = () => new PortScanCheck(),
         ["sentinel.http.exposed-endpoints"] = () => new ExposedEndpointsCheck(),
+        ["sentinel.source.lockfile-integrity"] = () => new LockfileIntegrityCheck(),
     };
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)

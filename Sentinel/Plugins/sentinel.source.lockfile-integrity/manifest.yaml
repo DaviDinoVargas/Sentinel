@@ -1,0 +1,22 @@
+apiVersion: sentinel.dev/v1
+kind: PluginManifest
+metadata:
+  id: sentinel.source.lockfile-integrity
+  version: 1.0.0
+  name: Hash de integridade em lockfiles (SUP-02)
+spec:
+  type: dependency-analyzer
+  contractVersion: "1.0"
+  mode: passive
+  controls: [SUP-02]
+  capabilities:
+    network: "false"
+    sourceRead: true
+    artifactWrite: false
+  resources:
+    timeoutSeconds: 20
+    memoryMiB: 128
+  permissions: [target.source.read]
+  execution:
+    isolation: container
+  riskClass: low
