@@ -16,11 +16,12 @@ public sealed class LabProfileTests(SentinelApiFactory factory) : IClassFixture<
     {
         var (project, url) = await Target("protegido");
         var audit = await Execute(project.Id, url, "lab-active", true);
-        Assert.Equal(AuditState.Completed, audit.State); Assert.Equal(3, audit.Controls.Count);
+        Assert.Equal(AuditState.Completed, audit.State); Assert.Equal(4, audit.Controls.Count);
         Assert.DoesNotContain(audit.Controls, control => control.ControlId == "SIM-001");
         Assert.Equal("Passed", Assert.Single(audit.Controls, control => control.ControlId == "LAB-AUTH-01").State);
         Assert.Equal("Inconclusive", Assert.Single(audit.Controls, control => control.ControlId == "LAB-INP-01").State);
         Assert.Equal("Informational", Assert.Single(audit.Controls, control => control.ControlId == "LAB-PERF-01").State);
+        Assert.Equal("Informational", Assert.Single(audit.Controls, control => control.ControlId == "NET-PORTS-01").State);
         using var metrics = LoadMetrics(audit);
         Assert.Equal(40, metrics.RootElement.GetProperty("completedRequests").GetInt32());
         Assert.True(metrics.RootElement.GetProperty("durationMs").GetDouble() >= 3900);

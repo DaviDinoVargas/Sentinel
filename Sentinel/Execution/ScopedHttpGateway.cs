@@ -2,19 +2,68 @@ using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 using System.Net.Security;
+using System.Text.Json;
+using Microsoft.Extensions.Options;
 using Sentinel.Contracts;
 using Sentinel.Core;
 
 namespace Sentinel.Execution;
 
-public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine policy, ExecutionCoordinator coordinator, TimeProvider time, TargetCredentialVault? credentials = null)
+// NET-ASN-01: o único lugar deste host que contata algo além do próprio alvo
+// autorizado. Decisão explícita do dono do produto (handoff.md V26): autorizada
+// só para alvos que NÃO sejam loopback de laboratório (para loopback o conceito
+// de ASN não existe), timeout curto, nunca bloqueia nem reprova a execução se o
+// registro externo estiver indisponível — o achado é sempre Inconclusive nesse
+// caso, nunca ScriptError. URL do bootstrap RDAP configurável para permitir um
+// servidor local nos testes de integração (nunca uma dependência de rede real
+// nos testes automatizados deste projeto).
+public sealed class AsnLookupOptions
+{
+    public bool Enabled { get; set; } = true;
+    public string RdapBootstrapUrl { get; set; } = "https://rdap.org/ip/";
+    public int TimeoutSeconds { get; set; } = 3;
+}
+
+public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine policy, ExecutionCoordinator coordinator, TimeProvider time, TargetCredentialVault? credentials = null, IOptions<AsnLookupOptions>? asnLookupOptions = null) : IDisposable
 {
     private readonly ISentinelStore _store = store;
     private readonly ScopePolicyEngine _policy = policy;
     private readonly ExecutionCoordinator _coordinator = coordinator;
     private readonly TimeProvider _time = time;
     private readonly TargetCredentialVault? _credentials = credentials;
+    private readonly AsnLookupOptions _asnOptions = asnLookupOptions?.Value ?? new();
+    // Cliente separado do cliente por-execução das sessões: nunca restrito ao
+    // alvo autorizado (ConnectCallback), porque esta é a única chamada deste
+    // host que sai para um destino diferente do alvo. Sem cookies/proxy; segue
+    // redirecionamentos (o bootstrap RDAP público redireciona para o registro
+    // regional correto), com limite para nunca entrar em loop.
+    private readonly HttpClient _asnClient = new(new SocketsHttpHandler { AllowAutoRedirect = true, MaxAutomaticRedirections = 5, UseCookies = false, UseProxy = false });
     public Session Open(ExecutionLease lease, PluginExecutionRequest request, PluginManifest manifest, CredentialBinding? credential = null) => new(this, lease, request, manifest, credential);
+    public void Dispose() => _asnClient.Dispose();
+
+    // Best-effort: qualquer falha (rede, timeout, JSON inesperado) devolve null,
+    // nunca lança. O chamador trata null como Inconclusive, nunca como "sem ASN".
+    internal async Task<string?> LookupAsnAsync(IPAddress address, CancellationToken cancellationToken)
+    {
+        if (!_asnOptions.Enabled) return null;
+        try
+        {
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            cts.CancelAfter(TimeSpan.FromSeconds(Math.Clamp(_asnOptions.TimeoutSeconds, 1, 15)));
+            using var response = await _asnClient.GetAsync(_asnOptions.RdapBootstrapUrl + address, HttpCompletionOption.ResponseContentRead, cts.Token);
+            if (!response.IsSuccessStatusCode) return null;
+            await using var stream = await response.Content.ReadAsStreamAsync(cts.Token);
+            using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cts.Token);
+            var root = document.RootElement;
+            var handle = root.TryGetProperty("handle", out var handleElement) ? handleElement.GetString() : null;
+            var name = root.TryGetProperty("name", out var nameElement) ? nameElement.GetString() : null;
+            var country = root.TryGetProperty("country", out var countryElement) ? countryElement.GetString() : null;
+            if (handle is null && name is null) return null;
+            return $"handle={handle ?? "?"};name={name ?? "?"};country={country ?? "?"}";
+        }
+        catch (Exception exception) when (exception is HttpRequestException or IOException or OperationCanceledException or JsonException)
+        { return null; }
+    }
 
     public sealed class Session : IDisposable
     {
@@ -28,6 +77,8 @@ public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine po
         private readonly HttpClient _client;
         private readonly SemaphoreSlim _concurrency = new(2, 2);
         private IPAddress[]? _approvedAddresses;
+        private bool _asnAttempted;
+        private string? _asnResult;
         private System.Security.Authentication.SslProtocols? _negotiatedProtocol;
         private readonly SemaphoreSlim _dnsLock = new(1, 1);
         // Esses dois plugins só recebem metadados sintéticos (não o cabeçalho HTTP
@@ -154,6 +205,18 @@ public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine po
                 {
                     if (_negotiatedProtocol is { } protocol) headers["X-Sentinel-Tls-Protocol"] = [protocol.ToString()];
                     if (_approvedAddresses is { Length: > 0 } addresses) headers["X-Sentinel-Resolved-Addresses"] = [string.Join(",", addresses.Select(address => address.ToString()))];
+                    // NET-ASN-01: só tenta o registro externo para o único plugin que o usa,
+                    // e só quando o endereço aprovado não é loopback (decisão do dono do
+                    // produto — ASN não se aplica a um alvo de laboratório local). Uma única
+                    // tentativa por execução, nunca repetida mesmo se este plugin fizer mais
+                    // de uma requisição.
+                    if (_manifest.Metadata.Id == "sentinel.net.asn-info" && !_asnAttempted)
+                    {
+                        _asnAttempted = true;
+                        if (_approvedAddresses is { Length: > 0 } asnAddresses && !IPAddress.IsLoopback(asnAddresses[0]))
+                            _asnResult = await _gateway.LookupAsnAsync(asnAddresses[0], cancellationToken);
+                    }
+                    if (_asnResult is not null) headers["X-Sentinel-Asn-Info"] = [_asnResult];
                 }
                 var readBody = _manifest.Metadata.Id is "sentinel.http.host-header-trust" or "sentinel.http.error-disclosure" or "sentinel.lab.input-probes" or "sentinel.lab.endpoint-discovery";
                 var buffer = new byte[readBody ? 8192 : 0]; var length = 0;
@@ -172,6 +235,63 @@ public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine po
             }
             finally { _concurrency.Release(); }
         }
+
+        // NET-PORTS-01: único plugin autorizado a usar este canal. Lista curta e fixa de
+        // portas (nunca uma faixa nem escolhida pelo plugin), somente laboratório/loopback,
+        // somente connect()/disconnect() — nenhum dado é lido ou escrito, nunca um banner
+        // grab. A autorização do próprio escopo/prazo/confirmação é a mesma avaliada para
+        // qualquer outra requisição desta execução (contra a URL já autorizada, não contra
+        // a porta sondada — a política de escopo é por esquema/host/porta exatos do alvo
+        // HTTP, não tem como modelar "outras portas do mesmo host" como um recurso HTTP).
+        private static readonly int[] AllowedPorts = [80, 443, 22, 21, 3306, 5432, 6379, 8080];
+
+        public async Task<TcpProbeResponse> ProbeTcpAsync(TcpProbeRequest call, CancellationToken cancellationToken)
+        {
+            if (_manifest.Metadata.Id != "sentinel.net.port-scan" || _manifest.Spec.Capabilities.Network != "scoped-egress" || _request.Action != "lab-active")
+                return DeniedTcp(call, "Gateway recusou plugin, capacidade ou ação fora do contrato.");
+            if (!AllowedPorts.Contains(call.Port)) return DeniedTcp(call, "Porta fora da lista fixa autorizada.");
+            var host = _target.IdnHost.Trim('[', ']');
+            if (!(host.Equals("localhost", StringComparison.OrdinalIgnoreCase) || (IPAddress.TryParse(host, out var literal) && IPAddress.IsLoopback(literal))))
+                return DeniedTcp(call, "Varredura de portas só é permitida contra alvo de laboratório em loopback.");
+            await _concurrency.WaitAsync(cancellationToken);
+            try
+            {
+                while (true)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    var scopes = _gateway._store.GetScopes(_request.ProjectId);
+                    var decision = _gateway._policy.Evaluate(scopes, _target, _request.Action, _gateway._time.GetUtcNow(), true, requiredScopeId: _request.ScopeId);
+                    if (!decision.IsAllowed || _gateway._time.GetUtcNow() >= _request.DeadlineUtc) return DeniedTcp(call, "Gateway recusou escopo, consentimento ou prazo de execução.");
+                    await ValidateDns(cancellationToken);
+                    var permit = _gateway._coordinator.Permit(_lease);
+                    if (permit.Allowed) break;
+                    if (permit.RetryAfterMs == 0) return DeniedTcp(call, "Gateway recusou posse, orçamento ou cancelamento.");
+                    await Task.Delay(Math.Min(permit.RetryAfterMs, 200), cancellationToken);
+                }
+                cancellationToken.ThrowIfCancellationRequested();
+                var address = _approvedAddresses![0];
+                var clock = Stopwatch.StartNew();
+                using var socket = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
+                using var connectCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                connectCts.CancelAfter(TimeSpan.FromSeconds(1.5));
+                try
+                {
+                    await socket.ConnectAsync(new IPEndPoint(address, call.Port), connectCts.Token);
+                    return new("tcp-probe-response", call.RequestId, call.Port, true, clock.Elapsed.TotalMilliseconds, null);
+                }
+                catch (Exception exception) when (exception is SocketException or OperationCanceledException)
+                {
+                    return new("tcp-probe-response", call.RequestId, call.Port, false, clock.Elapsed.TotalMilliseconds, null);
+                }
+            }
+            catch (Exception exception) when (exception is HttpRequestException or IOException)
+            {
+                return DeniedTcp(call, "Gateway não aprovou DNS/endereço do alvo; nenhuma aprovação inferida.");
+            }
+            finally { _concurrency.Release(); }
+        }
+
+        private static TcpProbeResponse DeniedTcp(TcpProbeRequest call, string reason) => new("tcp-probe-response", call.RequestId, call.Port, false, 0, reason);
 
         public async Task PrepareAuthenticationAsync(CancellationToken cancellationToken)
         {

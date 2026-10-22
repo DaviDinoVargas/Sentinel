@@ -24,6 +24,12 @@ public sealed record PluginExecutionRequest(
 public sealed record HttpRelayRequest(string Kind, Guid RequestId, string Method, string Uri, Dictionary<string, string[]> Headers, bool Anonymous = false);
 public sealed record HttpRelayResponse(string Kind, Guid RequestId, int StatusCode, Dictionary<string, string[]> Headers, string BodyBase64, double ElapsedMs, string? Error);
 
+// NET-PORTS-01: probe TCP puro (connect/disconnect, sem ler ou escrever dados), nunca HTTP.
+// Mensagem separada do relay HTTP porque não há método/URI/corpo — só host implícito (o
+// próprio alvo da execução) e porta.
+public sealed record TcpProbeRequest(string Kind, Guid RequestId, int Port);
+public sealed record TcpProbeResponse(string Kind, Guid RequestId, int Port, bool Open, double ElapsedMs, string? Error);
+
 // Estados de saída que um plugin pode devolver (Plugins.md). Um plugin que não conseguiu
 // testar devolve Inconclusive ou Partial, nunca "sem achados" como aprovação.
 public enum PluginExecutionOutcome

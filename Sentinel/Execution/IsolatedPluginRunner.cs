@@ -31,7 +31,8 @@ public sealed class IsolatedPluginRunner
 
     public async Task<PluginExecutionResult> RunAsync(PluginManifest manifest, PluginExecutionRequest request, CancellationToken cancellationToken,
         Func<CancellationToken, Task<bool>>? permit = null,
-        Func<HttpRelayRequest, CancellationToken, Task<HttpRelayResponse>>? relay = null, string? sourceDirectory = null)
+        Func<HttpRelayRequest, CancellationToken, Task<HttpRelayResponse>>? relay = null, string? sourceDirectory = null,
+        Func<TcpProbeRequest, CancellationToken, Task<TcpProbeResponse>>? tcpRelay = null)
     {
         var inputValidation = _validator.ValidateInput(request);
         if (!inputValidation.IsValid)
@@ -108,6 +109,38 @@ public sealed class IsolatedPluginRunner
             }
         }
 
+        async Task ForwardTcpAsync(TcpProbeRequest call)
+        {
+            try
+            {
+                await relaySlots.WaitAsync(relayCts.Token);
+                TcpProbeResponse response;
+                try
+                {
+                    response = request.UseHttpRelay && tcpRelay is not null && manifest.Spec.Capabilities.Network == "scoped-egress"
+                        ? await tcpRelay(call, relayCts.Token) : new("tcp-probe-response", call.RequestId, call.Port, false, 0, "Gateway não autorizado pelo host.");
+                }
+                finally { relaySlots.Release(); }
+                await pipeWriter.WaitAsync(relayCts.Token);
+                try
+                {
+                    var json = JsonSerializer.Serialize(response, JsonOptions);
+                    await process.StandardInput.WriteLineAsync(json.AsMemory(), relayCts.Token);
+                    await process.StandardInput.FlushAsync(relayCts.Token);
+                }
+                finally { pipeWriter.Release(); }
+            }
+            catch (Exception exception) when (exception is OperationCanceledException or IOException or InvalidOperationException or ObjectDisposedException)
+            {
+                _logger.LogDebug("Canal TCP encerrado para plugin {PluginId}.", manifest.Metadata.Id);
+            }
+            catch (Exception exception)
+            {
+                _logger.LogError(exception, "Falha no probe TCP do plugin {PluginId}; execução interrompida.", manifest.Metadata.Id);
+                linkedCts.Cancel();
+            }
+        }
+
         try
         {
             process.Start();
@@ -131,6 +164,12 @@ public sealed class IsolatedPluginRunner
                     if (line.Length > 16_000 || forwarding.Count >= 64) throw new InvalidOperationException("Orçamento do protocolo HTTP excedido.");
                     var call = JsonSerializer.Deserialize<HttpRelayRequest>(line, JsonOptions) ?? throw new JsonException("Requisição HTTP inválida.");
                     forwarding.Add(ForwardAsync(call));
+                }
+                else if (line.StartsWith("{\"kind\":\"tcp-probe\"", StringComparison.Ordinal))
+                {
+                    if (line.Length > 1_000 || forwarding.Count >= 64) throw new InvalidOperationException("Orçamento do protocolo TCP excedido.");
+                    var call = JsonSerializer.Deserialize<TcpProbeRequest>(line, JsonOptions) ?? throw new JsonException("Requisição TCP inválida.");
+                    forwarding.Add(ForwardTcpAsync(call));
                 }
                 else
                 {

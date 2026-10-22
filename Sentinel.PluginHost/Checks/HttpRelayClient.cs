@@ -9,6 +9,10 @@ namespace Sentinel.PluginHost.Checks;
 internal sealed class HttpRelayClient : HttpMessageHandler
 {
     private static readonly ConcurrentDictionary<Guid, TaskCompletionSource<HttpRelayResponse>> Pending = new();
+    // NET-PORTS-01: mesmo pipe (um único Console.In/Out), mensagem e dicionário de
+    // pendências separados porque o formato da resposta é diferente (sem corpo/cabeçalhos
+    // HTTP, só porta/aberto/elapsed).
+    private static readonly ConcurrentDictionary<Guid, TaskCompletionSource<TcpProbeResponse>> PendingTcp = new();
     private static readonly SemaphoreSlim Writer = new(1, 1);
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     internal static bool Enabled { get; private set; }
@@ -30,6 +34,12 @@ internal sealed class HttpRelayClient : HttpMessageHandler
             while (await Console.In.ReadLineAsync(cancellationToken) is { } line)
             {
                 if (line.Length > 64_000) throw new HttpRequestException("Resposta de gateway excedeu o limite.");
+                if (line.Contains("\"tcp-probe-response\"", StringComparison.Ordinal))
+                {
+                    var probeResponse = JsonSerializer.Deserialize<TcpProbeResponse>(line, Json);
+                    if (probeResponse?.Kind == "tcp-probe-response" && PendingTcp.TryRemove(probeResponse.RequestId, out var probeCompletion)) probeCompletion.TrySetResult(probeResponse);
+                    continue;
+                }
                 var response = JsonSerializer.Deserialize<HttpRelayResponse>(line, Json);
                 if (response?.Kind == "http-response" && Pending.TryRemove(response.RequestId, out var completion)) completion.TrySetResult(response);
             }
@@ -40,7 +50,27 @@ internal sealed class HttpRelayClient : HttpMessageHandler
             Interlocked.Exchange(ref _closed, 1);
             foreach (var item in Pending)
                 if (Pending.TryRemove(item.Key, out var completion)) completion.TrySetException(new HttpRequestException("Canal do worker encerrado."));
+            foreach (var item in PendingTcp)
+                if (PendingTcp.TryRemove(item.Key, out var completion)) completion.TrySetException(new HttpRequestException("Canal do worker encerrado."));
         }
+    }
+
+    internal static async Task<TcpProbeResponse> ProbeAsync(int port, CancellationToken cancellationToken)
+    {
+        if (Volatile.Read(ref _closed) != 0) throw new HttpRequestException("Canal do worker encerrado.");
+        var id = Guid.NewGuid();
+        var completion = new TaskCompletionSource<TcpProbeResponse>(TaskCreationOptions.RunContinuationsAsynchronously);
+        PendingTcp[id] = completion;
+        try
+        {
+            var frame = new TcpProbeRequest("tcp-probe", id, port);
+            var json = JsonSerializer.Serialize(frame, Json);
+            await Writer.WaitAsync(cancellationToken);
+            try { await Console.Out.WriteLineAsync(json); await Console.Out.FlushAsync(); }
+            finally { Writer.Release(); }
+            return await completion.Task.WaitAsync(cancellationToken);
+        }
+        finally { PendingTcp.TryRemove(id, out _); }
     }
 
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)

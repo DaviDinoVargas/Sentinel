@@ -1,0 +1,22 @@
+apiVersion: sentinel.dev/v1
+kind: PluginManifest
+metadata:
+  id: sentinel.net.port-scan
+  version: 1.0.0
+  name: Varredura de portas curta e fixa (laboratório)
+spec:
+  type: infrastructure-analyzer
+  contractVersion: "1.0"
+  mode: active
+  controls: [NET-PORTS-01]
+  capabilities:
+    network: scoped-egress
+    sourceRead: false
+    artifactWrite: false
+  resources:
+    timeoutSeconds: 15
+    memoryMiB: 128
+  permissions: [target.tcp.lab-active]
+  execution:
+    isolation: container
+  riskClass: medium

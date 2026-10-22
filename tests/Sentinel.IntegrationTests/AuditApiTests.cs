@@ -57,11 +57,11 @@ public sealed class AuditApiTests : IClassFixture<SentinelApiFactory>
         // Sem fixture no projeto real: WEB-CFG-01 (cabeçalhos) + WEB-CFG-02 (CORS) + WEB-CFG-04
         // (erro/stack trace) + WEB-CFG-06 (host header) + WEB-CFG-09 (fingerprinting) +
         // TLS-01 (transporte, parcial) + TLS-02 (cookies) + NET-WAF-01 (fingerprint) +
-        // NET-DNS-01 (DNS). O HttpListener de teste sempre envia "Server:
-        // Microsoft-HTTPAPI/2.0", então WEB-CFG-09 reprova mesmo em /area-segura — é um
-        // caso real, não simulado.
-        Assert.Equal(9, audit.Controls.Count);
-        Assert.Equal(9, audit.Evidence.Count);
+        // NET-DNS-01 (DNS) + NET-ASN-01 (registro externo, pulado por ser loopback). O
+        // HttpListener de teste sempre envia "Server: Microsoft-HTTPAPI/2.0", então
+        // WEB-CFG-09 reprova mesmo em /area-segura — é um caso real, não simulado.
+        Assert.Equal(10, audit.Controls.Count);
+        Assert.Equal(10, audit.Evidence.Count);
 
         Assert.DoesNotContain(audit.Controls, c => c.ControlId == "SIM-001");
 
@@ -101,11 +101,15 @@ public sealed class AuditApiTests : IClassFixture<SentinelApiFactory>
         Assert.Equal("Informational", dnsControl.State);
         Assert.Contains("127.0.0.1", dnsControl.Summary);
 
+        // Alvo é loopback de laboratório: NET-ASN-01 nunca contata o registro externo.
+        var asnControl = Assert.Single(audit.Controls, control => control.ControlId == "NET-ASN-01");
+        Assert.Equal("Inconclusive", asnControl.State);
+
         var reportResponse = await _client.GetAsync($"/api/v1/audits/{audit.Id}/report");
         Assert.Equal(HttpStatusCode.OK, reportResponse.StatusCode);
         var report = await ReadRequiredAsync<AuditReport>(reportResponse);
         Assert.Equal(AuditState.Completed, report.State);
-        Assert.Equal(9, report.Evidence.Count);
+        Assert.Equal(10, report.Evidence.Count);
         Assert.All(report.Evidence, evidence => Assert.Matches("^[a-f0-9]{64}$", evidence.Sha256));
 
         var scoreResponse = await _client.GetAsync($"/api/v1/projects/{project.Id}/security-score");

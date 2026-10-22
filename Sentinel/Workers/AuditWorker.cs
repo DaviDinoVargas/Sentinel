@@ -105,7 +105,7 @@ public sealed class AuditWorker(
                         if (permit.RetryAfterMs == 0) return false;
                         await Task.Delay(Math.Min(permit.RetryAfterMs, 200), token);
                     }
-                }, source ? null : gatewaySession!.SendAsync, sourceWorkspace?.DirectoryPath);
+                }, source ? null : gatewaySession!.SendAsync, sourceWorkspace?.DirectoryPath, source ? null : gatewaySession!.ProbeTcpAsync);
                 childStopped = true;
                 executionCts.Token.ThrowIfCancellationRequested();
                 var controls = result.Checks.Select(check => new AuditControlResult(check.ControlId, check.State, Sentinel.Evidence.EvidenceSanitizer.Apply(check.Summary).Value,

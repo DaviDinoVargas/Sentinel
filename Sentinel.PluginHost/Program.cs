@@ -34,6 +34,8 @@ public static class Program
         ["sentinel.http.waf-fingerprint"] = () => new WafFingerprintCheck(),
         ["sentinel.net.dns-info"] = () => new DnsInfoCheck(),
         ["sentinel.lab.endpoint-discovery"] = () => new EndpointDiscoveryCheck(),
+        ["sentinel.net.asn-info"] = () => new AsnInfoCheck(),
+        ["sentinel.net.port-scan"] = () => new PortScanCheck(),
     };
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
