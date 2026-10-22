@@ -1,0 +1,22 @@
+apiVersion: sentinel.dev/v1
+kind: PluginManifest
+metadata:
+  id: sentinel.source.unused-dependencies
+  version: 1.0.0
+  name: Dependências npm sem import encontrado (SUP-05)
+spec:
+  type: dependency-analyzer
+  contractVersion: "1.0"
+  mode: passive
+  controls: [SUP-05]
+  capabilities:
+    network: "false"
+    sourceRead: true
+    artifactWrite: false
+  resources:
+    timeoutSeconds: 30
+    memoryMiB: 256
+  permissions: [target.source.read]
+  execution:
+    isolation: container
+  riskClass: low
