@@ -36,6 +36,7 @@ public static class Program
         ["sentinel.lab.endpoint-discovery"] = () => new EndpointDiscoveryCheck(),
         ["sentinel.net.asn-info"] = () => new AsnInfoCheck(),
         ["sentinel.net.port-scan"] = () => new PortScanCheck(),
+        ["sentinel.http.exposed-endpoints"] = () => new ExposedEndpointsCheck(),
     };
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)

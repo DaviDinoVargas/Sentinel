@@ -1,0 +1,22 @@
+apiVersion: sentinel.dev/v1
+kind: PluginManifest
+metadata:
+  id: sentinel.http.exposed-endpoints
+  version: 1.0.0
+  name: Documentação/debug expostos perto da URL auditada (WEB-CFG-05)
+spec:
+  type: dast
+  contractVersion: "1.0"
+  mode: passive
+  controls: [WEB-CFG-05]
+  capabilities:
+    network: scoped-egress
+    sourceRead: false
+    artifactWrite: false
+  resources:
+    timeoutSeconds: 12
+    memoryMiB: 128
+  permissions: [target.http.passive]
+  execution:
+    isolation: container
+  riskClass: low

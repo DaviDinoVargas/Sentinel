@@ -103,13 +103,15 @@ public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine po
             }) { Timeout = TimeSpan.FromSeconds(request.Action == "lab-active" ? 3 : 10) };
         }
 
-        // Único plugin autorizado a requisitar caminhos diferentes do alvo original na
-        // mesma execução: faz uma varredura (BFS) pós-login dentro do mesmo esquema/
-        // host/porta. Isso NÃO relaxa o limite real de segurança — toda URL que este
-        // plugin pedir ainda passa pela mesma avaliação de política/escopo por
+        // Únicos plugins autorizados a requisitar caminhos diferentes do alvo original na
+        // mesma execução: sentinel.lab.endpoint-discovery (BFS pós-login) e
+        // sentinel.http.exposed-endpoints (lista curta fixa de caminhos conhecidos de
+        // debug/documentação). Isso NÃO relaxa o limite real de segurança — toda URL que
+        // esses plugins pedirem ainda passa pela mesma avaliação de política/escopo por
         // requisição abaixo (policy.Evaluate), igual a qualquer outro plugin; uma rota
         // fora do prefixo/métodos/exclusões autorizados continua sendo recusada.
-        private bool AllowsArbitraryPath => _manifest.Metadata.Id == "sentinel.lab.endpoint-discovery";
+        private static readonly HashSet<string> ArbitraryPathPlugins = new(StringComparer.Ordinal) { "sentinel.lab.endpoint-discovery", "sentinel.http.exposed-endpoints" };
+        private bool AllowsArbitraryPath => ArbitraryPathPlugins.Contains(_manifest.Metadata.Id);
 
         internal bool IsValid(HttpRelayRequest call)
         {

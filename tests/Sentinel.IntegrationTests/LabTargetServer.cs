@@ -178,6 +178,18 @@ public sealed class LabTargetServer : IDisposable
             return;
         }
 
+        if (path.EndsWith("/swagger/index.html", StringComparison.Ordinal) || path.EndsWith("/swagger-ui.html", StringComparison.Ordinal) ||
+            path.EndsWith("/api-docs", StringComparison.Ordinal) || path.EndsWith("/actuator/health", StringComparison.Ordinal) ||
+            path.EndsWith("/.env", StringComparison.Ordinal) || path.EndsWith("/.git/config", StringComparison.Ordinal) ||
+            path.EndsWith("/server-status", StringComparison.Ordinal) || path.EndsWith("/debug", StringComparison.Ordinal))
+        {
+            // Caso real para WEB-CFG-05: por padrão nenhum desses caminhos conhecidos
+            // existe (404, caso aprovado); o cenário dedicado "expor-debug" expõe
+            // exatamente o swagger/index.html (caso reprovado real).
+            context.Response.StatusCode = path.Contains("expor-debug", StringComparison.Ordinal) && path.EndsWith("/swagger/index.html", StringComparison.Ordinal) ? 200 : 404;
+            context.Response.Close(); return;
+        }
+
         // Qualquer outro caminho (ex.: /area-vulneravel) não recebe cabeçalhos de
         // segurança, propositalmente, para que o controle WEB-CFG-01 tenha um caso real
         // que o reprova (Finding-Model.md: toda verificação precisa poder falhar).
