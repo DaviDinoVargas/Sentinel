@@ -138,6 +138,13 @@ public sealed class LabTargetServer : IDisposable
             context.Response.Headers.Add("CF-RAY", "8f3a9c2e1b004d2e-GRU");
         }
 
+        if (path.Contains("csp-fraco", StringComparison.OrdinalIgnoreCase))
+        {
+            // script-src com 'unsafe-inline' — caso reprovado real para o WEB-CFG-07
+            // (WEB-CFG-01 já aprova esta resposta, pois o cabeçalho está presente).
+            context.Response.Headers.Add("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'");
+        }
+
         if (path.Contains("cors-vulneravel", StringComparison.OrdinalIgnoreCase))
         {
             // Reflete qualquer Origin e libera credenciais: combinação clássica e

@@ -56,13 +56,13 @@ public sealed class AuditApiTests : IClassFixture<SentinelApiFactory>
         Assert.Equal(AuditState.Completed, audit.State);
         // Sem fixture no projeto real: WEB-CFG-01 (cabeçalhos) + WEB-CFG-02 (CORS) + WEB-CFG-04
         // (erro/stack trace) + WEB-CFG-05 (documentação/debug expostos) + WEB-CFG-06 (host
-        // header) + WEB-CFG-09 (fingerprinting) + TLS-01 (transporte, parcial) + TLS-02
-        // (cookies) + NET-WAF-01 (fingerprint) + NET-DNS-01 (DNS) + NET-ASN-01 (registro
-        // externo, pulado por ser loopback). O HttpListener de teste sempre envia "Server:
-        // Microsoft-HTTPAPI/2.0", então WEB-CFG-09 reprova mesmo em /area-segura — é um
-        // caso real, não simulado.
-        Assert.Equal(11, audit.Controls.Count);
-        Assert.Equal(11, audit.Evidence.Count);
+        // header) + WEB-CFG-07 (qualidade do CSP) + WEB-CFG-09 (fingerprinting) + TLS-01
+        // (transporte, parcial) + TLS-02 (cookies) + NET-WAF-01 (fingerprint) + NET-DNS-01
+        // (DNS) + NET-ASN-01 (registro externo, pulado por ser loopback). O HttpListener de
+        // teste sempre envia "Server: Microsoft-HTTPAPI/2.0", então WEB-CFG-09 reprova mesmo
+        // em /area-segura — é um caso real, não simulado.
+        Assert.Equal(12, audit.Controls.Count);
+        Assert.Equal(12, audit.Evidence.Count);
 
         Assert.DoesNotContain(audit.Controls, c => c.ControlId == "SIM-001");
 
@@ -110,11 +110,15 @@ public sealed class AuditApiTests : IClassFixture<SentinelApiFactory>
         var exposedControl = Assert.Single(audit.Controls, control => control.ControlId == "WEB-CFG-05");
         Assert.Equal("Passed", exposedControl.State);
 
+        // /area-segura usa "default-src 'self'" sem diretivas fracas: WEB-CFG-07 aprova.
+        var cspControl = Assert.Single(audit.Controls, control => control.ControlId == "WEB-CFG-07");
+        Assert.Equal("Passed", cspControl.State);
+
         var reportResponse = await _client.GetAsync($"/api/v1/audits/{audit.Id}/report");
         Assert.Equal(HttpStatusCode.OK, reportResponse.StatusCode);
         var report = await ReadRequiredAsync<AuditReport>(reportResponse);
         Assert.Equal(AuditState.Completed, report.State);
-        Assert.Equal(11, report.Evidence.Count);
+        Assert.Equal(12, report.Evidence.Count);
         Assert.All(report.Evidence, evidence => Assert.Matches("^[a-f0-9]{64}$", evidence.Sha256));
 
         var scoreResponse = await _client.GetAsync($"/api/v1/projects/{project.Id}/security-score");
@@ -122,13 +126,13 @@ public sealed class AuditApiTests : IClassFixture<SentinelApiFactory>
         var score = await ReadRequiredAsync<SecurityScore>(scoreResponse);
         Assert.Equal("P0-2.0", score.AlgorithmVersion);
         // Somente controles reais e avaliáveis (Passed/Failed) entram na amostra: WEB-CFG-01,
-        // WEB-CFG-02, WEB-CFG-05, WEB-CFG-06, TLS-02 passam e WEB-CFG-09 reprova; WEB-CFG-04
-        // (Inconclusive), TLS-01 (Inconclusive), NET-WAF-01/NET-DNS-01/NET-ASN-01
+        // WEB-CFG-02, WEB-CFG-05, WEB-CFG-06, WEB-CFG-07, TLS-02 passam e WEB-CFG-09 reprova;
+        // WEB-CFG-04 (Inconclusive), TLS-01 (Inconclusive), NET-WAF-01/NET-DNS-01/NET-ASN-01
         // (Informational/Inconclusive) não entram na amostra.
-        Assert.Equal(83.33m, score.Score);
+        Assert.Equal(85.71m, score.Score);
         Assert.Equal("Observed", score.Confidence);
-        Assert.Equal(6, score.ControlsEvaluated);
-        Assert.Equal(5, score.ControlsPassed);
+        Assert.Equal(7, score.ControlsEvaluated);
+        Assert.Equal(6, score.ControlsPassed);
     }
 
     [Fact]
