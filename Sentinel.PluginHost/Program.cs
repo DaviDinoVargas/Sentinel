@@ -41,6 +41,7 @@ public static class Program
         ["sentinel.http.csp-quality"] = () => new CspQualityCheck(),
         ["sentinel.source.unused-dependencies"] = () => new UnusedDependenciesCheck(),
         ["sentinel.source.sbom-diff"] = () => new SbomDiffCheck(),
+        ["sentinel.lab.fuzz-surface"] = () => new FuzzSurfaceCheck(),
     };
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)

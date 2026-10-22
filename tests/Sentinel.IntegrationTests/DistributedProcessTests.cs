@@ -69,7 +69,7 @@ public sealed class DistributedProcessTests
         Assert.Equal(cancelled.GrantedRequests, cancelledAgain.GrantedRequests);
         var completed = await WaitAudit(second.Client, queued.Id, audit => AuditStates.IsTerminal(audit.State));
         Assert.Equal(AuditState.Completed, completed.State);
-        Assert.Equal(4, completed.Controls.Count);
+        Assert.Equal(5, completed.Controls.Count);
         var evidence = completed.Evidence.First(item => item.Artifact is not null);
         var artifactPath = $"/api/v1/audits/{completed.Id}/evidence/{evidence.Id}/artifact";
         var artifactFirst = await Read<Sentinel.Evidence.VerifiedEvidenceArtifact>(first.Client, artifactPath);
@@ -78,9 +78,11 @@ public sealed class DistributedProcessTests
         Assert.Equal(artifactFirst.Content, artifactSecond.Content); Assert.Equal(evidence.Sha256, artifactFirst.Sha256);
         var secondRun = await Read<ExecutionSnapshot>(second.Client, $"/api/v1/audits/{queued.Id}/execution");
         Assert.Equal(firstRun.TargetKey, secondRun.TargetKey);
-        // +8 em relação ao total anterior: sentinel.net.port-scan soma suas 8 portas da
-        // lista fixa ao mesmo contador de permissões concedidas na execução.
-        Assert.Equal(53, secondRun.GrantedRequests);
+        // +8 em relação ao total anterior (port-scan) +3 em relação ao recorte seguinte
+        // (sentinel.lab.fuzz-surface: das 5 cargas de fuzz, 2 são recusadas pelo próprio
+        // HttpClient antes do envio — cabeçalho/URI excedem o limite do runtime — e nunca
+        // chegam a pedir permissão; só as 3 que efetivamente saem contam no orçamento).
+        Assert.Equal(56, secondRun.GrantedRequests);
         var grants = cancelled.Events.Concat(secondRun.Events).Where(item => item.Kind == "RequestGranted").OrderBy(item => item.AtUtc).ToArray();
         for (var index = 1; index < grants.Length; index++) Assert.True(grants[index].AtUtc - grants[index - 1].AtUtc >= TimeSpan.FromMilliseconds(100));
 

@@ -220,7 +220,7 @@ public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine po
                     }
                     if (_asnResult is not null) headers["X-Sentinel-Asn-Info"] = [_asnResult];
                 }
-                var readBody = _manifest.Metadata.Id is "sentinel.http.host-header-trust" or "sentinel.http.error-disclosure" or "sentinel.lab.input-probes" or "sentinel.lab.endpoint-discovery";
+                var readBody = _manifest.Metadata.Id is "sentinel.http.host-header-trust" or "sentinel.http.error-disclosure" or "sentinel.lab.input-probes" or "sentinel.lab.endpoint-discovery" or "sentinel.lab.fuzz-surface";
                 var buffer = new byte[readBody ? 8192 : 0]; var length = 0;
                 await using var body = await response.Content.ReadAsStreamAsync(cancellationToken);
                 while (length < buffer.Length)
