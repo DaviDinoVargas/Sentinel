@@ -123,8 +123,9 @@ public sealed class ExecutionCoordinator(IDbContextFactory<SentinelDbContext> fa
             return new RequestPermit(false, Math.Max(1, (int)Math.Ceiling((budget.NextRequestAtUtc.Value - now).TotalMilliseconds)));
         // Cap each plugin to its approved small HTTP budget, including malformed children.
         var kind = login ? "LoginGranted" : "RequestGranted";
-        var maxRequests = login ? 1 : execution.CurrentPluginId == "sentinel.lab.bounded-http-load" ? 40 : 8;
-        if (login && execution.CurrentPluginId is not ("sentinel.lab.authenticated-access" or "sentinel.lab.bounded-http-load")) return new RequestPermit(false);
+        var maxRequests = login ? 1 : execution.CurrentPluginId == "sentinel.lab.bounded-http-load" ? 40
+            : execution.CurrentPluginId == "sentinel.lab.endpoint-discovery" ? 25 : 8;
+        if (login && execution.CurrentPluginId is not ("sentinel.lab.authenticated-access" or "sentinel.lab.bounded-http-load" or "sentinel.lab.endpoint-discovery")) return new RequestPermit(false);
         var count = db.ExecutionEvents.Count(row => row.AuditId == lease.AuditId && row.Kind == kind && row.Detail == execution.CurrentPluginId);
         if (count >= maxRequests) return new RequestPermit(false);
         budget.NextRequestAtUtc = now.AddMilliseconds(Math.Ceiling(1000d / budget.RequestsPerSecond));

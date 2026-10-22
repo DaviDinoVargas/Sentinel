@@ -75,6 +75,30 @@ public sealed class LabTargetServer : IDisposable
             context.Response.Headers.Add("X-Reflected-Secret", token);
             WriteBody(context, token); return;
         }
+        if (path.Contains("/discovery-", StringComparison.Ordinal))
+        {
+            // Cenário real da descoberta pós-login (LAB-DISC-01): três páginas protegidas
+            // pelo mesmo token, ligadas entre si por links absolutos dentro do escopo, mais
+            // um link para um domínio externo que o plugin precisa ignorar.
+            var token = context.Request.Headers["Authorization"] ?? "";
+            if (token != "Bearer sentinel-tenant-a") { context.Response.StatusCode = 401; context.Response.Close(); return; }
+            if (path.EndsWith("/discovery-portal", StringComparison.Ordinal))
+            {
+                var baseDir = path[..^"discovery-portal".Length];
+                WriteBody(context, $"<html><body><a href=\"{baseDir}discovery-pedidos\">Pedidos</a> <a href=\"{baseDir}discovery-perfil\">Perfil</a> <a href=\"https://outro-dominio.invalid/fora\">Externo</a></body></html>");
+                return;
+            }
+            if (path.EndsWith("/discovery-pedidos", StringComparison.Ordinal))
+            {
+                var baseDir = path[..^"discovery-pedidos".Length];
+                WriteBody(context, "{\"items\":[{\"self\":\"" + baseDir + "discovery-pedidos-1\"}]}");
+                return;
+            }
+            if (path.EndsWith("/discovery-perfil", StringComparison.Ordinal) || path.EndsWith("/discovery-pedidos-1", StringComparison.Ordinal))
+            { context.Response.StatusCode = 200; context.Response.Close(); return; }
+            context.Response.StatusCode = 404; context.Response.Close(); return;
+        }
+
         if (path.Contains("redirect-fora", StringComparison.Ordinal))
         {
             context.Response.StatusCode = 302;

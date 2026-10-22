@@ -1,0 +1,22 @@
+apiVersion: sentinel.dev/v1
+kind: PluginManifest
+metadata:
+  id: sentinel.lab.endpoint-discovery
+  version: 1.0.0
+  name: Descoberta de endpoints pós-login (laboratório)
+spec:
+  type: api-discovery
+  contractVersion: "1.0"
+  mode: active
+  controls: [LAB-DISC-01]
+  capabilities:
+    network: scoped-egress
+    sourceRead: false
+    artifactWrite: false
+  resources:
+    timeoutSeconds: 25
+    memoryMiB: 128
+  permissions: [target.http.authenticated-lab]
+  execution:
+    isolation: container
+  riskClass: medium

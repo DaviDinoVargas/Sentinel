@@ -33,6 +33,7 @@ public static class Program
         ["sentinel.http.transport-security"] = () => new TransportSecurityCheck(),
         ["sentinel.http.waf-fingerprint"] = () => new WafFingerprintCheck(),
         ["sentinel.net.dns-info"] = () => new DnsInfoCheck(),
+        ["sentinel.lab.endpoint-discovery"] = () => new EndpointDiscoveryCheck(),
     };
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)

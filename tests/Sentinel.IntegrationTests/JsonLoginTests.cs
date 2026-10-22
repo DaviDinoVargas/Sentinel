@@ -115,10 +115,13 @@ public sealed class JsonLoginTests : IDisposable
         var deadline = DateTime.UtcNow.AddSeconds(45);
         while (!AuditStates.IsTerminal(audit.State) && DateTime.UtcNow < deadline)
         { await Task.Delay(100); audit = (await client.GetFromJsonAsync<Audit>($"/api/v1/audits/{audit.Id}", Json))!; }
-        Assert.Equal(AuditState.Completed, audit.State); Assert.Equal(2, audit.Controls.Count);
+        Assert.Equal(AuditState.Completed, audit.State); Assert.Equal(3, audit.Controls.Count);
         Assert.Equal("Passed", audit.Controls.Single(c => c.ControlId == "LAB-ACCESS-01").State);
         Assert.Equal("Informational", audit.Controls.Single(c => c.ControlId == "LAB-PERF-01").State);
-        Assert.Equal(2, host.LabTarget.RequestsFor(new Uri(login.Configuration.Url).AbsolutePath));
-        Assert.Equal(42, host.LabTarget.RequestsFor(new Uri(uri + "/tenant-a").AbsolutePath));
+        Assert.Equal("Informational", audit.Controls.Single(c => c.ControlId == "LAB-DISC-01").State);
+        // Três plugins autenticados preparam login agora (authenticated-access, bounded-http-load e endpoint-discovery).
+        Assert.Equal(3, host.LabTarget.RequestsFor(new Uri(login.Configuration.Url).AbsolutePath));
+        // 41 da carga limitada/baseline + 1 do próprio endpoint-discovery nesta mesma URL (sem links a seguir).
+        Assert.Equal(43, host.LabTarget.RequestsFor(new Uri(uri + "/tenant-a").AbsolutePath));
     }
 }

@@ -67,8 +67,8 @@ public sealed class AuditWorker(
             if (source && (payload.Source is null || !runtime.Container)) { coordinator.Finish(lease, AuditState.Blocked, "Análise de fontes exige snapshot persistido e sandbox Docker."); return; }
             var validationProject = store.FindProject(payload.ProjectId)?.Purpose == ProjectPurposes.Validation;
             var selected = registry.Approved.Where(item => validationProject || item.Metadata.Id != "sentinel.fixture.sim-001").Where(item => source ? item.Spec.Capabilities.SourceRead && item.Spec.Capabilities.Network == "false" : !item.Spec.Capabilities.SourceRead && (authenticated
-                ? item.Metadata.Id == "sentinel.lab.authenticated-access" || payload.IncludeAuthenticatedLoad && item.Metadata.Id == "sentinel.lab.bounded-http-load"
-                : item.Spec.Mode == mode && item.Metadata.Id != "sentinel.lab.authenticated-access"));
+                ? item.Metadata.Id is "sentinel.lab.authenticated-access" or "sentinel.lab.endpoint-discovery" || payload.IncludeAuthenticatedLoad && item.Metadata.Id == "sentinel.lab.bounded-http-load"
+                : item.Spec.Mode == mode && item.Metadata.Id is not "sentinel.lab.authenticated-access" and not "sentinel.lab.endpoint-discovery"));
             foreach (var manifest in selected.OrderBy(item => item.Metadata.Id == "sentinel.lab.authenticated-access" ? 0 : 1))
             {
                 stage = "politica";

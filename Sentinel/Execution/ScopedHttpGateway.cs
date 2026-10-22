@@ -52,14 +52,22 @@ public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine po
             }) { Timeout = TimeSpan.FromSeconds(request.Action == "lab-active" ? 3 : 10) };
         }
 
+        // Único plugin autorizado a requisitar caminhos diferentes do alvo original na
+        // mesma execução: faz uma varredura (BFS) pós-login dentro do mesmo esquema/
+        // host/porta. Isso NÃO relaxa o limite real de segurança — toda URL que este
+        // plugin pedir ainda passa pela mesma avaliação de política/escopo por
+        // requisição abaixo (policy.Evaluate), igual a qualquer outro plugin; uma rota
+        // fora do prefixo/métodos/exclusões autorizados continua sendo recusada.
+        private bool AllowsArbitraryPath => _manifest.Metadata.Id == "sentinel.lab.endpoint-discovery";
+
         internal bool IsValid(HttpRelayRequest call)
         {
             if (call.Kind != "http-request" || call.RequestId == Guid.Empty || call.Method != "GET" || _manifest.Spec.Capabilities.Network != "scoped-egress" ||
                 !Uri.TryCreate(call.Uri, UriKind.Absolute, out var uri) || uri.Scheme is not "http" and not "https" ||
                 !string.IsNullOrEmpty(uri.UserInfo) || !string.IsNullOrEmpty(uri.Fragment) ||
                 uri.Scheme != _target.Scheme || uri.IdnHost != _target.IdnHost || uri.Port != _target.Port ||
-                (uri.AbsolutePath != _target.AbsolutePath && !(_manifest.Metadata.Id == "sentinel.lab.authenticated-access" && uri == _baseline)) ||
-                (_request.Action != "lab-active" && uri.Query != _target.Query && !(_manifest.Metadata.Id == "sentinel.lab.authenticated-access" && uri == _baseline)) || call.Headers is null || call.Headers.Count > 4) return false;
+                (uri.AbsolutePath != _target.AbsolutePath && !AllowsArbitraryPath && !(_manifest.Metadata.Id == "sentinel.lab.authenticated-access" && uri == _baseline)) ||
+                (_request.Action != "lab-active" && uri.Query != _target.Query && !AllowsArbitraryPath && !(_manifest.Metadata.Id == "sentinel.lab.authenticated-access" && uri == _baseline)) || call.Headers is null || call.Headers.Count > 4) return false;
             if (call.Anonymous && (_request.Action != "authenticated-lab" || _manifest.Metadata.Id != "sentinel.lab.authenticated-access" || uri != _baseline)) return false;
             return call.Headers.All(header => AllowedHeaders.Contains(header.Key) && header.Value is { Length: > 0 and <= 2 } &&
                 header.Value.All(value => value is not null && value.Length <= 512 && !value.Any(char.IsControl)));
@@ -147,7 +155,7 @@ public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine po
                     if (_negotiatedProtocol is { } protocol) headers["X-Sentinel-Tls-Protocol"] = [protocol.ToString()];
                     if (_approvedAddresses is { Length: > 0 } addresses) headers["X-Sentinel-Resolved-Addresses"] = [string.Join(",", addresses.Select(address => address.ToString()))];
                 }
-                var readBody = _manifest.Metadata.Id is "sentinel.http.host-header-trust" or "sentinel.http.error-disclosure" or "sentinel.lab.input-probes";
+                var readBody = _manifest.Metadata.Id is "sentinel.http.host-header-trust" or "sentinel.http.error-disclosure" or "sentinel.lab.input-probes" or "sentinel.lab.endpoint-discovery";
                 var buffer = new byte[readBody ? 8192 : 0]; var length = 0;
                 await using var body = await response.Content.ReadAsStreamAsync(cancellationToken);
                 while (length < buffer.Length)

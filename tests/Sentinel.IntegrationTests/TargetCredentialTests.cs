@@ -22,11 +22,12 @@ public sealed class TargetCredentialTests(SentinelApiFactory factory) : IClassFi
         var (project, scope, url) = await Target(_client, factory);
         var profile = await Profile(_client, project.Id, scope.Id, "sentinel-tenant-a");
         var own = await Execute(project.Id, url + "/tenant-a", profile.Id, "allow");
-        Assert.Equal("Passed", Assert.Single(own.Controls).State);
+        Assert.Equal("Passed", Assert.Single(own.Controls, c => c.ControlId == "LAB-ACCESS-01").State);
         var denied = await Execute(project.Id, url + "/tenant-b", profile.Id, "deny");
-        Assert.Equal("Passed", Assert.Single(denied.Controls).State);
+        Assert.Equal("Passed", Assert.Single(denied.Controls, c => c.ControlId == "LAB-ACCESS-01").State);
         var exposed = await Execute(project.Id, url + "/broken-authz/tenant-b", profile.Id, "deny");
-        Assert.Equal("Failed", Assert.Single(exposed.Controls).State); Assert.Equal("High", Assert.Single(exposed.Controls).Severity);
+        var exposedAccess = Assert.Single(exposed.Controls, c => c.ControlId == "LAB-ACCESS-01");
+        Assert.Equal("Failed", exposedAccess.State); Assert.Equal("High", exposedAccess.Severity);
         var snapshot = (await _client.GetFromJsonAsync<ExecutionSnapshot>($"/api/v1/audits/{own.Id}/execution", Json))!;
         Assert.Equal(profile.Id, snapshot.Authentication!.Credential.Id); Assert.Equal(1, snapshot.Authentication.Credential.Version);
         Assert.DoesNotContain("sentinel-tenant-a", JsonSerializer.Serialize(new { own, denied, exposed, snapshot }, Json));
@@ -44,14 +45,14 @@ public sealed class TargetCredentialTests(SentinelApiFactory factory) : IClassFi
         var (project, scope, url) = await Target(_client, factory);
         var valid = await Profile(_client, project.Id, scope.Id, "sentinel-tenant-a");
         var audit = await Execute(project.Id, url + "/tenant-a", valid.Id, "allow", true);
-        Assert.Equal(2, audit.Controls.Count);
+        Assert.Equal(3, audit.Controls.Count);
         using var metrics = JsonDocument.Parse(audit.Evidence.Single(item => item.Summary.Contains("bounded-http-load-v1")).Summary);
         Assert.Equal(40, metrics.RootElement.GetProperty("statusCounts").GetProperty("200").GetInt32());
-        Assert.Equal(42, factory.LabTarget.RequestsFor(new Uri(url + "/tenant-a").AbsolutePath));
+        Assert.Equal(43, factory.LabTarget.RequestsFor(new Uri(url + "/tenant-a").AbsolutePath));
         var invalid = await Profile(_client, project.Id, scope.Id, "invalid-synthetic-token");
         var before = factory.LabTarget.RequestsFor(new Uri(url + "/tenant-a").AbsolutePath);
         var inconclusive = await Execute(project.Id, url + "/tenant-a", invalid.Id, "allow", true);
-        Assert.Equal("Inconclusive", Assert.Single(inconclusive.Controls).State);
+        Assert.Equal("Inconclusive", Assert.Single(inconclusive.Controls, c => c.ControlId == "LAB-ACCESS-01").State);
         Assert.Equal(before + 2, factory.LabTarget.RequestsFor(new Uri(url + "/tenant-a").AbsolutePath));
     }
 
@@ -68,10 +69,10 @@ public sealed class TargetCredentialTests(SentinelApiFactory factory) : IClassFi
         // A valid baseline cannot turn a later authentication failure into a pass.
         using var db = factory.Services.GetRequiredService<IDbContextFactory<SentinelDbContext>>().CreateDbContext();
         var rejected = await Execute(project.Id, url + "/reject-identity", profile.Id, "deny");
-        Assert.Equal("Inconclusive", Assert.Single(rejected.Controls).State);
+        Assert.Equal("Inconclusive", Assert.Single(rejected.Controls, c => c.ControlId == "LAB-ACCESS-01").State);
         var fresh = await Profile(_client, project.Id, scope.Id, "sentinel-tenant-a");
         var publicAccess = await Execute(project.Id, url + "/public-baseline", fresh.Id, "allow");
-        Assert.Equal("Inconclusive", Assert.Single(publicAccess.Controls).State);
+        Assert.Equal("Inconclusive", Assert.Single(publicAccess.Controls, c => c.ControlId == "LAB-ACCESS-01").State);
         Assert.Null((await _client.GetFromJsonAsync<TargetCredentialInfo[]>($"/api/v1/projects/{project.Id}/target-credentials"))!.Single(item => item.Id == fresh.Id).BaselineVerifiedAtUtc);
         db.AuditOutbox.Single(item => item.Id == baseline.Id).CreatedAtUtc = DateTimeOffset.UtcNow.AddMinutes(-6); db.SaveChanges();
         response = await _client.PostAsJsonAsync($"/api/v1/projects/{project.Id}/audits", new RequestAuditRequest(url + "/tenant-b", "authenticated-lab", true, profile.Id, "deny"));
