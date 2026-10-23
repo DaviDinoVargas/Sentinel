@@ -44,6 +44,7 @@ public static class Program
         ["sentinel.lab.fuzz-surface"] = () => new FuzzSurfaceCheck(),
         ["sentinel.source.model-integrity"] = () => new ModelArtifactIntegrityCheck(),
         ["sentinel.lab.api-anonymous-access"] = () => new ApiAnonymousAccessCheck(),
+        ["sentinel.source.api-auth-declared"] = () => new ApiAuthDeclaredCheck(),
     };
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)

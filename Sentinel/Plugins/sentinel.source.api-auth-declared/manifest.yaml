@@ -1,0 +1,22 @@
+apiVersion: sentinel.dev/v1
+kind: PluginManifest
+metadata:
+  id: sentinel.source.api-auth-declared
+  version: 1.0.0
+  name: Operações mutáveis sem segurança declarada (API-AUTHZ-08)
+spec:
+  type: dependency-analyzer
+  contractVersion: "1.0"
+  mode: passive
+  controls: [API-AUTHZ-08]
+  capabilities:
+    network: "false"
+    sourceRead: true
+    artifactWrite: false
+  resources:
+    timeoutSeconds: 30
+    memoryMiB: 256
+  permissions: [target.source.read]
+  execution:
+    isolation: container
+  riskClass: low
