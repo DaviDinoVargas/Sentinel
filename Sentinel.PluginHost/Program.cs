@@ -42,6 +42,7 @@ public static class Program
         ["sentinel.source.unused-dependencies"] = () => new UnusedDependenciesCheck(),
         ["sentinel.source.sbom-diff"] = () => new SbomDiffCheck(),
         ["sentinel.lab.fuzz-surface"] = () => new FuzzSurfaceCheck(),
+        ["sentinel.source.model-integrity"] = () => new ModelArtifactIntegrityCheck(),
     };
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
