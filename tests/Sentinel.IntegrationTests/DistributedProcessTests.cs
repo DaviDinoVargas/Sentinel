@@ -69,7 +69,7 @@ public sealed class DistributedProcessTests
         Assert.Equal(cancelled.GrantedRequests, cancelledAgain.GrantedRequests);
         var completed = await WaitAudit(second.Client, queued.Id, audit => AuditStates.IsTerminal(audit.State));
         Assert.Equal(AuditState.Completed, completed.State);
-        Assert.Equal(5, completed.Controls.Count);
+        Assert.Equal(6, completed.Controls.Count);
         var evidence = completed.Evidence.First(item => item.Artifact is not null);
         var artifactPath = $"/api/v1/audits/{completed.Id}/evidence/{evidence.Id}/artifact";
         var artifactFirst = await Read<Sentinel.Evidence.VerifiedEvidenceArtifact>(first.Client, artifactPath);

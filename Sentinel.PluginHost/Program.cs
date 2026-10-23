@@ -43,6 +43,7 @@ public static class Program
         ["sentinel.source.sbom-diff"] = () => new SbomDiffCheck(),
         ["sentinel.lab.fuzz-surface"] = () => new FuzzSurfaceCheck(),
         ["sentinel.source.model-integrity"] = () => new ModelArtifactIntegrityCheck(),
+        ["sentinel.lab.api-anonymous-access"] = () => new ApiAnonymousAccessCheck(),
     };
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)

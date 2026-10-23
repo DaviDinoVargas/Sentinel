@@ -110,7 +110,7 @@ public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine po
         // esses plugins pedirem ainda passa pela mesma avaliação de política/escopo por
         // requisição abaixo (policy.Evaluate), igual a qualquer outro plugin; uma rota
         // fora do prefixo/métodos/exclusões autorizados continua sendo recusada.
-        private static readonly HashSet<string> ArbitraryPathPlugins = new(StringComparer.Ordinal) { "sentinel.lab.endpoint-discovery", "sentinel.http.exposed-endpoints" };
+        private static readonly HashSet<string> ArbitraryPathPlugins = new(StringComparer.Ordinal) { "sentinel.lab.endpoint-discovery", "sentinel.http.exposed-endpoints", "sentinel.lab.api-anonymous-access" };
         private bool AllowsArbitraryPath => ArbitraryPathPlugins.Contains(_manifest.Metadata.Id);
 
         internal bool IsValid(HttpRelayRequest call)

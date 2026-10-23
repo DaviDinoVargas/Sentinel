@@ -16,7 +16,7 @@ public sealed class LabProfileTests(SentinelApiFactory factory) : IClassFixture<
     {
         var (project, url) = await Target("protegido");
         var audit = await Execute(project.Id, url, "lab-active", true);
-        Assert.Equal(AuditState.Completed, audit.State); Assert.Equal(5, audit.Controls.Count);
+        Assert.Equal(AuditState.Completed, audit.State); Assert.Equal(6, audit.Controls.Count);
         Assert.DoesNotContain(audit.Controls, control => control.ControlId == "SIM-001");
         Assert.Equal("Passed", Assert.Single(audit.Controls, control => control.ControlId == "LAB-AUTH-01").State);
         Assert.Equal("Inconclusive", Assert.Single(audit.Controls, control => control.ControlId == "LAB-INP-01").State);

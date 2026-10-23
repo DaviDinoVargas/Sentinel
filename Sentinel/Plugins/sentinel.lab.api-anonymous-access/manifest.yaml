@@ -1,0 +1,22 @@
+apiVersion: sentinel.dev/v1
+kind: PluginManifest
+metadata:
+  id: sentinel.lab.api-anonymous-access
+  version: 1.0.0
+  name: Acesso anônimo a operações que declaram segurança (API-AUTHZ-01)
+spec:
+  type: security-test
+  contractVersion: "1.0"
+  mode: active
+  controls: [API-AUTHZ-01]
+  capabilities:
+    network: scoped-egress
+    sourceRead: false
+    artifactWrite: false
+  resources:
+    timeoutSeconds: 18
+    memoryMiB: 128
+  permissions: [target.http.lab-active]
+  execution:
+    isolation: container
+  riskClass: medium

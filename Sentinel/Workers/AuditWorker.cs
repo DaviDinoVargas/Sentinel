@@ -99,9 +99,17 @@ public sealed class AuditWorker(
                     if (priorAudit is not null) priorInventoryJson = await FindInventoryEvidenceAsync(payload.ProjectId, priorAudit.Id, executionCts.Token);
                     stage = "sandbox";
                 }
+                string? openApiJson = null;
+                if (manifest.Metadata.Id == "sentinel.lab.api-anonymous-access")
+                {
+                    stage = "openapi-historico";
+                    foreach (var candidate in store.GetAudits(payload.ProjectId).Where(item => item.State == AuditState.Completed).OrderByDescending(item => item.CreatedAtUtc).Take(20))
+                        if ((openApiJson = await FindInventoryEvidenceAsync(payload.ProjectId, candidate.Id, executionCts.Token, "sentinel.source.openapi")) is not null) break;
+                    stage = "sandbox";
+                }
                 var request = new PluginExecutionRequest(manifest.Spec.ContractVersion, Guid.NewGuid(), payload.AuditId, payload.ProjectId,
                     payload.ScopeId, existing.CorrelationId, target.AbsoluteUri, payload.Action, deadline, now, RequireRequestPermits: !source, UseHttpRelay: !source, ExpectedAccess: payload.ExpectedAccess, BaselineUri: payload.Credential?.BaselineUri ?? target.AbsoluteUri, SourceRoot: source ? "/source" : null, SourceSha256: payload.Source?.Sha256,
-                    CurrentSourceInventoryJson: currentInventoryJson, PriorSourceInventoryJson: priorInventoryJson);
+                    CurrentSourceInventoryJson: currentInventoryJson, PriorSourceInventoryJson: priorInventoryJson, OpenApiInventoryJson: openApiJson);
                 using var gatewaySession = source ? null : gateway.Open(lease, request, manifest, payload.Credential);
                 stage = "login";
                 if (loginPreparationSeconds != 0) await gatewaySession!.PrepareAuthenticationAsync(executionCts.Token);
@@ -164,10 +172,10 @@ public sealed class AuditWorker(
     // SUP-06: lê o inventário (SRC-INV-01) já checkpointado para a auditoria informada,
     // sempre via banco/evidência (nunca uma variável local do loop) — correto mesmo se o
     // worker atual estiver retomando uma execução após queda de um processo anterior.
-    private async Task<string?> FindInventoryEvidenceAsync(Guid projectId, Guid auditId, CancellationToken ct)
+    private async Task<string?> FindInventoryEvidenceAsync(Guid projectId, Guid auditId, CancellationToken ct, string pluginId = "sentinel.source.inventory")
     {
         var audit = store.FindAudit(auditId);
-        var evidence = audit?.Evidence.SingleOrDefault(item => item.Artifact?.SourcePluginId == "sentinel.source.inventory");
+        var evidence = audit?.Evidence.SingleOrDefault(item => item.Artifact?.SourcePluginId == pluginId);
         if (evidence is null) return null;
         try
         {
