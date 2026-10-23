@@ -67,8 +67,8 @@ public sealed class AuditWorker(
             if (source && (payload.Source is null || !runtime.Container)) { coordinator.Finish(lease, AuditState.Blocked, "Análise de fontes exige snapshot persistido e sandbox Docker."); return; }
             var validationProject = store.FindProject(payload.ProjectId)?.Purpose == ProjectPurposes.Validation;
             var selected = registry.Approved.Where(item => validationProject || item.Metadata.Id != "sentinel.fixture.sim-001").Where(item => source ? item.Spec.Capabilities.SourceRead && item.Spec.Capabilities.Network == "false" : !item.Spec.Capabilities.SourceRead && (authenticated
-                ? item.Metadata.Id is "sentinel.lab.authenticated-access" or "sentinel.lab.endpoint-discovery" || payload.IncludeAuthenticatedLoad && item.Metadata.Id == "sentinel.lab.bounded-http-load"
-                : item.Spec.Mode == mode && item.Metadata.Id is not "sentinel.lab.authenticated-access" and not "sentinel.lab.endpoint-discovery"));
+                ? item.Metadata.Id is "sentinel.lab.authenticated-access" or "sentinel.lab.endpoint-discovery" || payload.SecondaryCredential is not null && item.Metadata.Id == "sentinel.lab.object-level-authz" || payload.IncludeAuthenticatedLoad && item.Metadata.Id == "sentinel.lab.bounded-http-load"
+                : item.Spec.Mode == mode && item.Metadata.Id is not "sentinel.lab.authenticated-access" and not "sentinel.lab.endpoint-discovery" and not "sentinel.lab.object-level-authz"));
             foreach (var manifest in selected.OrderBy(item => item.Metadata.Id is "sentinel.lab.authenticated-access" or "sentinel.source.inventory" ? 0 : item.Metadata.Id == "sentinel.source.sbom-diff" ? 2 : 1))
             {
                 stage = "politica";
@@ -100,7 +100,7 @@ public sealed class AuditWorker(
                     stage = "sandbox";
                 }
                 string? openApiJson = null;
-                if (manifest.Metadata.Id == "sentinel.lab.api-anonymous-access")
+                if (manifest.Metadata.Id is "sentinel.lab.api-anonymous-access" or "sentinel.lab.object-level-authz")
                 {
                     stage = "openapi-historico";
                     foreach (var candidate in store.GetAudits(payload.ProjectId).Where(item => item.State == AuditState.Completed).OrderByDescending(item => item.CreatedAtUtc).Take(20))
@@ -110,7 +110,7 @@ public sealed class AuditWorker(
                 var request = new PluginExecutionRequest(manifest.Spec.ContractVersion, Guid.NewGuid(), payload.AuditId, payload.ProjectId,
                     payload.ScopeId, existing.CorrelationId, target.AbsoluteUri, payload.Action, deadline, now, RequireRequestPermits: !source, UseHttpRelay: !source, ExpectedAccess: payload.ExpectedAccess, BaselineUri: payload.Credential?.BaselineUri ?? target.AbsoluteUri, SourceRoot: source ? "/source" : null, SourceSha256: payload.Source?.Sha256,
                     CurrentSourceInventoryJson: currentInventoryJson, PriorSourceInventoryJson: priorInventoryJson, OpenApiInventoryJson: openApiJson);
-                using var gatewaySession = source ? null : gateway.Open(lease, request, manifest, payload.Credential);
+                using var gatewaySession = source ? null : gateway.Open(lease, request, manifest, payload.Credential, payload.SecondaryCredential);
                 stage = "login";
                 if (loginPreparationSeconds != 0) await gatewaySession!.PrepareAuthenticationAsync(executionCts.Token);
                 childStopped = false;

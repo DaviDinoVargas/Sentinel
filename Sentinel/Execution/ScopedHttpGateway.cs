@@ -38,7 +38,7 @@ public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine po
     // redirecionamentos (o bootstrap RDAP público redireciona para o registro
     // regional correto), com limite para nunca entrar em loop.
     private readonly HttpClient _asnClient = new(new SocketsHttpHandler { AllowAutoRedirect = true, MaxAutomaticRedirections = 5, UseCookies = false, UseProxy = false });
-    public Session Open(ExecutionLease lease, PluginExecutionRequest request, PluginManifest manifest, CredentialBinding? credential = null) => new(this, lease, request, manifest, credential);
+    public Session Open(ExecutionLease lease, PluginExecutionRequest request, PluginManifest manifest, CredentialBinding? credential = null, CredentialBinding? secondary = null) => new(this, lease, request, manifest, credential, secondary);
     public void Dispose() => _asnClient.Dispose();
 
     // Best-effort: qualquer falha (rede, timeout, JSON inesperado) devolve null,
@@ -72,6 +72,7 @@ public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine po
         private readonly PluginExecutionRequest _request;
         private readonly PluginManifest _manifest;
         private readonly CredentialBinding? _credential;
+        private readonly CredentialBinding? _secondary;
         private readonly Uri _target;
         private readonly Uri _baseline;
         private readonly HttpClient _client;
@@ -91,9 +92,9 @@ public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine po
         private string _loginStatus = "NotTested";
         private static readonly HashSet<string> AllowedHeaders = new(StringComparer.OrdinalIgnoreCase) { "Origin", "Host", "X-Forwarded-Host", "Authorization" };
 
-        internal Session(ScopedHttpGateway gateway, ExecutionLease lease, PluginExecutionRequest request, PluginManifest manifest, CredentialBinding? credential)
+        internal Session(ScopedHttpGateway gateway, ExecutionLease lease, PluginExecutionRequest request, PluginManifest manifest, CredentialBinding? credential, CredentialBinding? secondary = null)
         {
-            _gateway = gateway; _lease = lease; _request = request; _manifest = manifest; _credential = credential; _target = new Uri(request.TargetUri);
+            _gateway = gateway; _lease = lease; _request = request; _manifest = manifest; _credential = credential; _secondary = secondary; _target = new Uri(request.TargetUri);
             _baseline = credential?.BaselineUri is { } baseline ? new Uri(baseline) : _target;
             _client = new HttpClient(new SocketsHttpHandler
             {
@@ -110,7 +111,7 @@ public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine po
         // esses plugins pedirem ainda passa pela mesma avaliação de política/escopo por
         // requisição abaixo (policy.Evaluate), igual a qualquer outro plugin; uma rota
         // fora do prefixo/métodos/exclusões autorizados continua sendo recusada.
-        private static readonly HashSet<string> ArbitraryPathPlugins = new(StringComparer.Ordinal) { "sentinel.lab.endpoint-discovery", "sentinel.http.exposed-endpoints", "sentinel.lab.api-anonymous-access" };
+        private static readonly HashSet<string> ArbitraryPathPlugins = new(StringComparer.Ordinal) { "sentinel.lab.endpoint-discovery", "sentinel.http.exposed-endpoints", "sentinel.lab.api-anonymous-access", "sentinel.lab.object-level-authz" };
         private bool AllowsArbitraryPath => ArbitraryPathPlugins.Contains(_manifest.Metadata.Id);
 
         internal bool IsValid(HttpRelayRequest call)
@@ -121,6 +122,7 @@ public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine po
                 uri.Scheme != _target.Scheme || uri.IdnHost != _target.IdnHost || uri.Port != _target.Port ||
                 (uri.AbsolutePath != _target.AbsolutePath && !AllowsArbitraryPath && !(_manifest.Metadata.Id == "sentinel.lab.authenticated-access" && uri == _baseline)) ||
                 (_request.Action != "lab-active" && uri.Query != _target.Query && !AllowsArbitraryPath && !(_manifest.Metadata.Id == "sentinel.lab.authenticated-access" && uri == _baseline)) || call.Headers is null || call.Headers.Count > 4) return false;
+            if (call.Persona is not ("primary" or "secondary") || call.Persona == "secondary" && (_manifest.Metadata.Id != "sentinel.lab.object-level-authz" || _secondary is null || call.Anonymous)) return false;
             if (call.Anonymous && (_request.Action != "authenticated-lab" || _manifest.Metadata.Id != "sentinel.lab.authenticated-access" || uri != _baseline)) return false;
             return call.Headers.All(header => AllowedHeaders.Contains(header.Key) && header.Value is { Length: > 0 and <= 2 } &&
                 header.Value.All(value => value is not null && value.Length <= 512 && !value.Any(char.IsControl)));
@@ -148,11 +150,13 @@ public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine po
                     {
                         if (_credential is null || call.Headers.Keys.Any(header => header.Equals("Authorization", StringComparison.OrdinalIgnoreCase)))
                             return Denied(call.RequestId, "Perfil autenticado ausente ou tentativa de substituir credencial do gateway.");
+                        var secondaryCall = call.Persona == "secondary";
+                        if (secondaryCall && _secondary is null) return Denied(call.RequestId, "Segunda identidade não configurada nesta auditoria.");
                         try
                         {
-                            var material = _gateway._credentials!.Material(_request.ProjectId, _request.ScopeId, _credential);
+                            var material = _gateway._credentials!.Material(_request.ProjectId, _request.ScopeId, secondaryCall ? _secondary! : _credential);
                             bearer = material.Bearer;
-                            if (!call.Anonymous && material.Login is { } login)
+                            if (!secondaryCall && !call.Anonymous && material.Login is { } login)
                             {
                                 bearer = await LoginAsync(login, cancellationToken);
                                 if (bearer is null) return Denied(call.RequestId, "Login do alvo: " + _loginStatus + ". Nenhuma aprovação inferida.");
@@ -220,7 +224,7 @@ public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine po
                     }
                     if (_asnResult is not null) headers["X-Sentinel-Asn-Info"] = [_asnResult];
                 }
-                var readBody = _manifest.Metadata.Id is "sentinel.http.host-header-trust" or "sentinel.http.error-disclosure" or "sentinel.lab.input-probes" or "sentinel.lab.endpoint-discovery" or "sentinel.lab.fuzz-surface";
+                var readBody = _manifest.Metadata.Id is "sentinel.http.host-header-trust" or "sentinel.http.error-disclosure" or "sentinel.lab.input-probes" or "sentinel.lab.endpoint-discovery" or "sentinel.lab.fuzz-surface" or "sentinel.lab.object-level-authz";
                 var buffer = new byte[readBody ? 8192 : 0]; var length = 0;
                 await using var body = await response.Content.ReadAsStreamAsync(cancellationToken);
                 while (length < buffer.Length)

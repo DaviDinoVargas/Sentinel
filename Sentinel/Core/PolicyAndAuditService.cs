@@ -157,16 +157,24 @@ public sealed class AuditService
         // transação que a auditoria — nunca existe uma auditoria Queued sem job pendente.
         var auditId = Guid.NewGuid();
         Execution.CredentialBinding? credential = null;
+        Execution.CredentialBinding? secondaryCredential = null;
         if (request.Action.Equals("authenticated-lab", StringComparison.OrdinalIgnoreCase))
         {
             if (request.CredentialProfileId is null || request.ExpectedAccess is not "allow" and not "deny" || request.IncludeAuthenticatedLoad && request.ExpectedAccess != "allow")
                 throw new ArgumentException("Cenário autenticado exige perfil e expectativa allow/deny; carga somente no acesso permitido.");
             credential = _credentials.Bind(projectId, decision.Scope!.Id, request.CredentialProfileId.Value, request.ExpectedAccess);
+            if (request.SecondaryCredentialProfileId is { } secondaryId)
+            {
+                if (request.ExpectedAccess != "allow" || request.IncludeAuthenticatedLoad || secondaryId == request.CredentialProfileId.Value)
+                    throw new ArgumentException("Segunda identidade exige acesso permitido, sem carga, e um perfil diferente do primário.");
+                secondaryCredential = _credentials.Bind(projectId, decision.Scope!.Id, secondaryId, "allow");
+                if (secondaryCredential.CredentialType != "Bearer") throw new ArgumentException("Segunda identidade aceita somente perfil Bearer nesta versão.");
+            }
         }
-        else if (request.CredentialProfileId is not null || request.ExpectedAccess is not null || request.IncludeAuthenticatedLoad)
+        else if (request.CredentialProfileId is not null || request.ExpectedAccess is not null || request.IncludeAuthenticatedLoad || request.SecondaryCredentialProfileId is not null)
             throw new ArgumentException("Credenciais e expectativas exigem perfil authenticated-lab.");
         var outboxPayload = new Execution.OutboxMessagePayload(auditId, projectId, decision.Scope!.Id, targetUri.AbsoluteUri, request.Action.ToLowerInvariant(), request.ConfirmActive,
-            credential, request.ExpectedAccess, request.IncludeAuthenticatedLoad);
+            credential, request.ExpectedAccess, request.IncludeAuthenticatedLoad, SecondaryCredential: secondaryCredential);
         var outboxPayloadJson = System.Text.Json.JsonSerializer.Serialize(outboxPayload, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
         return _store.SaveQueuedAuditWithOutbox(
             new Audit(auditId, projectId, decision.Scope.Id, targetUri, AuditState.Queued, correlationId, null, nowUtc, Array.Empty<AuditControlResult>(), Array.Empty<AuditEvidence>(), request.DataOrigin,

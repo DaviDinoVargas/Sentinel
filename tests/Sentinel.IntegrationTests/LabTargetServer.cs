@@ -65,10 +65,23 @@ public sealed class LabTargetServer : IDisposable
             else if (context.Request.HttpMethod != "POST") context.Response.StatusCode = 405;
             WriteBody(context, context.Response.StatusCode == 200 ? "{\"data\":{\"token\":\"sentinel-tenant-a\"}}" : "{\"error\":\"synthetic-password must never escape\"}"); return;
         }
+        if (path.Contains("/idor-", StringComparison.Ordinal))
+        {
+            // Cenário de objeto por identidade (API-AUTHZ-02): idor-safe isola por dono,
+            // idor-vuln entrega qualquer objeto a qualquer identidade válida.
+            var auth = context.Request.Headers["Authorization"] ?? "";
+            var letter = auth == "Bearer sentinel-tenant-a" ? "a" : auth == "Bearer sentinel-tenant-b" ? "b" : null;
+            if (letter is null) { context.Response.StatusCode = 401; context.Response.Close(); return; }
+            if (path.EndsWith("/orders", StringComparison.Ordinal)) { WriteBody(context, $"[{{\"id\":\"{letter}1\"}},{{\"id\":\"{letter}2\"}}]"); return; }
+            var id = path[(path.LastIndexOf('/') + 1)..];
+            var visible = path.Contains("/idor-vuln/", StringComparison.Ordinal) || id.StartsWith(letter, StringComparison.Ordinal);
+            context.Response.StatusCode = visible ? 200 : 404;
+            WriteBody(context, visible ? $"{{\"id\":\"{id}\",\"owner\":\"{id[..1]}\"}}" : "{}"); return;
+        }
         if (path.Contains("authenticated/", StringComparison.Ordinal))
         {
             var token = context.Request.Headers["Authorization"] ?? "";
-            var persona = token == "Bearer sentinel-tenant-a" ? "tenant-a" : token == "Bearer sentinel-tenant-b" ? "tenant-b" : null;
+            var persona =token == "Bearer sentinel-tenant-a" ? "tenant-a" : token == "Bearer sentinel-tenant-b" ? "tenant-b" : null;
             context.Response.StatusCode = path.Contains("public-baseline", StringComparison.Ordinal) ? 200 : path.Contains("reject-identity", StringComparison.Ordinal) || persona is null ? 401 : path.Contains("broken-authz", StringComparison.Ordinal) || path.EndsWith('/' + persona, StringComparison.Ordinal) ? 200 : 404;
             // Deliberately reflect a credential: the gateway must not forward it to
             // authenticated plugins or persist it in results/evidence.

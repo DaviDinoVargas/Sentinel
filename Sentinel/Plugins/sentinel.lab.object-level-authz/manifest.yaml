@@ -1,0 +1,22 @@
+apiVersion: sentinel.dev/v1
+kind: PluginManifest
+metadata:
+  id: sentinel.lab.object-level-authz
+  version: 1.0.0
+  name: Autorização em nível de objeto com duas identidades (API-AUTHZ-02)
+spec:
+  type: security-test
+  contractVersion: "1.0"
+  mode: active
+  controls: [API-AUTHZ-02]
+  capabilities:
+    network: scoped-egress
+    sourceRead: false
+    artifactWrite: false
+  resources:
+    timeoutSeconds: 18
+    memoryMiB: 128
+  permissions: [target.http.authenticated-lab]
+  execution:
+    isolation: container
+  riskClass: medium

@@ -27,7 +27,7 @@ public sealed record PluginExecutionRequest(
     string? PriorSourceInventoryJson = null,
     string? OpenApiInventoryJson = null);
 
-public sealed record HttpRelayRequest(string Kind, Guid RequestId, string Method, string Uri, Dictionary<string, string[]> Headers, bool Anonymous = false);
+public sealed record HttpRelayRequest(string Kind, Guid RequestId, string Method, string Uri, Dictionary<string, string[]> Headers, bool Anonymous = false, string Persona = "primary");
 public sealed record HttpRelayResponse(string Kind, Guid RequestId, int StatusCode, Dictionary<string, string[]> Headers, string BodyBase64, double ElapsedMs, string? Error);
 
 // NET-PORTS-01: probe TCP puro (connect/disconnect, sem ler ou escrever dados), nunca HTTP.

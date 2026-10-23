@@ -45,6 +45,7 @@ public static class Program
         ["sentinel.source.model-integrity"] = () => new ModelArtifactIntegrityCheck(),
         ["sentinel.lab.api-anonymous-access"] = () => new ApiAnonymousAccessCheck(),
         ["sentinel.source.api-auth-declared"] = () => new ApiAuthDeclaredCheck(),
+        ["sentinel.lab.object-level-authz"] = () => new ObjectLevelAuthzCheck(),
     };
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
