@@ -14,6 +14,8 @@ public sealed class LabTargetServer : IDisposable
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string,int> _requests = new();
     public int RequestsFor(string path) => _requests.GetValueOrDefault(path);
     private int _maxRefererLength;
+    private int _massCounter;
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _massStore = new();
     public int MaxRefererLength => Volatile.Read(ref _maxRefererLength);
 
     public Uri BaseUri { get; }
@@ -69,6 +71,40 @@ public sealed class LabTargetServer : IDisposable
             else if (password != "synthetic-password") context.Response.StatusCode = 401;
             else if (context.Request.HttpMethod != "POST") context.Response.StatusCode = 405;
             WriteBody(context, context.Response.StatusCode == 200 ? "{\"data\":{\"token\":\"sentinel-tenant-a\"}}" : "{\"error\":\"synthetic-password must never escape\"}"); return;
+        }
+        if (path.Contains("/mass-", StringComparison.Ordinal))
+        {
+            // API-AUTHZ-04: POST /users cria um usuário a partir do JSON. vuln vincula TODAS as propriedades,
+            // safe só name/email (ignora o resto), strict recusa propriedade desconhecida com 400 e hidden
+            // vincula tudo mas responde 201 vazio com Location (a prova exige ler o recurso depois).
+            if ((context.Request.Headers["Authorization"] ?? "") != "Bearer sentinel-tenant-a") { context.Response.StatusCode = 401; context.Response.Close(); return; }
+            var variant = path.Contains("/mass-vuln/", StringComparison.Ordinal) ? "vuln" : path.Contains("/mass-safe/", StringComparison.Ordinal) ? "safe" : path.Contains("/mass-strict/", StringComparison.Ordinal) ? "strict" : "hidden";
+            var usersAt = path.LastIndexOf("/users", StringComparison.Ordinal);
+            var directory = path[..usersAt];
+            if (context.Request.HttpMethod == "GET")
+            {
+                var key = path;
+                if (_massStore.TryGetValue(key, out var stored)) { context.Response.ContentType = "application/json"; WriteBody(context, stored); }
+                else { context.Response.StatusCode = 404; context.Response.Close(); }
+                return;
+            }
+            if (context.Request.HttpMethod != "POST" || !path.EndsWith("/users", StringComparison.Ordinal)) { context.Response.StatusCode = 405; context.Response.Close(); return; }
+            using var reader = new StreamReader(context.Request.InputStream);
+            System.Text.Json.Nodes.JsonObject? input;
+            try { input = System.Text.Json.Nodes.JsonNode.Parse(reader.ReadToEnd()) as System.Text.Json.Nodes.JsonObject; } catch (System.Text.Json.JsonException) { input = null; }
+            if (input is null) { context.Response.StatusCode = 400; context.Response.Close(); return; }
+            var allowed = new[] { "name", "email" };
+            if (variant == "strict" && input.Any(pair => !allowed.Contains(pair.Key))) { context.Response.StatusCode = 400; context.Response.Close(); return; }
+            var saved = new System.Text.Json.Nodes.JsonObject();
+            foreach (var (name, value) in input) if (variant is "vuln" or "hidden" || allowed.Contains(name)) saved[name] = value?.DeepClone();
+            var id = Interlocked.Increment(ref _massCounter);
+            saved["id"] = id;
+            _massStore[directory + "/users/" + id] = saved.ToJsonString();
+            context.Response.StatusCode = 201;
+            if (variant == "hidden") { context.Response.Headers.Add("Location", directory + "/users/" + id); context.Response.ContentLength64 = 0; context.Response.Close(); return; }
+            context.Response.ContentType = "application/json";
+            WriteBody(context, saved.ToJsonString());
+            return;
         }
         if (path.Contains("/bfla-", StringComparison.Ordinal))
         {

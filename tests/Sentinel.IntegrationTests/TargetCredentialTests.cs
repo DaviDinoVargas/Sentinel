@@ -45,7 +45,7 @@ public sealed class TargetCredentialTests(SentinelApiFactory factory) : IClassFi
         var (project, scope, url) = await Target(_client, factory);
         var valid = await Profile(_client, project.Id, scope.Id, "sentinel-tenant-a");
         var audit = await Execute(project.Id, url + "/tenant-a", valid.Id, "allow", true);
-        Assert.Equal(3, audit.Controls.Count);
+        Assert.Equal(4, audit.Controls.Count);
         using var metrics = JsonDocument.Parse(audit.Evidence.Single(item => item.Summary.Contains("bounded-http-load-v1")).Summary);
         Assert.Equal(40, metrics.RootElement.GetProperty("statusCounts").GetProperty("200").GetInt32());
         Assert.Equal(43, factory.LabTarget.RequestsFor(new Uri(url + "/tenant-a").AbsolutePath));

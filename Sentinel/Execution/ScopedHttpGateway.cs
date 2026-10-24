@@ -211,9 +211,10 @@ public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine po
                 var limits = _manifest.Spec.Capabilities.Gateway;
                 foreach (var header in response.Headers.Concat(response.Content.Headers))
                 {
-                    // Authenticated plugins only need status/timing. A target may
-                    // reflect Authorization in arbitrary response headers.
-                    if (_credential is not null) break;
+                    // Por padrão, plugins autenticados só recebem status/tempo: o alvo pode refletir a
+                    // credencial em qualquer cabeçalho. Com gateway.authenticatedResponseHeaders no manifesto
+                    // eles recebem os cabeçalhos, mas qualquer valor que contenha a credencial vira <redacted>.
+                    if (_credential is not null && !limits.AuthenticatedResponseHeaders) break;
                     if (header.Key.Equals("Content-Length", StringComparison.OrdinalIgnoreCase) || header.Key.Equals("Transfer-Encoding", StringComparison.OrdinalIgnoreCase)) continue;
                     if (header.Key.Equals("Set-Cookie", StringComparison.OrdinalIgnoreCase))
                     {
@@ -224,7 +225,8 @@ public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine po
                         headers[header.Key] = redacted;
                         continue;
                     }
-                    var values = header.Value.Take(2).Select(value => value.Length > limits.HeaderValueLength ? value[..limits.HeaderValueLength] : value).ToArray();
+                    var values = header.Value.Take(2).Select(value => value.Length > limits.HeaderValueLength ? value[..limits.HeaderValueLength] : value)
+                        .Select(value => bearer is { Length: > 0 } secret && value.Contains(secret, StringComparison.Ordinal) ? "<redacted>" : value).ToArray();
                     headerSize += header.Key.Length + values.Sum(value => value.Length);
                     if (headerSize > limits.HeaderBytes || headers.Count >= limits.HeaderCount) break;
                     headers[header.Key] = values;
@@ -259,12 +261,24 @@ public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine po
                     length += read;
                 }
                 // Quem pede corpo precisa saber se ele foi cortado: ausência de achado em um
-                // corpo truncado não é aprovação. Metadado do próprio gateway.
-                if (buffer.Length > 0 && _credential is null)
+                // corpo truncado não é aprovação. Metadado do próprio gateway (calculado antes da redação,
+                // que pode alterar o tamanho do buffer).
+                if (buffer.Length > 0)
                 {
                     var truncated = length == buffer.Length && await body.ReadAsync(new byte[1], cancellationToken) > 0;
                     headers["X-Sentinel-Body-Truncated"] = [truncated ? "true" : "false"];
                     if (response.Content.Headers.ContentLength is { } declared) headers["X-Sentinel-Content-Length"] = [declared.ToString()];
+                }
+                // Defesa em profundidade: se o alvo refletir a credencial no corpo, o plugin recebe <redacted>.
+                if (bearer is { Length: > 0 } token && length > 0)
+                {
+                    var text = System.Text.Encoding.UTF8.GetString(buffer, 0, length);
+                    if (text.Contains(token, StringComparison.Ordinal))
+                    {
+                        var clean = System.Text.Encoding.UTF8.GetBytes(text.Replace(token, "<redacted>", StringComparison.Ordinal));
+                        length = Math.Min(clean.Length, buffer.Length);
+                        buffer = clean.Length <= buffer.Length ? clean : clean[..buffer.Length];
+                    }
                 }
                 return new("http-response", call.RequestId, (int)response.StatusCode, headers, Convert.ToBase64String(buffer, 0, length), elapsed, null);
             }

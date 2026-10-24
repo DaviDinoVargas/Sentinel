@@ -112,6 +112,9 @@ public sealed class PluginManifestGateway
     public int RequestBodyBytes { get; set; }
     public List<string> RequestContentTypes { get; set; } = [];
     public int WriteRequests { get; set; }
+    // V43: entrega cabeçalhos de resposta a plugins em sessão autenticada (valores que contenham a
+    // credencial viram <redacted>). Padrão false: só status e tempo.
+    public bool AuthenticatedResponseHeaders { get; set; }
 }
 
 // V39: limites do host para recursos de container e cabeçalhos de requisição que um manifesto
