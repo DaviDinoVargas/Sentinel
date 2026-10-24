@@ -11,13 +11,14 @@ namespace Sentinel.PluginHost.Checks;
 public sealed class HostHeaderTrustCheck : IIsolatedCheck
 {
     private const string ProbeHost = "sentinel-host-probe.invalid";
-    private const int MaxBodyCharsInspected = 8_000;
+    private const int MaxBodyCharsInspected = GatewayLimits.MaxBodyBytes;
 
     public async Task<PluginExecutionResult> RunAsync(PluginExecutionRequest request, CancellationToken cancellationToken)
     {
         using var client = ScopedHttp.Create();
         HttpResponseMessage response;
         string body;
+        bool truncated;
         try
         {
             using var httpRequest = new HttpRequestMessage(HttpMethod.Get, request.TargetUri);
@@ -26,6 +27,7 @@ public sealed class HostHeaderTrustCheck : IIsolatedCheck
             response = await client.SendAsync(httpRequest, HttpCompletionOption.ResponseContentRead, cancellationToken);
             var fullBody = await response.Content.ReadAsStringAsync(cancellationToken);
             body = fullBody.Length > MaxBodyCharsInspected ? fullBody[..MaxBodyCharsInspected] : fullBody;
+            truncated = fullBody.Length > MaxBodyCharsInspected || ScopedHttp.BodyTruncated(response);
         }
         catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException)
         {
@@ -45,6 +47,16 @@ public sealed class HostHeaderTrustCheck : IIsolatedCheck
             var reflectedInBody = body.Contains(ProbeHost, StringComparison.OrdinalIgnoreCase);
             var reflectedInLocation = locationHeader.Contains(ProbeHost, StringComparison.OrdinalIgnoreCase);
             var reflected = reflectedInBody || reflectedInLocation;
+            if (!reflected && truncated)
+            {
+                var partial = $"O alvo respondeu HTTP {statusCode} e o corpo excede o limite inspecionado ({MaxBodyCharsInspected} caracteres); sem reflexo do Host não autorizado ({ProbeHost}) na parte vista. Resultado parcial: nenhuma aprovação inferida.";
+                return new PluginExecutionResult(
+                    request.ContractVersion,
+                    PluginExecutionOutcome.Succeeded,
+                    new[] { new PluginCheckResult("WEB-CFG-06", "Inconclusive", partial, "NotAssessed", "Info") },
+                    new[] { new PluginEvidenceRef(partial, $"status={statusCode};host-sent={ProbeHost};reflected=absent-in-inspected-part;body-truncated=true") },
+                    Array.Empty<string>());
+            }
 
             var state = reflected ? "Failed" : "Passed";
             var severity = reflected ? "High" : "Info";

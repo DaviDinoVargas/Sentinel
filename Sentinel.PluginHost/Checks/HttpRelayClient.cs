@@ -33,7 +33,7 @@ internal sealed class HttpRelayClient : HttpMessageHandler
         {
             while (await Console.In.ReadLineAsync(cancellationToken) is { } line)
             {
-                if (line.Length > 64_000) throw new HttpRequestException("Resposta de gateway excedeu o limite.");
+                if (line.Length > 524_288) throw new HttpRequestException("Resposta de gateway excedeu o limite.");
                 if (line.Contains("\"tcp-probe-response\"", StringComparison.Ordinal))
                 {
                     var probeResponse = JsonSerializer.Deserialize<TcpProbeResponse>(line, Json);

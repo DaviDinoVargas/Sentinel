@@ -13,6 +13,8 @@ spec:
     network: scoped-egress
     sourceRead: false
     artifactWrite: false
+    gateway:
+      maxRequests: 40
   resources:
     timeoutSeconds: 15
     memoryMiB: 128

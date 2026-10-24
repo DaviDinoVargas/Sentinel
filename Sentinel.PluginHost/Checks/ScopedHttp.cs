@@ -1,3 +1,4 @@
+using Sentinel.Contracts;
 using System.Net;
 using System.Net.Sockets;
 
@@ -40,11 +41,17 @@ internal static class ScopedHttp
         (uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase) ||
         IPAddress.TryParse(uri.IdnHost.Trim('[', ']'), out var address) && IPAddress.IsLoopback(address));
 
+    // O gateway informa (X-Sentinel-Body-Truncated) quando cortou o corpo no limite declarado
+    // no manifesto. Ausência de achado em corpo cortado nunca pode virar aprovação.
+    public static bool BodyTruncated(HttpResponseMessage response) =>
+        (response.Headers.TryGetValues("X-Sentinel-Body-Truncated", out var a) && a.Contains("true")) ||
+        (response.Content.Headers.TryGetValues("X-Sentinel-Body-Truncated", out var b) && b.Contains("true"));
+
     public static async Task<string> ReadPrefixAsync(HttpResponseMessage response, CancellationToken cancellationToken)
     {
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
         using var reader = new StreamReader(stream);
-        var buffer = new char[8192];
+        var buffer = new char[GatewayLimits.MaxBodyBytes];
         var read = await reader.ReadBlockAsync(buffer.AsMemory(), cancellationToken);
         return new string(buffer, 0, read);
     }

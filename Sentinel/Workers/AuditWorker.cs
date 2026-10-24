@@ -67,8 +67,8 @@ public sealed class AuditWorker(
             if (source && (payload.Source is null || !runtime.Container)) { coordinator.Finish(lease, AuditState.Blocked, "Análise de fontes exige snapshot persistido e sandbox Docker."); return; }
             var validationProject = store.FindProject(payload.ProjectId)?.Purpose == ProjectPurposes.Validation;
             var selected = registry.Approved.Where(item => validationProject || item.Metadata.Id != "sentinel.fixture.sim-001").Where(item => source ? item.Spec.Capabilities.SourceRead && item.Spec.Capabilities.Network == "false" : !item.Spec.Capabilities.SourceRead && (authenticated
-                ? item.Metadata.Id is "sentinel.lab.authenticated-access" or "sentinel.lab.endpoint-discovery" || payload.SecondaryCredential is not null && item.Metadata.Id is "sentinel.lab.object-level-authz" or "sentinel.lab.function-level-authz" || payload.IncludeAuthenticatedLoad && item.Metadata.Id == "sentinel.lab.bounded-http-load"
-                : item.Spec.Mode == mode && item.Metadata.Id is not "sentinel.lab.authenticated-access" and not "sentinel.lab.endpoint-discovery" and not "sentinel.lab.object-level-authz" and not "sentinel.lab.function-level-authz"));
+                ? item.Spec.Capabilities.Gateway.Identity == "primary" || payload.SecondaryCredential is not null && item.Spec.Capabilities.Gateway.Identity == "dual" || payload.IncludeAuthenticatedLoad && item.Metadata.Id == "sentinel.lab.bounded-http-load"
+                : item.Spec.Mode == mode && item.Spec.Capabilities.Gateway.Identity == "none"));
             foreach (var manifest in selected.OrderBy(item => item.Metadata.Id is "sentinel.lab.authenticated-access" or "sentinel.source.inventory" ? 0 : item.Metadata.Id == "sentinel.source.sbom-diff" ? 2 : 1))
             {
                 stage = "politica";
@@ -120,7 +120,7 @@ public sealed class AuditWorker(
                     while (true)
                     {
                         token.ThrowIfCancellationRequested();
-                        var permit = coordinator.Permit(lease);
+                        var permit = coordinator.Permit(lease, requestBudget: manifest.Spec.Capabilities.Gateway.MaxRequests);
                         if (permit.Allowed) return true;
                         if (permit.RetryAfterMs == 0) return false;
                         await Task.Delay(Math.Min(permit.RetryAfterMs, 200), token);

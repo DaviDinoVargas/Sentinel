@@ -13,6 +13,9 @@ spec:
     network: scoped-egress
     sourceRead: false
     artifactWrite: false
+    gateway:
+      identity: dual
+      arbitraryPaths: true
   resources:
     timeoutSeconds: 18
     memoryMiB: 128

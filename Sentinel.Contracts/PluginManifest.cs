@@ -38,6 +38,7 @@ public sealed class PluginManifestCapabilities
     public string Network { get; set; } = "false";
     public bool SourceRead { get; set; }
     public bool ArtifactWrite { get; set; }
+    public PluginManifestGateway Gateway { get; set; } = new();
 }
 
 public sealed class PluginManifestResources
@@ -50,4 +51,32 @@ public sealed class PluginManifestExecution
 {
     // The host applies its approved runtime; process mode is development-only.
     public string Isolation { get; set; } = "container";
+}
+
+// Limites máximos que o host concede a QUALQUER plugin, independentemente do que o manifesto
+// pedir. O manifesto declara; o host impõe (e o schema recusa pedidos acima disto).
+public static class GatewayLimits
+{
+    public const int MaxBodyBytes = 262_144;
+    public const int MaxHeaderCount = 128;
+    public const int MaxHeaderValueLength = 4_096;
+    public const int MaxHeaderBytes = 32_768;
+    public const int MaxRequests = 200;
+}
+
+// Capacidades de gateway por plugin (spec.capabilities.gateway). Os padrões reproduzem o
+// comportamento anterior à V38: um plugin que não declara nada continua recebendo só status
+// e até 32 cabeçalhos de 512 caracteres, sem corpo, restrito ao caminho exato do alvo e a 8
+// requisições. Pedir mais é explícito, auditável e limitado por GatewayLimits.
+public sealed class PluginManifestGateway
+{
+    // none: sem identidade; primary: identidade primária do cenário autenticado;
+    // dual: também a secundária (cenários entre duas identidades).
+    public string Identity { get; set; } = "none";
+    public int BodyBytes { get; set; }
+    public int HeaderCount { get; set; } = 32;
+    public int HeaderValueLength { get; set; } = 512;
+    public int HeaderBytes { get; set; } = 8_000;
+    public bool ArbitraryPaths { get; set; }
+    public int MaxRequests { get; set; } = 8;
 }

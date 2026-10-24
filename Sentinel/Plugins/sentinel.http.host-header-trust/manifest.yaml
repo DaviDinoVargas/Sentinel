@@ -13,6 +13,11 @@ spec:
     network: scoped-egress
     sourceRead: false
     artifactWrite: false
+    gateway:
+      bodyBytes: 262144
+      headerCount: 128
+      headerValueLength: 4096
+      headerBytes: 32768
   resources:
     timeoutSeconds: 10
     memoryMiB: 128

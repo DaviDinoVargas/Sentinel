@@ -13,6 +13,11 @@ spec:
     network: scoped-egress
     sourceRead: false
     artifactWrite: false
+    gateway:
+      identity: primary
+      arbitraryPaths: true
+      bodyBytes: 65536
+      maxRequests: 25
   resources:
     timeoutSeconds: 25
     memoryMiB: 128

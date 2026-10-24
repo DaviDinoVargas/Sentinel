@@ -168,6 +168,32 @@ public sealed class LabTargetServer : IDisposable
             context.Response.Headers.Add("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'");
         }
 
+        if (path.Contains("csp-longo", StringComparison.OrdinalIgnoreCase))
+        {
+            // CSP real de grande porte: a diretiva fraca só aparece depois de ~1.200 caracteres.
+            // Com o limite antigo de 512 caracteres por valor de cabeçalho ela era cortada e o
+            // WEB-CFG-07 nunca a via.
+            var hosts = string.Join(" ", Enumerable.Range(1, 60).Select(i => $"https://cdn{i}.exemplo.invalid"));
+            context.Response.Headers.Add("Content-Security-Policy", $"default-src 'self'; img-src {hosts}; script-src 'self' 'unsafe-inline'");
+        }
+
+        if (path.Contains("erro-stacktrace-tardio", StringComparison.OrdinalIgnoreCase))
+        {
+            // Página de erro grande: o stack trace só começa depois de ~20 KB de HTML.
+            context.Response.StatusCode = 500;
+            WriteBody(context, new string('x', 20_000) + "\nSystem.InvalidOperationException: operação inválida\n   at Sentinel.Lab.Fake.Run()\n   at Sentinel.Lab.Fake.Handle() in C:\\lab\\Fake.cs:line 42");
+            return;
+        }
+
+        if (path.Contains("erro-corpo-gigante", StringComparison.OrdinalIgnoreCase))
+        {
+            // Corpo maior que o máximo que o host concede a qualquer plugin (256 KiB): o stack
+            // trace fica além do limite, então o resultado correto é Inconclusive, nunca Passed.
+            context.Response.StatusCode = 500;
+            WriteBody(context, new string('x', 300_000) + "\n   at Sentinel.Lab.Fake.Run() in C:\\lab\\Fake.cs:line 1");
+            return;
+        }
+
         if (path.Contains("cors-vulneravel", StringComparison.OrdinalIgnoreCase))
         {
             // Reflete qualquer Origin e libera credenciais: combinação clássica e

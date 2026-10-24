@@ -9,7 +9,7 @@ namespace Sentinel.PluginHost.Checks;
 // (Finding-Model.md: nunca tratar "não observei erro" como aprovação).
 public sealed class ErrorDisclosureCheck : IIsolatedCheck
 {
-    private const int MaxBodyCharsInspected = 8_000;
+    private const int MaxBodyCharsInspected = GatewayLimits.MaxBodyBytes;
 
     private static readonly string[] StackTraceMarkers =
     {
@@ -25,12 +25,14 @@ public sealed class ErrorDisclosureCheck : IIsolatedCheck
         using var client = ScopedHttp.Create();
         HttpResponseMessage response;
         string body;
+        bool truncated;
         try
         {
             using var httpRequest = new HttpRequestMessage(HttpMethod.Get, request.TargetUri);
             response = await client.SendAsync(httpRequest, HttpCompletionOption.ResponseContentRead, cancellationToken);
             var fullBody = await response.Content.ReadAsStringAsync(cancellationToken);
             body = fullBody.Length > MaxBodyCharsInspected ? fullBody[..MaxBodyCharsInspected] : fullBody;
+            truncated = fullBody.Length > MaxBodyCharsInspected || ScopedHttp.BodyTruncated(response);
         }
         catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException)
         {
@@ -58,6 +60,16 @@ public sealed class ErrorDisclosureCheck : IIsolatedCheck
             }
 
             var foundMarkers = StackTraceMarkers.Where(marker => body.Contains(marker, StringComparison.Ordinal)).ToArray();
+            if (foundMarkers.Length == 0 && truncated)
+            {
+                var partial = $"O alvo respondeu HTTP {statusCode} e o corpo excede o limite inspecionado ({MaxBodyCharsInspected} caracteres); sem marcadores de stack trace na parte vista. Resultado parcial: nenhuma aprovação inferida.";
+                return new PluginExecutionResult(
+                    request.ContractVersion,
+                    PluginExecutionOutcome.Succeeded,
+                    new[] { new PluginCheckResult("WEB-CFG-04", "Inconclusive", partial, "NotAssessed", "Info") },
+                    new[] { new PluginEvidenceRef(partial, $"status={statusCode};stack-trace-markers=absent-in-inspected-part;body-truncated=true") },
+                    Array.Empty<string>());
+            }
             var state = foundMarkers.Length == 0 ? "Passed" : "Failed";
             var severity = foundMarkers.Length == 0 ? "Info" : "High";
             var summaryText = foundMarkers.Length == 0

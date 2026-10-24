@@ -111,8 +111,8 @@ public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine po
         // esses plugins pedirem ainda passa pela mesma avaliação de política/escopo por
         // requisição abaixo (policy.Evaluate), igual a qualquer outro plugin; uma rota
         // fora do prefixo/métodos/exclusões autorizados continua sendo recusada.
-        private static readonly HashSet<string> ArbitraryPathPlugins = new(StringComparer.Ordinal) { "sentinel.lab.endpoint-discovery", "sentinel.http.exposed-endpoints", "sentinel.lab.api-anonymous-access", "sentinel.lab.object-level-authz", "sentinel.lab.function-level-authz" };
-        private bool AllowsArbitraryPath => ArbitraryPathPlugins.Contains(_manifest.Metadata.Id);
+
+        private bool AllowsArbitraryPath => _manifest.Spec.Capabilities.Gateway.ArbitraryPaths;
 
         internal bool IsValid(HttpRelayRequest call)
         {
@@ -122,7 +122,7 @@ public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine po
                 uri.Scheme != _target.Scheme || uri.IdnHost != _target.IdnHost || uri.Port != _target.Port ||
                 (uri.AbsolutePath != _target.AbsolutePath && !AllowsArbitraryPath && !(_manifest.Metadata.Id == "sentinel.lab.authenticated-access" && uri == _baseline)) ||
                 (_request.Action != "lab-active" && uri.Query != _target.Query && !AllowsArbitraryPath && !(_manifest.Metadata.Id == "sentinel.lab.authenticated-access" && uri == _baseline)) || call.Headers is null || call.Headers.Count > 4) return false;
-            if (call.Persona is not ("primary" or "secondary") || call.Persona == "secondary" && (_manifest.Metadata.Id is not ("sentinel.lab.object-level-authz" or "sentinel.lab.function-level-authz") || _secondary is null || call.Anonymous)) return false;
+            if (call.Persona is not ("primary" or "secondary") || call.Persona == "secondary" && (_manifest.Spec.Capabilities.Gateway.Identity != "dual" || _secondary is null || call.Anonymous)) return false;
             if (call.Anonymous && (_request.Action != "authenticated-lab" || _manifest.Metadata.Id != "sentinel.lab.authenticated-access" || uri != _baseline)) return false;
             return call.Headers.All(header => AllowedHeaders.Contains(header.Key) && header.Value is { Length: > 0 and <= 2 } &&
                 header.Value.All(value => value is not null && value.Length <= 512 && !value.Any(char.IsControl)));
@@ -165,7 +165,7 @@ public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine po
                         catch (Exception exception) when (exception is InvalidOperationException or KeyNotFoundException or System.Security.Cryptography.CryptographicException)
                         { return Denied(call.RequestId, "Credencial indisponível, expirada, revogada ou rotacionada."); }
                     }
-                    var permit = _gateway._coordinator.Permit(_lease);
+                    var permit = _gateway._coordinator.Permit(_lease, requestBudget: _manifest.Spec.Capabilities.Gateway.MaxRequests);
                     if (permit.Allowed) break;
                     if (permit.RetryAfterMs == 0) return Denied(call.RequestId, "Gateway recusou posse, orçamento ou cancelamento.");
                     await Task.Delay(Math.Min(permit.RetryAfterMs, 200), cancellationToken);
@@ -183,6 +183,7 @@ public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine po
                 var headers = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
                 var headerSize = 0;
                 var cookieAware = CookieAwarePlugins.Contains(_manifest.Metadata.Id);
+                var limits = _manifest.Spec.Capabilities.Gateway;
                 foreach (var header in response.Headers.Concat(response.Content.Headers))
                 {
                     // Authenticated plugins only need status/timing. A target may
@@ -194,13 +195,13 @@ public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine po
                         if (!cookieAware) continue;
                         var redacted = header.Value.Take(8).Select(RedactCookieValue).ToArray();
                         headerSize += header.Key.Length + redacted.Sum(value => value.Length);
-                        if (headerSize > 8000 || headers.Count >= 32) break;
+                        if (headerSize > limits.HeaderBytes || headers.Count >= limits.HeaderCount) break;
                         headers[header.Key] = redacted;
                         continue;
                     }
-                    var values = header.Value.Take(2).Select(value => value.Length > 512 ? value[..512] : value).ToArray();
+                    var values = header.Value.Take(2).Select(value => value.Length > limits.HeaderValueLength ? value[..limits.HeaderValueLength] : value).ToArray();
                     headerSize += header.Key.Length + values.Sum(value => value.Length);
-                    if (headerSize > 8000 || headers.Count >= 32) break;
+                    if (headerSize > limits.HeaderBytes || headers.Count >= limits.HeaderCount) break;
                     headers[header.Key] = values;
                 }
                 // Metadados sintéticos do próprio gateway (não vieram na resposta HTTP):
@@ -224,14 +225,21 @@ public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine po
                     }
                     if (_asnResult is not null) headers["X-Sentinel-Asn-Info"] = [_asnResult];
                 }
-                var readBody = _manifest.Metadata.Id is "sentinel.http.host-header-trust" or "sentinel.http.error-disclosure" or "sentinel.lab.input-probes" or "sentinel.lab.endpoint-discovery" or "sentinel.lab.fuzz-surface" or "sentinel.lab.object-level-authz";
-                var buffer = new byte[readBody ? 8192 : 0]; var length = 0;
+                var buffer = new byte[Math.Min(limits.BodyBytes, GatewayLimits.MaxBodyBytes)]; var length = 0;
                 await using var body = await response.Content.ReadAsStreamAsync(cancellationToken);
                 while (length < buffer.Length)
                 {
                     var read = await body.ReadAsync(buffer.AsMemory(length), cancellationToken);
                     if (read == 0) break;
                     length += read;
+                }
+                // Quem pede corpo precisa saber se ele foi cortado: ausência de achado em um
+                // corpo truncado não é aprovação. Metadado do próprio gateway.
+                if (buffer.Length > 0 && _credential is null)
+                {
+                    var truncated = length == buffer.Length && await body.ReadAsync(new byte[1], cancellationToken) > 0;
+                    headers["X-Sentinel-Body-Truncated"] = [truncated ? "true" : "false"];
+                    if (response.Content.Headers.ContentLength is { } declared) headers["X-Sentinel-Content-Length"] = [declared.ToString()];
                 }
                 return new("http-response", call.RequestId, (int)response.StatusCode, headers, Convert.ToBase64String(buffer, 0, length), elapsed, null);
             }
@@ -269,7 +277,7 @@ public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine po
                     var decision = _gateway._policy.Evaluate(scopes, _target, _request.Action, _gateway._time.GetUtcNow(), true, requiredScopeId: _request.ScopeId);
                     if (!decision.IsAllowed || _gateway._time.GetUtcNow() >= _request.DeadlineUtc) return DeniedTcp(call, "Gateway recusou escopo, consentimento ou prazo de execução.");
                     await ValidateDns(cancellationToken);
-                    var permit = _gateway._coordinator.Permit(_lease);
+                    var permit = _gateway._coordinator.Permit(_lease, requestBudget: _manifest.Spec.Capabilities.Gateway.MaxRequests);
                     if (permit.Allowed) break;
                     if (permit.RetryAfterMs == 0) return DeniedTcp(call, "Gateway recusou posse, orçamento ou cancelamento.");
                     await Task.Delay(Math.Min(permit.RetryAfterMs, 200), cancellationToken);
@@ -334,7 +342,7 @@ public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine po
                         if (scope is null) { _loginStatus = "OutsideScope"; return null; }
                         TargetJsonLogin.Validate(login, scope, _gateway._time.GetUtcNow());
                         _gateway._credentials!.Material(_request.ProjectId, _request.ScopeId, _credential!);
-                        var permit = _gateway._coordinator.Permit(_lease, login: true);
+                        var permit = _gateway._coordinator.Permit(_lease, login: true, loginAllowed: _credential is not null);
                         if (permit.Allowed) break;
                         if (permit.RetryAfterMs == 0) { _loginStatus = "CancelledOrBudgetDenied"; return null; }
                         await Task.Delay(Math.Min(permit.RetryAfterMs, 200), ct);
