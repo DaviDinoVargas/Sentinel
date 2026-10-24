@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Sentinel.Contracts\Sentinel.Contracts.csproj" />
+    <PackageReference Include="YamlDotNet" Version="16.2.1" />
   </ItemGroup>
 
   <PropertyGroup>

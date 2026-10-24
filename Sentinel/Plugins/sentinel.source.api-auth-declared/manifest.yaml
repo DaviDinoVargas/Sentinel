@@ -14,8 +14,8 @@ spec:
     sourceRead: true
     artifactWrite: false
   resources:
-    timeoutSeconds: 30
-    memoryMiB: 256
+    timeoutSeconds: 90
+    memoryMiB: 512
   permissions: [target.source.read]
   execution:
     isolation: container

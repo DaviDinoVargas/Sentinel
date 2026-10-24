@@ -65,7 +65,8 @@
             "memoryMiB": { "type": "integer", "minimum": 16, "maximum": 2048 },
             "cpus": { "type": "number", "exclusiveMinimum": 0, "maximum": 2 },
             "pids": { "type": "integer", "minimum": 16, "maximum": 512 },
-            "tmpfsMiB": { "type": "integer", "minimum": 1, "maximum": 512 }
+            "tmpfsMiB": { "type": "integer", "minimum": 1, "maximum": 512 },
+            "resultBytes": { "type": "integer", "minimum": 32000, "maximum": 16777216 }
           }
         },
         "permissions": { "type": "array", "items": { "type": "string" } },

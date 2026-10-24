@@ -18,7 +18,7 @@ public sealed class OpenApiDiscoveryTests
              "/referenced":{"$ref":"http://example.invalid/CANARY"},"//evil.invalid":{"get":{}},"/../escape":{"get":{}}}}
             """.Replace("CANARY", canary);
         var result = SourceOpenApiCheck.Analyze("1.0", "hash", [("openapi.json", content)], 1);
-        using var details = JsonDocument.Parse(Assert.Single(result.Evidence).EvidenceSummary);
+        using var details = JsonDocument.Parse(result.Evidence[0].EvidenceSummary); // v1 (recorte); o inventário completo vem em partes v2
         var operations = details.RootElement.GetProperty("operations");
         Assert.Equal(3, operations.GetArrayLength());
         Assert.Equal("RequirementDeclared", operations[0].GetProperty("security").GetString());
@@ -32,7 +32,7 @@ public sealed class OpenApiDiscoveryTests
 
     [Theory]
     [InlineData("{\"openapi\":\"3.2.0\",\"paths\":{}}")]
-    [InlineData("{\"swagger\":\"2.0\",\"paths\":{}}")]
+    [InlineData("{\"swagger\":\"1.2\",\"paths\":{}}")]
     [InlineData("{\"openapi\":\"3.0.3\",\"paths\":{},\"paths\":{}}")]
     [InlineData("{\"openapi\":\"3.0.3\",\"paths\":{\"/cars\":{\"get\":{},\"get\":{}}}}")]
     [InlineData("{not-json")]
@@ -41,7 +41,7 @@ public sealed class OpenApiDiscoveryTests
         var result = SourceOpenApiCheck.Analyze("1.0", null, [("openapi.json", content)], 1);
         Assert.Equal(PluginExecutionOutcome.Partial, result.Outcome);
         Assert.Equal("Inconclusive", Assert.Single(result.Checks).State);
-        using var details = JsonDocument.Parse(Assert.Single(result.Evidence).EvidenceSummary);
+        using var details = JsonDocument.Parse(result.Evidence[0].EvidenceSummary); // v1 (recorte); o inventário completo vem em partes v2
         Assert.Equal(0, details.RootElement.GetProperty("parsedFiles").GetInt32());
         Assert.Equal(1, details.RootElement.GetProperty("unassessedFiles").GetInt32());
     }
@@ -52,14 +52,16 @@ public sealed class OpenApiDiscoveryTests
         var paths = Enumerable.Range(0, 400).ToDictionary(i => "/cars/" + new string('a', 240) + i, _ => new { get = new { } });
         var content = JsonSerializer.Serialize(new { openapi = "3.0.3", paths });
         var result = SourceOpenApiCheck.Analyze("1.0", "hash", [("openapi.json", content), ("openapi.yaml", "")], 25);
-        var detailsText = Assert.Single(result.Evidence).EvidenceSummary;
+        var detailsText = result.Evidence[0].EvidenceSummary;
         using var details = JsonDocument.Parse(detailsText);
         Assert.Equal(400, details.RootElement.GetProperty("operationCount").GetInt32());
         Assert.True(details.RootElement.GetProperty("operations").GetArrayLength() < 60);
         Assert.Equal(24, details.RootElement.GetProperty("unassessedFiles").GetInt32());
         Assert.True(details.RootElement.GetProperty("truncated").GetBoolean());
         Assert.True(detailsText.Length <= 11000);
-        Assert.True(JsonSerializer.Serialize(result).Length < 32000);
+        // V42: o inventário completo vai em partes v2; cada registro de evidência cabe no limite do armazenamento.
+        Assert.All(result.Evidence, e => Assert.True(e.EvidenceSummary.Length <= 14_000));
+        Assert.True(result.Evidence.Count > 1);
     }
 
     [Fact]

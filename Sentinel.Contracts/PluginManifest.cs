@@ -51,6 +51,9 @@ public sealed class PluginManifestResources
     public double Cpus { get; set; } = 0.5;
     public int Pids { get; set; } = 64;
     public int TmpfsMiB { get; set; } = 16;
+    // V42: tamanho máximo (em caracteres) do resultado JSON que o plugin pode devolver. O padrão
+    // cobre plugins comuns; inventários grandes (OpenAPI com milhares de operações) pedem mais.
+    public int ResultBytes { get; set; } = 262_144;
 }
 
 public sealed class PluginManifestExecution
@@ -119,6 +122,8 @@ public static class RuntimeLimits
     public const double MaxCpus = 2;
     public const int MaxPids = 512;
     public const int MaxTmpfsMiB = 512;
+    public const int MinResultBytes = 32_000;
+    public const int MaxResultBytes = 16_777_216;
     public const int MaxRequestHeaders = 16;
     // Únicos cabeçalhos de requisição que algum plugin pode pedir; Cookie fica de fora de
     // propósito (os valores de cookie são redigidos pelo gateway e nunca reenviados).

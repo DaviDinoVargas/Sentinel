@@ -74,6 +74,7 @@ public sealed class IsolatedPluginRunner
         using var relaySlots = new SemaphoreSlim(2, 2);
         using var pipeWriter = new SemaphoreSlim(1, 1);
         var forwarding = new List<Task>();
+        var outputLimit = Math.Clamp(manifest.Spec.Resources.ResultBytes, RuntimeLimits.MinResultBytes, RuntimeLimits.MaxResultBytes);
         Task stderrReader = Task.CompletedTask;
 
         async Task ForwardAsync(HttpRelayRequest call)
@@ -150,7 +151,7 @@ public sealed class IsolatedPluginRunner
             var inputJson = JsonSerializer.Serialize(request, JsonOptions);
             await process.StandardInput.WriteLineAsync(inputJson);
             await process.StandardInput.FlushAsync(linkedCts.Token);
-            var protocol = new BoundedProtocolReader(process.StandardOutput.BaseStream, 1_600_000);
+            var protocol = new BoundedProtocolReader(process.StandardOutput.BaseStream, Math.Max(1_600_000, outputLimit));
             while (await protocol.ReadLineAsync(linkedCts.Token) is { } line)
             {
                 if (line == "{\"kind\":\"request-permit\"}")
@@ -173,7 +174,7 @@ public sealed class IsolatedPluginRunner
                 }
                 else
                 {
-                    if (stdout.Length + line.Length > MaxCapturedOutputChars) throw new InvalidOperationException("Saída do plugin excedeu o limite.");
+                    if (stdout.Length + line.Length > outputLimit) throw new InvalidOperationException($"Saída do plugin excedeu o limite declarado no manifesto ({outputLimit} caracteres).");
                     stdout.AppendLine(line);
                 }
             }

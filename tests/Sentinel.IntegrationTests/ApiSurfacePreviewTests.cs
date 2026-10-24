@@ -40,7 +40,9 @@ public sealed class ApiSurfacePreviewTests
         var queued = await client.PostAsJsonAsync(sourceUrl + $"/{snapshot.RootElement.GetProperty("id").GetGuid()}/audits", new { });
         queued.EnsureSuccessStatusCode();
         var audit = await Completed(client, (await queued.Content.ReadFromJsonAsync<Audit>(Json))!.Id);
-        var evidence = Assert.Single(audit.Evidence.Where(e => e.Artifact?.SourcePluginId == "sentinel.source.openapi"));
+        // V42: o plugin devolve o recorte v1 (o que a tela usa) e o inventário completo em partes v2.
+        var evidence = Assert.Single(audit.Evidence.Where(e => e.Artifact?.SourcePluginId == "sentinel.source.openapi" && e.Summary.StartsWith("Superfície declarada", StringComparison.Ordinal)));
+        Assert.Single(audit.Evidence.Where(e => e.Artifact?.SourcePluginId == "sentinel.source.openapi" && e.Summary.StartsWith("Inventário OpenAPI completo", StringComparison.Ordinal)));
         var url = $"/api/v1/projects/{project.Id}/api-surface/preview";
         var request = new SurfacePreviewRequest(audit.Id, evidence.Id, host.LabTarget.BaseUri.AbsoluteUri);
         using var db = host.Services.GetRequiredService<IDbContextFactory<SentinelDbContext>>().CreateDbContext();

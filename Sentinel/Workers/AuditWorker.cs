@@ -104,7 +104,7 @@ public sealed class AuditWorker(
                 {
                     stage = "openapi-historico";
                     foreach (var candidate in store.GetAudits(payload.ProjectId).Where(item => item.State == AuditState.Completed).OrderByDescending(item => item.CreatedAtUtc).Take(20))
-                        if ((openApiJson = await FindInventoryEvidenceAsync(payload.ProjectId, candidate.Id, executionCts.Token, "sentinel.source.openapi")) is not null) break;
+                        if ((openApiJson = await FindOpenApiInventoryAsync(payload.ProjectId, candidate.Id, executionCts.Token)) is not null) break;
                     stage = "sandbox";
                 }
                 var request = new PluginExecutionRequest(manifest.Spec.ContractVersion, Guid.NewGuid(), payload.AuditId, payload.ProjectId,
@@ -189,6 +189,37 @@ public sealed class AuditWorker(
         {
             return null;
         }
+    }
+
+    // Monta o inventário OpenAPI completo (v2: várias partes por auditoria) em um único
+    // {"operations":[...]}; sem partes v2 (auditorias antigas) usa o recorte v1.
+    private async Task<string?> FindOpenApiInventoryAsync(Guid projectId, Guid auditId, CancellationToken ct)
+    {
+        var audit = store.FindAudit(auditId);
+        var all = audit?.Evidence.Where(item => item.Artifact?.SourcePluginId == "sentinel.source.openapi").ToArray() ?? [];
+        if (all.Length == 0) return null;
+        var parts = new SortedDictionary<int, string>();
+        string? v1 = null;
+        foreach (var evidence in all)
+        {
+            try
+            {
+                var verified = await artifacts.ReadAsync(projectId, auditId, evidence, ct);
+                if (!verified.IntegrityVerified) continue;
+                using var wrapper = JsonDocument.Parse(verified.Content);
+                if (!wrapper.RootElement.TryGetProperty("details", out var details) || details.ValueKind != JsonValueKind.String) continue;
+                var text = details.GetString()!;
+                using var body = JsonDocument.Parse(text);
+                var kind = body.RootElement.TryGetProperty("kind", out var k) ? k.GetString() : null;
+                if (kind == "sentinel-openapi-inventory-v2" && body.RootElement.TryGetProperty("chunk", out var chunk) && body.RootElement.TryGetProperty("operations", out var operations))
+                    parts[chunk.GetInt32()] = operations.GetRawText();
+                else if (kind == "sentinel-openapi-inventory-v1") v1 = text;
+            }
+            catch (Exception exception) when (exception is InvalidOperationException or System.Security.Cryptography.CryptographicException or IOException or JsonException
+                or Sentinel.Evidence.EvidenceExpiredException or Sentinel.Evidence.EvidenceStorageUnavailableException) { }
+        }
+        if (parts.Count == 0) return v1;
+        return "{\"operations\":[" + string.Join(",", parts.Values.Select(array => array[1..^1]).Where(array => array.Length > 0)) + "]}";
     }
 
     private async Task MonitorAsync(ExecutionLease lease, CancellationTokenSource executionCts)
