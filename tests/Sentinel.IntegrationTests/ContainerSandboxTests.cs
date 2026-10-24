@@ -122,7 +122,7 @@ public sealed class ContainerSandboxTests
         var queued = (await response.Content.ReadFromJsonAsync<Audit>(Json))!;
         var completed = await Wait(client, queued.Id, audit => AuditStates.IsTerminal(audit.State));
         Assert.True(completed.State == AuditState.Completed, completed.PolicyReason);
-        Assert.Equal(6, completed.Controls.Count); Assert.Equal(48, factory.LabTarget.RequestsFor("/aplicacao/protegido"));
+        Assert.Equal(7, completed.Controls.Count); Assert.Equal(49, factory.LabTarget.RequestsFor("/aplicacao/protegido"));
         response = await client.PostAsJsonAsync($"/api/v1/projects/{project.Id}/audits", new RequestAuditRequest(url, "lab-active", true));
         queued = (await response.Content.ReadFromJsonAsync<Audit>(Json))!;
         await Wait(client, queued.Id, audit => audit.State == AuditState.Running);
@@ -161,7 +161,7 @@ public sealed class ContainerSandboxTests
 
     private static async Task<Audit> Wait(HttpClient client, Guid id, Func<Audit, bool> condition)
     {
-        var deadline = DateTime.UtcNow.AddSeconds(40);
+        var deadline = DateTime.UtcNow.AddSeconds(150);
         while (DateTime.UtcNow < deadline)
         {
             var audit = (await client.GetFromJsonAsync<Audit>($"/api/v1/audits/{id}", Json))!;

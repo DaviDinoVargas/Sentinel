@@ -53,6 +53,15 @@ public sealed class PluginRegistry
                 continue;
             }
 
+            var coherence = WriteCoherenceError(manifest);
+            if (coherence is not null)
+            {
+                var message = $"{manifestPath}: {coherence}";
+                rejected.Add(message);
+                logger.LogError("Manifesto de plugin rejeitado: {Message}", message);
+                continue;
+            }
+
             if (!approved.TryAdd(manifest.Metadata.Id, manifest))
             {
                 var message = $"{manifestPath}: id de plugin duplicado ({manifest.Metadata.Id}).";
@@ -68,6 +77,28 @@ public sealed class PluginRegistry
 
         _approvedByPluginId = approved;
         _rejectedManifestErrors = rejected;
+    }
+
+    // Regras entre campos que o schema JSON não expressa bem: quem declara métodos mutáveis
+    // assume risco, precisa de orçamento próprio de escrita e só pode rodar em modo ativo.
+    public static string? WriteCoherenceError(PluginManifest manifest)
+    {
+        var gateway = manifest.Spec.Capabilities.Gateway;
+        var writes = gateway.Methods.Where(method => GatewayLimits.WriteMethods.Contains(method)).ToArray();
+        if (writes.Length > 0)
+        {
+            if (manifest.Spec.Capabilities.Network != "scoped-egress") return "métodos mutáveis exigem network scoped-egress.";
+            if (manifest.Spec.Mode != "active") return "métodos mutáveis (POST/PUT/PATCH/DELETE) exigem mode active.";
+            if (manifest.Spec.RiskClass == "low") return "métodos mutáveis exigem riskClass medium ou high.";
+            if (gateway.WriteRequests < 1) return "métodos mutáveis exigem gateway.writeRequests >= 1 (orçamento próprio de escrita).";
+            if (gateway.RequestBodyBytes > 0 && gateway.RequestContentTypes.Count == 0) return "corpo de requisição exige gateway.requestContentTypes.";
+        }
+        else
+        {
+            if (gateway.WriteRequests > 0) return "gateway.writeRequests só faz sentido com métodos mutáveis declarados.";
+            if (gateway.RequestBodyBytes > 0) return "corpo de requisição só é permitido com métodos mutáveis declarados.";
+        }
+        return null;
     }
 
     public IReadOnlyList<PluginManifest> Approved => _approvedByPluginId.Values.ToArray();

@@ -150,7 +150,7 @@ public sealed class IsolatedPluginRunner
             var inputJson = JsonSerializer.Serialize(request, JsonOptions);
             await process.StandardInput.WriteLineAsync(inputJson);
             await process.StandardInput.FlushAsync(linkedCts.Token);
-            var protocol = new BoundedProtocolReader(process.StandardOutput.BaseStream, 64_000);
+            var protocol = new BoundedProtocolReader(process.StandardOutput.BaseStream, 1_600_000);
             while (await protocol.ReadLineAsync(linkedCts.Token) is { } line)
             {
                 if (line == "{\"kind\":\"request-permit\"}")
@@ -161,7 +161,7 @@ public sealed class IsolatedPluginRunner
                 }
                 else if (line.StartsWith("{\"kind\":\"http-request\"", StringComparison.Ordinal))
                 {
-                    if (line.Length > 16_000 || forwarding.Count >= 64) throw new InvalidOperationException("Orçamento do protocolo HTTP excedido.");
+                    if (line.Length > 1_500_000 || forwarding.Count >= 64) throw new InvalidOperationException("Orçamento do protocolo HTTP excedido.");
                     var call = JsonSerializer.Deserialize<HttpRelayRequest>(line, JsonOptions) ?? throw new JsonException("Requisição HTTP inválida.");
                     forwarding.Add(ForwardAsync(call));
                 }

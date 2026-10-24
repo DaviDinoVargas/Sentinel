@@ -2,6 +2,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Sentinel.Core;
+using Sentinel.Execution;
 
 namespace Sentinel.IntegrationTests;
 
@@ -40,6 +41,23 @@ public sealed class FuzzSurfaceTests(SentinelApiFactory factory) : IClassFixture
 
         var control = Assert.Single(audit.Controls, item => item.ControlId == "FUZZ-01");
         Assert.Equal("Inconclusive", control.State);
+    }
+
+    [Fact]
+    public async Task Cabecalho_de_12_mil_caracteres_e_a_query_de_60_mil_chegam_de_fato_ao_alvo()
+    {
+        // Regressão da V41: o probe de cabeçalho da V32 usava um cabeçalho fora da lista aprovada
+        // e nunca saía do gateway. Agora o Referer grande é declarado no manifesto e CHEGA ao alvo.
+        var targetBaseUrl = $"{factory.LabTarget.BaseUri}aplicacao/";
+        var project = await CreateProjectAsync();
+        (await _client.PostAsJsonAsync($"/api/v1/projects/{project.Id}/scopes", new CreateScopeRequest(targetBaseUrl, "laboratorio", DateTimeOffset.UtcNow.AddMinutes(2)))).EnsureSuccessStatusCode();
+        var response = await _client.PostAsJsonAsync($"/api/v1/projects/{project.Id}/audits", new RequestAuditRequest($"{targetBaseUrl}area-segura", "lab-active", true));
+        response.EnsureSuccessStatusCode();
+        var audit = await RunAuditAsync((await response.Content.ReadFromJsonAsync<Audit>(Json))!.Id);
+
+        Assert.True(factory.LabTarget.MaxRefererLength >= 12_000, $"maior Referer visto pelo alvo: {factory.LabTarget.MaxRefererLength}");
+        var execution = (await _client.GetFromJsonAsync<ExecutionSnapshot>($"/api/v1/audits/{audit.Id}/execution", Json))!;
+        Assert.Equal(5, execution.Events.Count(item => item.Kind == "RequestGranted" && item.Detail == "sentinel.lab.fuzz-surface"));
     }
 
     [Fact]

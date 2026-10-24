@@ -13,6 +13,8 @@ public sealed class LabTargetServer : IDisposable
     private readonly Task _acceptLoop;
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string,int> _requests = new();
     public int RequestsFor(string path) => _requests.GetValueOrDefault(path);
+    private int _maxRefererLength;
+    public int MaxRefererLength => Volatile.Read(ref _maxRefererLength);
 
     public Uri BaseUri { get; }
 
@@ -48,6 +50,9 @@ public sealed class LabTargetServer : IDisposable
     {
         var path = context.Request.Url?.AbsolutePath ?? "/";
         _requests.AddOrUpdate(path, 1, (_, count) => count + 1);
+        var referer = context.Request.Headers["Referer"]?.Length ?? 0;
+        int seen;
+        while (referer > (seen = Volatile.Read(ref _maxRefererLength)) && Interlocked.CompareExchange(ref _maxRefererLength, referer, seen) != seen) { }
         if (path.Contains("authenticated/", StringComparison.Ordinal) && path.EndsWith("/login", StringComparison.Ordinal))
         {
             using var reader = new StreamReader(context.Request.InputStream);
@@ -168,6 +173,33 @@ public sealed class LabTargetServer : IDisposable
             context.Response.Headers.Add("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'");
         }
 
+        if (path.Contains("/json-api-", StringComparison.Ordinal))
+        {
+            // WEB-INJ-03: API JSON que só aceita POST. json-api-seguro valida o corpo e recusa com 4xx
+            // controlado; json-api-fragil deixa a exceção do parser virar 500 com stack trace.
+            var fragile = path.Contains("/json-api-fragil", StringComparison.Ordinal);
+            if (context.Request.HttpMethod != "POST") { context.Response.StatusCode = 405; context.Response.Close(); return; }
+            using var buffer = new MemoryStream();
+            context.Request.InputStream.CopyTo(buffer);
+            var contentType = (context.Request.ContentType ?? "").Split(';')[0].Trim();
+            if (!fragile && contentType != "application/json") { context.Response.StatusCode = 415; context.Response.Close(); return; }
+            if (!fragile && buffer.Length > 256 * 1024) { context.Response.StatusCode = 413; context.Response.Close(); return; }
+            try
+            {
+                // O parser do .NET só valida UTF-8 ao materializar strings; decodificação estrita antes
+                // do parse é o que uma API correta faz (e o WEB-INJ-03 pega quem não faz).
+                var text = new System.Text.UTF8Encoding(false, true).GetString(buffer.ToArray());
+                using var document = System.Text.Json.JsonDocument.Parse(text, new System.Text.Json.JsonDocumentOptions { MaxDepth = 64 });
+                WriteBody(context, "{\"ok\":true}");
+            }
+            catch (Exception exception) when (exception is System.Text.Json.JsonException or ArgumentException)
+            {
+                if (!fragile) { context.Response.StatusCode = 400; context.Response.Close(); return; }
+                context.Response.StatusCode = 500;
+                WriteBody(context, exception.GetType().FullName + ": " + exception.Message + "\n   at Sentinel.Lab.Fake.Parse()\n   at Sentinel.Lab.Fake.Handle() in C:\\lab\\Fake.cs:line 7");
+            }
+            return;
+        }
         if (path.Contains("/dast-vulneravel", StringComparison.Ordinal))
         {
             // Alvo para o ZAP baseline (DAST-01): HTML sem cabeçalhos de segurança, formulário sem

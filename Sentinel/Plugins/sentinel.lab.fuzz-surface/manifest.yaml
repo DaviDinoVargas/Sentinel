@@ -15,6 +15,9 @@ spec:
     artifactWrite: false
     gateway:
       bodyBytes: 65536
+      requestHeaders: [Referer]
+      requestHeaderCount: 1
+      requestHeaderValueLength: 16384
   resources:
     timeoutSeconds: 18
     memoryMiB: 128

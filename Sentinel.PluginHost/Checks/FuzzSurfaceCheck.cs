@@ -38,7 +38,7 @@ public sealed class FuzzSurfaceCheck : IIsolatedCheck
             try
             {
                 using var message = new HttpRequestMessage(HttpMethod.Get, BuildUri(target, queryValue));
-                if (headerValue is not null) message.Headers.TryAddWithoutValidation("X-Sentinel-Fuzz", headerValue);
+                if (headerValue is not null) message.Headers.TryAddWithoutValidation("Referer", headerValue);
                 using var response = await client.SendAsync(message, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
                 statuses.Add((int)response.StatusCode);
                 allRejectedByTransport = false;
@@ -81,6 +81,6 @@ public sealed class FuzzSurfaceCheck : IIsolatedCheck
         yield return ("\u0000\u0001\u0002control-bytes", null);
         yield return ("../../../../../../etc/passwd", null);
         yield return ("-99999999999999999999", null);
-        yield return ("valor-normal", new string('H', 30_000));
+        yield return ("valor-normal", new string('H', 12_000));
     }
 }

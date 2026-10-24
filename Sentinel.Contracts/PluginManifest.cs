@@ -68,6 +68,14 @@ public static class GatewayLimits
     public const int MaxHeaderValueLength = 4_096;
     public const int MaxHeaderBytes = 32_768;
     public const int MaxRequests = 200;
+    // V41: escrita governada. Corpo de requisição e orçamento próprio de requisições mutáveis.
+    public const int MaxRequestBodyBytes = 1_048_576;
+    public const int MaxWriteRequests = 200;
+    public const int MaxRequestHeaderValueLength = 16_384;
+    public static readonly string[] AllowedMethods = ["GET", "HEAD", "OPTIONS", "POST", "PUT", "PATCH", "DELETE"];
+    public static readonly string[] WriteMethods = ["POST", "PUT", "PATCH", "DELETE"];
+    // Tipos de conteúdo aceitos no corpo (a parte antes de ";"); nenhum outro atravessa o gateway.
+    public static readonly string[] AllowedContentTypes = ["application/json", "application/xml", "application/x-www-form-urlencoded", "text/plain", "multipart/form-data", "application/octet-stream"];
 }
 
 // Capacidades de gateway por plugin (spec.capabilities.gateway). Os padrões reproduzem o
@@ -89,8 +97,18 @@ public sealed class PluginManifestGateway
     // e quantos por requisição. O padrão é o comportamento anterior.
     public List<string> RequestHeaders { get; set; } = ["Origin", "Host", "X-Forwarded-Host", "Authorization"];
     public int RequestHeaderCount { get; set; } = 4;
+    // V41: tamanho máximo de CADA valor de cabeçalho de requisição (fuzz de cabeçalho exige valores grandes).
+    public int RequestHeaderValueLength { get; set; } = 512;
     // Entrega nome e atributos de Set-Cookie (valor sempre redigido pelo gateway).
     public bool CookieAttributes { get; set; }
+    // V41: métodos HTTP que o plugin pode usar (padrão só GET), tamanho máximo do corpo de
+    // requisição, tipos de conteúdo permitidos e orçamento de requisições MUTÁVEIS
+    // (POST/PUT/PATCH/DELETE), separado do orçamento geral. Declarar não concede: o escopo
+    // autorizado precisa liberar o método e a auditoria precisa ser ativa e confirmada.
+    public List<string> Methods { get; set; } = ["GET"];
+    public int RequestBodyBytes { get; set; }
+    public List<string> RequestContentTypes { get; set; } = [];
+    public int WriteRequests { get; set; }
 }
 
 // V39: limites do host para recursos de container e cabeçalhos de requisição que um manifesto
@@ -105,5 +123,5 @@ public static class RuntimeLimits
     // Únicos cabeçalhos de requisição que algum plugin pode pedir; Cookie fica de fora de
     // propósito (os valores de cookie são redigidos pelo gateway e nunca reenviados).
     public static readonly string[] AllowedRequestHeaders =
-        ["Origin", "Host", "X-Forwarded-Host", "Authorization", "Accept", "Accept-Language", "Cache-Control", "Pragma", "Referer", "User-Agent", "If-Modified-Since", "If-None-Match"];
+        ["Origin", "Host", "X-Forwarded-Host", "Authorization", "Accept", "Accept-Language", "Cache-Control", "Pragma", "Referer", "User-Agent", "If-Modified-Since", "If-None-Match", "Content-Type"];
 }

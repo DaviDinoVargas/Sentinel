@@ -76,7 +76,13 @@ internal sealed class HttpRelayClient : HttpMessageHandler
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         if (Volatile.Read(ref _closed) != 0) throw new HttpRequestException("Canal do worker encerrado.");
-        if (request.RequestUri is null || request.Content is not null) throw new HttpRequestException("O gateway atual aceita somente requisições sem corpo.");
+        if (request.RequestUri is null) throw new HttpRequestException("Requisição sem URI.");
+        string? bodyBase64 = null, contentType = null;
+        if (request.Content is not null)
+        {
+            bodyBase64 = Convert.ToBase64String(await request.Content.ReadAsByteArrayAsync(cancellationToken));
+            contentType = request.Content.Headers.ContentType?.ToString();
+        }
         var id = Guid.NewGuid();
         var completion = new TaskCompletionSource<HttpRelayResponse>(TaskCreationOptions.RunContinuationsAsynchronously);
         Pending[id] = completion;
@@ -84,9 +90,9 @@ internal sealed class HttpRelayClient : HttpMessageHandler
         {
             var frame = new HttpRelayRequest("http-request", id, request.Method.Method, request.RequestUri.AbsoluteUri,
                 request.Headers.ToDictionary(item => item.Key, item => new[] { string.Join(item.Key.Equals("User-Agent", StringComparison.OrdinalIgnoreCase) ? " " : ", ", item.Value) }), request.Options.TryGetValue(new HttpRequestOptionsKey<bool>("sentinel.http.anonymous"), out var anonymous) && anonymous,
-                request.Options.TryGetValue(new HttpRequestOptionsKey<string>("sentinel.http.persona"), out var persona) ? persona : "primary");
+                request.Options.TryGetValue(new HttpRequestOptionsKey<string>("sentinel.http.persona"), out var persona) ? persona : "primary", bodyBase64, contentType);
             var json = JsonSerializer.Serialize(frame, Json);
-            if (json.Length > 16_000) throw new HttpRequestException("Requisição de gateway excedeu o limite.");
+            if (json.Length > 1_500_000) throw new HttpRequestException("Requisição de gateway excedeu o limite.");
             await Writer.WaitAsync(cancellationToken);
             try { await Console.Out.WriteLineAsync(json); await Console.Out.FlushAsync(); }
             finally { Writer.Release(); }

@@ -69,7 +69,7 @@ public sealed class DistributedProcessTests
         Assert.Equal(cancelled.GrantedRequests, cancelledAgain.GrantedRequests);
         var completed = await WaitAudit(second.Client, queued.Id, audit => AuditStates.IsTerminal(audit.State));
         Assert.Equal(AuditState.Completed, completed.State);
-        Assert.Equal(6, completed.Controls.Count);
+        Assert.Equal(7, completed.Controls.Count);
         var evidence = completed.Evidence.First(item => item.Artifact is not null);
         var artifactPath = $"/api/v1/audits/{completed.Id}/evidence/{evidence.Id}/artifact";
         var artifactFirst = await Read<Sentinel.Evidence.VerifiedEvidenceArtifact>(first.Client, artifactPath);
@@ -82,7 +82,7 @@ public sealed class DistributedProcessTests
         // (sentinel.lab.fuzz-surface: das 5 cargas de fuzz, 2 são recusadas pelo próprio
         // HttpClient antes do envio — cabeçalho/URI excedem o limite do runtime — e nunca
         // chegam a pedir permissão; só as 3 que efetivamente saem contam no orçamento).
-        Assert.Equal(56, secondRun.GrantedRequests);
+        Assert.Equal(58, secondRun.GrantedRequests);
         var grants = cancelled.Events.Concat(secondRun.Events).Where(item => item.Kind == "RequestGranted").OrderBy(item => item.AtUtc).ToArray();
         for (var index = 1; index < grants.Length; index++) Assert.True(grants[index].AtUtc - grants[index - 1].AtUtc >= TimeSpan.FromMilliseconds(100));
 

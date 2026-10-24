@@ -114,7 +114,7 @@ public sealed class ExecutionCoordinator(IDbContextFactory<SentinelDbContext> fa
 
     // Each HTTP send requires a grant on the bidirectional child pipe. No future
     // slots are reserved; cancellation, lease loss or a dead parent denies new sends.
-    public RequestPermit Permit(ExecutionLease lease, bool login = false, int requestBudget = 8, bool loginAllowed = false) => Locked(lease.AuditId, (db, execution, audit, now) =>
+    public RequestPermit Permit(ExecutionLease lease, bool login = false, int requestBudget = 8, bool loginAllowed = false, int writeBudget = 0, string? writeTrail = null) => Locked(lease.AuditId, (db, execution, audit, now) =>
     {
         if (!Owns(execution, lease, now) || execution.CancelRequestedAtUtc is not null || execution.CurrentPluginId is null || execution.PluginDeadlineUtc <= now)
             return new RequestPermit(false);
@@ -128,10 +128,25 @@ public sealed class ExecutionCoordinator(IDbContextFactory<SentinelDbContext> fa
         if (login && !loginAllowed) return new RequestPermit(false);
         var count = db.ExecutionEvents.Count(row => row.AuditId == lease.AuditId && row.Kind == kind && row.Detail == execution.CurrentPluginId);
         if (count >= maxRequests) return new RequestPermit(false);
+        // Requisição mutável (writeTrail != null): orçamento PRÓPRIO além do geral, para um plugin
+        // de leitura jamais virar de escrita e para o total de escritas ficar auditável.
+        var isWrite = writeTrail is not null;
+        if (isWrite && (login || writeBudget < 1 || db.ExecutionEvents.Count(row => row.AuditId == lease.AuditId && row.Kind == "WriteGranted" && row.Detail == execution.CurrentPluginId) >= Math.Min(writeBudget, GatewayLimits.MaxWriteRequests)))
+            return new RequestPermit(false);
         budget.NextRequestAtUtc = now.AddMilliseconds(Math.Ceiling(1000d / budget.RequestsPerSecond));
         execution.GrantedRequests++;
         Event(db, execution, now, kind, execution.CurrentPluginId);
+        // Trilha append-only de TODA requisição mutável concedida (plugin, método, caminho; nunca o corpo).
+        if (isWrite) { Event(db, execution, now, "WriteGranted", execution.CurrentPluginId); Event(db, execution, now, "WriteTrail", (writeTrail ?? "")[..Math.Min((writeTrail ?? "").Length, 1900)]); }
         return new RequestPermit(true);
+    });
+
+    // Evento append-only de trilha (ex.: resultado de uma requisição mutável). Só registra com posse válida.
+    public void Trail(ExecutionLease lease, string kind, string detail) => Locked(lease.AuditId, (db, execution, audit, now) =>
+    {
+        if (!Owns(execution, lease, now)) return false;
+        Event(db, execution, now, kind, detail[..Math.Min(detail.Length, 1900)]);
+        return true;
     });
 
     private static bool StopForRevokedScope(SentinelDbContext db, AuditExecutionRow execution, AuditRow audit, DateTimeOffset now)

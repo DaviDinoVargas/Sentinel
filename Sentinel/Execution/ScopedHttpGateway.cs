@@ -114,9 +114,31 @@ public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine po
 
         private bool AllowsArbitraryPath => _manifest.Spec.Capabilities.Gateway.ArbitraryPaths;
 
+        // V41: método e corpo só passam se o MANIFESTO declarou, o host aceita e o tipo de ação
+        // permite. Escrita (POST/PUT/PATCH/DELETE) exige auditoria ATIVA (lab-active ou
+        // authenticated-lab, que já exige confirmação explícita); o escopo autorizado ainda é
+        // consultado por requisição com o método real (ScopePolicyEngine.Evaluate).
+        private bool MethodAndBodyAllowed(HttpRelayRequest call)
+        {
+            var gateway = _manifest.Spec.Capabilities.Gateway;
+            if (call.Method is null || !GatewayLimits.AllowedMethods.Contains(call.Method) || !gateway.Methods.Contains(call.Method)) return false;
+            var write = GatewayLimits.WriteMethods.Contains(call.Method);
+            if (write && !ScopePolicyEngine.IsActive(_request.Action)) return false;
+            if (string.IsNullOrEmpty(call.BodyBase64))
+                return call.ContentType is null;
+            if (!write || gateway.RequestBodyBytes < 1 || string.IsNullOrWhiteSpace(call.ContentType)) return false;
+            var mediaType = call.ContentType.Split(';')[0].Trim().ToLowerInvariant();
+            if (!gateway.RequestContentTypes.Contains(mediaType) || !GatewayLimits.AllowedContentTypes.Contains(mediaType)) return false;
+            if (!System.Net.Http.Headers.MediaTypeHeaderValue.TryParse(call.ContentType, out _) || call.ContentType.Length > 200 || call.ContentType.Any(char.IsControl)) return false;
+            var limit = Math.Min(gateway.RequestBodyBytes, GatewayLimits.MaxRequestBodyBytes);
+            if (call.BodyBase64.Length > (limit + 2) / 3 * 4) return false;
+            var buffer = new byte[limit + 3];
+            return Convert.TryFromBase64String(call.BodyBase64, buffer, out var written) && written <= limit;
+        }
+
         internal bool IsValid(HttpRelayRequest call)
         {
-            if (call.Kind != "http-request" || call.RequestId == Guid.Empty || call.Method != "GET" || _manifest.Spec.Capabilities.Network != "scoped-egress" ||
+            if (call.Kind != "http-request" || call.RequestId == Guid.Empty || !MethodAndBodyAllowed(call) || _manifest.Spec.Capabilities.Network != "scoped-egress" ||
                 !Uri.TryCreate(call.Uri, UriKind.Absolute, out var uri) || uri.Scheme is not "http" and not "https" ||
                 !string.IsNullOrEmpty(uri.UserInfo) || !string.IsNullOrEmpty(uri.Fragment) ||
                 uri.Scheme != _target.Scheme || uri.IdnHost != _target.IdnHost || uri.Port != _target.Port ||
@@ -125,12 +147,13 @@ public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine po
             if (call.Persona is not ("primary" or "secondary") || call.Persona == "secondary" && (_manifest.Spec.Capabilities.Gateway.Identity != "dual" || _secondary is null || call.Anonymous)) return false;
             if (call.Anonymous && (_request.Action != "authenticated-lab" || _manifest.Metadata.Id != "sentinel.lab.authenticated-access" || uri != _baseline)) return false;
             return call.Headers.All(header => AllowedHeaders.Contains(header.Key) && header.Value is { Length: > 0 and <= 2 } &&
-                header.Value.All(value => value is not null && value.Length <= 512 && !value.Any(char.IsControl)));
+                header.Value.All(value => value is not null && value.Length <= Math.Min(_manifest.Spec.Capabilities.Gateway.RequestHeaderValueLength, GatewayLimits.MaxRequestHeaderValueLength) && !value.Any(char.IsControl)));
         }
 
         public async Task<HttpRelayResponse> SendAsync(HttpRelayRequest call, CancellationToken cancellationToken)
         {
             if (!IsValid(call)) return Denied(call.RequestId, "Gateway recusou método, destino, capacidade ou cabeçalhos fora do contrato.");
+            var isWrite = GatewayLimits.WriteMethods.Contains(call.Method);
             var host = _target.IdnHost.Trim('[', ']');
             if (IPAddress.TryParse(host, out var literal) && IsForbiddenAddress(literal, host))
                 return Denied(call.RequestId, "Gateway recusou endereço de rede protegido.");
@@ -143,7 +166,7 @@ public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine po
                 {
                     cancellationToken.ThrowIfCancellationRequested();
                     var scopes = _gateway._store.GetScopes(_request.ProjectId);
-                    var decision = _gateway._policy.Evaluate(scopes, new Uri(call.Uri), _request.Action, _gateway._time.GetUtcNow(), ScopePolicyEngine.IsActive(_request.Action), requiredScopeId: _request.ScopeId);
+                    var decision = _gateway._policy.Evaluate(scopes, new Uri(call.Uri), _request.Action, _gateway._time.GetUtcNow(), ScopePolicyEngine.IsActive(_request.Action), call.Method, _request.ScopeId);
                     if (!decision.IsAllowed || _gateway._time.GetUtcNow() >= _request.DeadlineUtc) return Denied(call.RequestId, "Gateway recusou escopo, consentimento ou prazo de execução.");
                     if (!dnsValidated) { await ValidateDns(cancellationToken); dnsValidated = true; }
                     if (_request.Action == "authenticated-lab")
@@ -165,18 +188,20 @@ public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine po
                         catch (Exception exception) when (exception is InvalidOperationException or KeyNotFoundException or System.Security.Cryptography.CryptographicException)
                         { return Denied(call.RequestId, "Credencial indisponível, expirada, revogada ou rotacionada."); }
                     }
-                    var permit = _gateway._coordinator.Permit(_lease, requestBudget: _manifest.Spec.Capabilities.Gateway.MaxRequests);
+                    var permit = _gateway._coordinator.Permit(_lease, requestBudget: _manifest.Spec.Capabilities.Gateway.MaxRequests, writeBudget: _manifest.Spec.Capabilities.Gateway.WriteRequests, writeTrail: isWrite ? $"{_manifest.Metadata.Id} {call.Method} {new Uri(call.Uri).AbsolutePath} body={(call.BodyBase64?.Length ?? 0) * 3 / 4}B" : null);
                     if (permit.Allowed) break;
                     if (permit.RetryAfterMs == 0) return Denied(call.RequestId, "Gateway recusou posse, orçamento ou cancelamento.");
                     await Task.Delay(Math.Min(permit.RetryAfterMs, 200), cancellationToken);
                 }
                 cancellationToken.ThrowIfCancellationRequested();
-                using var message = new HttpRequestMessage(HttpMethod.Get, call.Uri);
+                using var message = new HttpRequestMessage(new HttpMethod(call.Method == "HEAD" ? "GET" : call.Method), call.Uri);
+                if (call.BodyBase64 is { Length: > 0 }) { var content = new ByteArrayContent(Convert.FromBase64String(call.BodyBase64)); content.Headers.ContentType = System.Net.Http.Headers.MediaTypeHeaderValue.Parse(call.ContentType!); message.Content = content; }
                 foreach (var header in call.Headers) message.Headers.TryAddWithoutValidation(header.Key, header.Value);
                 if (bearer is not null && !call.Anonymous) message.Headers.Authorization = new("Bearer", bearer);
                 var clock = Stopwatch.StartNew();
                 using var response = await _client.SendAsync(message, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
                 var elapsed = clock.Elapsed.TotalMilliseconds;
+                if (isWrite) _gateway._coordinator.Trail(_lease, "WriteResult", $"{_manifest.Metadata.Id} {call.Method} {new Uri(call.Uri).AbsolutePath} -> {(int)response.StatusCode}");
                 // Responses are bounded before crossing the process boundary. Cookie
                 // VALUES are never exposed; only name+attributes, and only to the two
                 // plugins that need them (redacted even for those).
