@@ -19,8 +19,8 @@ spec:
       methods: [GET, POST, PUT, PATCH]
       requestBodyBytes: 65536
       requestContentTypes: [application/json]
-      writeRequests: 12
-      maxRequests: 30
+      writeRequests: 24
+      maxRequests: 40
       bodyBytes: 65536
       authenticatedResponseHeaders: true
   resources:

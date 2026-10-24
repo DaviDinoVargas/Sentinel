@@ -13,11 +13,19 @@ public sealed class ContractFuzzTests
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { Converters = { new JsonStringEnumConverter() } };
     private static string Image => Environment.GetEnvironmentVariable("SENTINEL_TEST_PLUGIN_IMAGE") ?? throw new InvalidOperationException("Imagem real de testes obrigatória.");
 
-    private static string Spec(string variant) =>
-        "{\"openapi\":\"3.0.3\",\"info\":{\"title\":\"x\",\"version\":\"1\"},\"paths\":{\"/aplicacao/fuzz-api-" + variant + "/items\":{\"post\":{"
-        + "\"requestBody\":{\"required\":true,\"content\":{\"application/json\":{\"schema\":{\"type\":\"object\",\"required\":[\"name\"],\"properties\":"
-        + "{\"name\":{\"type\":\"string\"},\"quantity\":{\"type\":\"integer\"},\"tags\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}}}}}}},"
-        + "\"responses\":{\"201\":{\"description\":\"ok\"}}}}}}";
+    private const string Schema = "{\"type\":\"object\",\"required\":[\"name\"],\"properties\":{\"name\":{\"type\":\"string\"},\"quantity\":{\"type\":\"integer\"},\"tags\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}}}}";
+
+    // collection: declara GET /items (revela um id real); create: declara POST /items; item: declara PUT /items/{id}.
+    private static string Spec(string variant, bool collection = false, bool create = true, bool item = false)
+    {
+        var prefix = "/aplicacao/fuzz-api-" + variant;
+        var body = "\"requestBody\":{\"required\":true,\"content\":{\"application/json\":{\"schema\":" + Schema + "}}},\"responses\":{\"201\":{\"description\":\"ok\"}}";
+        var paths = new List<string>();
+        if (collection) paths.Add("\"" + prefix + "/items\":{\"get\":{\"responses\":{\"200\":{\"description\":\"ok\"}}}" + (create ? ",\"post\":{" + body + "}" : "") + "}");
+        else if (create) paths.Add("\"" + prefix + "/items\":{\"post\":{" + body + "}}");
+        if (item) paths.Add("\"" + prefix + "/items/{id}\":{\"put\":{\"parameters\":[{\"name\":\"id\",\"in\":\"path\",\"required\":true,\"schema\":{\"type\":\"integer\"}}]," + body + "}}");
+        return "{\"openapi\":\"3.0.3\",\"info\":{\"title\":\"x\",\"version\":\"1\"},\"paths\":{" + string.Join(",", paths) + "}}";
+    }
 
     [Fact]
     public async Task Api_que_valida_o_contrato_aprova_as_duas_classes_e_deixa_trilha_de_escrita()
@@ -61,6 +69,47 @@ public sealed class ContractFuzzTests
     }
 
     [Fact]
+    public async Task Parametro_de_caminho_e_descoberto_pelo_GET_da_colecao_e_o_PUT_e_fuzzado_no_recurso_real()
+    {
+        // O alvo só aceita PUT no id 7 (qualquer outro responde 404): sem descoberta a base não seria 2xx.
+        var (audit, execution) = await RunAsync("seguro", allowPost: true, Spec("seguro", collection: true, item: true));
+        var control = Assert.Single(audit.Controls, row => row.ControlId == "FUZZ-05");
+        Assert.True(control.State == "Passed", control.State + ": " + control.Summary);
+        Assert.Contains("2 operação(ões)", control.Summary);
+        // POST /items (9) + PUT /items/{id} (9); o GET da coleção não é escrita.
+        Assert.Equal(18, execution.Events.Count(item => item.Kind == "WriteGranted" && item.Detail == "sentinel.lab.contract-fuzz"));
+        Assert.Contains(execution.Events, item => item.Kind == "WriteTrail" && item.Detail.StartsWith("sentinel.lab.contract-fuzz PUT /aplicacao/fuzz-api-seguro/items/7 body="));
+    }
+
+    [Fact]
+    public async Task Sem_GET_de_colecao_o_id_vem_da_criacao_por_POST_e_conta_como_escrita()
+    {
+        var (audit, execution) = await RunAsync("criacao", allowPost: true, Spec("criacao", item: true));
+        var control = Assert.Single(audit.Controls, row => row.ControlId == "FUZZ-05");
+        Assert.True(control.State == "Passed", control.State + ": " + control.Summary);
+        // POST /items (9) + 1 criação para descobrir o id (42) + PUT /items/{id} (9).
+        Assert.Equal(19, execution.Events.Count(item => item.Kind == "WriteGranted" && item.Detail == "sentinel.lab.contract-fuzz"));
+        Assert.Contains(execution.Events, item => item.Kind == "WriteTrail" && item.Detail.StartsWith("sentinel.lab.contract-fuzz PUT /aplicacao/fuzz-api-criacao/items/42 body="));
+    }
+
+    [Fact]
+    public async Task Sem_como_descobrir_o_id_o_resultado_e_inconclusivo_e_diz_que_o_id_foi_sintetico()
+    {
+        var (audit, _) = await RunAsync("seguro", allowPost: true, Spec("seguro", create: false, item: true));
+        var control = Assert.Single(audit.Controls, row => row.ControlId == "FUZZ-05");
+        Assert.Equal("Inconclusive", control.State);
+        Assert.Contains("SINTÉTICO", control.Summary);
+    }
+
+    [Fact]
+    public async Task Api_fragil_em_PUT_com_id_descoberto_reprova_citando_o_caminho_do_contrato()
+    {
+        var (audit, _) = await RunAsync("fragil", allowPost: true, Spec("fragil", collection: true, create: false, item: true));
+        Assert.Contains(audit.Controls, item => item.ControlId == "FUZZ-05" && item.State == "Failed" && item.Severity == "High"
+            && item.SourceRuleId == "fuzz-body:tipo-trocado:PUT:/aplicacao/fuzz-api-fragil/items/{id}" && item.Location == "/aplicacao/fuzz-api-fragil/items/{id}");
+    }
+
+    [Fact]
     public async Task Escopo_sem_POST_nao_escreve_nada_e_o_resultado_nao_e_aprovacao()
     {
         var (audit, execution) = await RunAsync("seguro", allowPost: false);
@@ -70,7 +119,7 @@ public sealed class ContractFuzzTests
         Assert.DoesNotContain(execution.Events, item => item.Kind is "WriteGranted" or "WriteTrail" or "WriteResult");
     }
 
-    private static async Task<(Audit Audit, ExecutionSnapshot Execution)> RunAsync(string variant, bool allowPost)
+    private static async Task<(Audit Audit, ExecutionSnapshot Execution)> RunAsync(string variant, bool allowPost, string? spec = null)
     {
         using var host = new SentinelApiFactory { PluginMode = "container", PluginImage = Image };
         using var client = host.CreateClient();
@@ -79,7 +128,7 @@ public sealed class ContractFuzzTests
         var project = (await projectResponse.Content.ReadFromJsonAsync<SentinelProject>(Json))!;
 
         // Primeiro o contrato: auditoria de fonte que gera o inventário OpenAPI do projeto.
-        using var zip = new ByteArrayContent(SourceSnapshotTests.Zip(("openapi.json", Spec(variant))));
+        using var zip = new ByteArrayContent(SourceSnapshotTests.Zip(("openapi.json", spec ?? Spec(variant))));
         zip.Headers.ContentType = new("application/zip");
         var sourceUrl = $"/api/v1/projects/{project.Id}/source-snapshots";
         var upload = await client.PostAsync(sourceUrl + "?sourceKey=fuzz&revision=" + Guid.NewGuid().ToString("N"), zip);
@@ -90,7 +139,7 @@ public sealed class ContractFuzzTests
         await WaitAsync(client, (await queuedSource.Content.ReadFromJsonAsync<Audit>(Json))!);
 
         var baseUrl = $"{host.LabTarget.BaseUri}aplicacao/";
-        var methods = allowPost ? new[] { "GET", "POST" } : new[] { "GET" };
+        var methods = allowPost ? new[] { "GET", "POST", "PUT", "PATCH" } : new[] { "GET" };
         (await client.PostAsJsonAsync($"/api/v1/projects/{project.Id}/scopes",
             new CreateScopeRequest(baseUrl, "laboratorio", DateTimeOffset.UtcNow.AddMinutes(10), new ScopeRules(null, methods, ["lab-active"], [])))).EnsureSuccessStatusCode();
         var response = await client.PostAsJsonAsync($"/api/v1/projects/{project.Id}/audits", new RequestAuditRequest(baseUrl + "fuzz-api-" + variant, "lab-active", true));

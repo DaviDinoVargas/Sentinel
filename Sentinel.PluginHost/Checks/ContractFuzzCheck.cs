@@ -20,6 +20,7 @@ public sealed class ContractFuzzCheck : IIsolatedCheck
     private const string GiantControl = "WEB-INJ-07";
     private const int GiantChars = 65_536;
     private const int SlowMilliseconds = 4_000;
+    private const int MaxOperations = 4;
     private static readonly string[] Methods = ["POST", "PUT", "PATCH"];
     private static readonly string[] StackMarkers = ["   at System.", "   at Microsoft.", ".cs:line ", "StackTrace", "Traceback (most recent call last)", "java.lang.", "NullReferenceException"];
     private static readonly int[] Controlled = [400, 411, 413, 414, 415, 422, 431];
@@ -32,24 +33,33 @@ public sealed class ContractFuzzCheck : IIsolatedCheck
         var target = new Uri(request.TargetUri);
         if (!request.Action.Equals("lab-active", StringComparison.OrdinalIgnoreCase) || !request.UseHttpRelay || !ScopedHttp.IsLoopback(target))
             return PluginExecutionResult.Failed(request.ContractVersion, "Fuzz de corpo exige perfil de laboratório com gateway.");
-        var operations = ContractBodies.Pick(request.OpenApiInventoryJson, Methods, 3);
+        using var catalog = ContractBodies.Catalog.Load(request.OpenApiInventoryJson);
+        var operations = catalog.Pick(Methods, MaxOperations);
         if (operations.Count == 0)
-            return Single(request, FuzzControl, "Inconclusive", "Sem inventário OpenAPI do projeto com operação POST/PUT/PATCH de corpo JSON, sem parâmetro de caminho e com campos declarados; nada a verificar.");
+            return Single(request, FuzzControl, "Inconclusive", "Sem inventário OpenAPI do projeto com operação POST/PUT/PATCH de corpo JSON e campos declarados; nada a verificar.");
 
         using var client = ScopedHttp.CreateLabClient(target);
         var origin = target.GetLeftPart(UriPartial.Authority);
+        var resolver = new PathResolver(client, origin, catalog, mayCreate: true);
         var outcomes = new List<Outcome>();
         var checks = new List<PluginCheckResult>();
-        int baselineFailed = 0, denied = 0, assessedOperations = 0;
+        var pathParams = new List<object>();
+        int baselineFailed = 0, denied = 0, assessedOperations = 0, syntheticBaselines = 0;
         foreach (var operation in operations)
         {
             ct.ThrowIfCancellationRequested();
-            var uri = new Uri(origin + operation.Path);
             var label = operation.Method + " " + operation.Path;
             try
             {
+                var resolution = await resolver.ResolveAsync(operation, ct);
+                if (resolution.Sources.Length > 0) pathParams.Add(new { op = label, sources = resolution.Sources, created = resolution.Created });
+                var uri = new Uri(origin + resolution.Path);
                 var baseline = await SendAsync(client, operation.Method, uri, ContractBodies.Build(operation.Fields).ToJsonString(), ct);
-                if (baseline.Status is < 200 or >= 300) { baselineFailed++; outcomes.Add(new(label, "base", baseline.Status, baseline.Millis, false)); continue; }
+                if (baseline.Status is < 200 or >= 300)
+                {
+                    baselineFailed++; if (resolution.Synthetic) syntheticBaselines++;
+                    outcomes.Add(new(label, "base", baseline.Status, baseline.Millis, false)); continue;
+                }
                 assessedOperations++;
                 foreach (var mutation in Mutations(operation.Fields))
                 {
@@ -78,10 +88,10 @@ public sealed class ContractFuzzCheck : IIsolatedCheck
         var controlled = answered.Count(o => Controlled.Contains(o.Status));
         var evidence = JsonSerializer.Serialize(new
         {
-            kind = "contract-fuzz-v1", operations = operations.Select(o => o.Method + " " + o.Path), assessedOperations, baselineRejected = baselineFailed, deniedByGateway = denied,
+            kind = "contract-fuzz-v1", operations = operations.Select(o => o.Method + " " + o.Path), assessedOperations, baselineRejected = baselineFailed, deniedByGateway = denied, pathParams,
             mutationsAnswered = answered.Length, controlledRejections = controlled,
             results = outcomes.Select(o => new { op = o.Operation, mutation = o.Mutation, status = o.Status, ms = (int)o.Millis, stackTrace = o.Leaked }),
-            limitation = "Até 3 operações POST/PUT/PATCH de corpo JSON sem parâmetro de caminho; 9 classes de mutação derivadas dos campos do contrato; não cobre multipart, GraphQL, autenticação por papel nem fluxos encadeados. Corpos sintéticos, não persistidos.",
+            limitation = "Até 4 operações POST/PUT/PATCH de corpo JSON; parâmetros de caminho resolvidos por enum, GET da coleção ou criação (POST), com id sintético só como último recurso; 8 classes de mutação derivadas dos campos do contrato; não cobre multipart, GraphQL, autenticação por papel nem fluxos com mais de um nível de dependência. Corpos sintéticos, não persistidos.",
         }, new JsonSerializerOptions(JsonSerializerDefaults.Web));
         if (evidence.Length > 15_000) evidence = evidence[..evidence.LastIndexOf('}', 14_000)] + "]}";
 
@@ -89,7 +99,7 @@ public sealed class ContractFuzzCheck : IIsolatedCheck
         {
             var passed = denied == 0 && baselineFailed == 0 && assessedOperations > 0 && answered.Length >= 6 && controlled >= 2;
             var reason = denied > 0 ? $"{denied} operação(ões) foram recusadas pelo gateway (o escopo precisa liberar o método em laboratório); nenhuma aprovação inferida."
-                : baselineFailed > 0 ? $"{baselineFailed} operação(ões) recusaram até o corpo válido sintético (autenticação, regra de negócio ou dados insuficientes); sem prova."
+                : baselineFailed > 0 ? $"{baselineFailed} operação(ões) recusaram até o corpo válido sintético (autenticação, regra de negócio ou dados insuficientes){(syntheticBaselines > 0 ? $"; {syntheticBaselines} usaram identificador de caminho SINTÉTICO por não haver GET de coleção nem POST de criação que revele um id real" : "")}; sem prova."
                 : $"Só {controlled} recusa(s) 4xx controlada(s) em {answered.Length} mutações respondidas; sem prova suficiente.";
             checks.Add(passed
                 ? new(FuzzControl, "Passed", $"{answered.Length} mutações do corpo (tipos trocados, obrigatórios ausentes/nulos, números extremos, unicode, array gigante, aninhamento e strings de {GiantChars} caracteres) em {assessedOperations} operação(ões) não produziram 5xx nem aceitação indevida; {controlled} foram recusadas com 4xx controlado.", "Reproduced", "Info")

@@ -66,6 +66,27 @@ public sealed class MassAssignmentTests
         Assert.DoesNotContain("sentinel-tenant-a", JsonSerializer.Serialize(new { audit, execution }, Json));
     }
 
+    // Contrato com GET /users (coleção), POST /users e PUT /users/{id}: o PUT só existe para usuários já criados.
+    private static string SpecWithItem(string variant)
+    {
+        var body = "\"requestBody\":{\"required\":true,\"content\":{\"application/json\":{\"schema\":{\"type\":\"object\",\"required\":[\"name\"],\"properties\":{\"name\":{\"type\":\"string\"},\"email\":{\"type\":\"string\",\"format\":\"email\"}}}}}},\"responses\":{\"200\":{\"description\":\"ok\"}}";
+        var users = "/authenticated/mass-" + variant + "/users";
+        return "{\"openapi\":\"3.0.3\",\"info\":{\"title\":\"x\",\"version\":\"1\"},\"paths\":{\"" + users + "\":{\"get\":{\"security\":[{\"b\":[]}],\"responses\":{\"200\":{\"description\":\"ok\"}}},\"post\":{\"security\":[{\"b\":[]}]," + body + "}},"
+            + "\"" + users + "/{id}\":{\"put\":{\"security\":[{\"b\":[]}],\"parameters\":[{\"name\":\"id\",\"in\":\"path\",\"required\":true,\"schema\":{\"type\":\"integer\"}}]," + body + "}}}}";
+    }
+
+    [Fact]
+    public async Task PUT_em_usuario_existente_com_id_descoberto_pela_colecao_e_avaliado_para_vinculacao()
+    {
+        var (vuln, execution, _) = await RunAsync("vuln", allowPost: true, spec: SpecWithItem("vuln"));
+        Assert.Contains(vuln.Controls, item => item.ControlId == "API-AUTHZ-04" && item.State == "Failed"
+            && item.SourceRuleId == "mass-assignment:PUT:/authenticated/mass-vuln/users/{id}" && item.Location == "/authenticated/mass-vuln/users/{id}");
+        Assert.Contains(execution.Events, item => item.Kind == "WriteTrail" && item.Detail.StartsWith("sentinel.lab.mass-assignment PUT /authenticated/mass-vuln/users/"));
+        var (safe, _, _) = await RunAsync("safe", allowPost: true, spec: SpecWithItem("safe"));
+        Assert.DoesNotContain(safe.Controls, item => item.ControlId == "API-AUTHZ-04" && item.State == "Failed");
+        Assert.Contains(safe.Controls, item => item.ControlId == "API-AUTHZ-04" && item.State == "Passed");
+    }
+
     [Fact]
     public async Task Escopo_sem_POST_nao_escreve_nada_e_o_resultado_nao_e_aprovacao()
     {
@@ -76,7 +97,7 @@ public sealed class MassAssignmentTests
         Assert.DoesNotContain(execution.Events, item => item.Kind is "WriteGranted" or "WriteTrail" or "WriteResult");
     }
 
-    private static async Task<(Audit Audit, ExecutionSnapshot Execution, string Evidence)> RunAsync(string variant, bool allowPost, string? pathOverride = null)
+    private static async Task<(Audit Audit, ExecutionSnapshot Execution, string Evidence)> RunAsync(string variant, bool allowPost, string? pathOverride = null, string? spec = null)
     {
         using var host = new SentinelApiFactory { PluginMode = "container", PluginImage = Image };
         using var client = host.CreateClient();
@@ -84,7 +105,7 @@ public sealed class MassAssignmentTests
         projectResponse.EnsureSuccessStatusCode();
         var project = (await projectResponse.Content.ReadFromJsonAsync<SentinelProject>(Json))!;
 
-        using var zip = new ByteArrayContent(SourceSnapshotTests.Zip(("openapi.json", Spec(variant, pathOverride))));
+        using var zip = new ByteArrayContent(SourceSnapshotTests.Zip(("openapi.json", spec ?? Spec(variant, pathOverride))));
         zip.Headers.ContentType = new("application/zip");
         var sourceUrl = $"/api/v1/projects/{project.Id}/source-snapshots";
         var upload = await client.PostAsync(sourceUrl + "?sourceKey=mass&revision=" + Guid.NewGuid().ToString("N"), zip);
@@ -95,7 +116,7 @@ public sealed class MassAssignmentTests
         await WaitAsync(client, (await queuedSource.Content.ReadFromJsonAsync<Audit>(Json))!);
 
         var baseUrl = new Uri(host.LabTarget.BaseUri, "authenticated/").AbsoluteUri;
-        var methods = allowPost ? new[] { "GET", "POST" } : new[] { "GET" };
+        var methods = allowPost ? new[] { "GET", "POST", "PUT", "PATCH" } : new[] { "GET" };
         var scopeResponse = await client.PostAsJsonAsync($"/api/v1/projects/{project.Id}/scopes",
             new CreateScopeRequest(baseUrl, "laboratorio", DateTimeOffset.UtcNow.AddMinutes(10), new ScopeRules(null, methods, ["authenticated-lab"], [])));
         scopeResponse.EnsureSuccessStatusCode();

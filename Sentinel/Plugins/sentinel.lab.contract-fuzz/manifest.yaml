@@ -15,11 +15,11 @@ spec:
     artifactWrite: false
     gateway:
       arbitraryPaths: true
-      methods: [POST, PUT, PATCH]
+      methods: [GET, POST, PUT, PATCH]
       requestBodyBytes: 262144
       requestContentTypes: [application/json]
-      writeRequests: 40
-      maxRequests: 40
+      writeRequests: 60
+      maxRequests: 90
       bodyBytes: 65536
   resources:
     timeoutSeconds: 90

@@ -7,32 +7,74 @@ namespace Sentinel.PluginHost.Checks;
 // (nome pontuado, tipo, formato, obrigatório, readOnly, enum curto). Dados SEMPRE sintéticos.
 internal static class ContractBodies
 {
-    internal sealed record Operation(string Method, string Path, JsonElement[] Fields);
+    // PathParams: declaração (name/type/format/enum) dos parâmetros de caminho da operação, na ordem do contrato.
+    internal sealed record Operation(string Method, string Path, JsonElement[] Fields, JsonElement[] PathParams);
 
-    // Operações POST/PUT/PATCH de corpo JSON, sem parâmetro de caminho, com campos escrevíveis declarados.
-    internal static List<Operation> Pick(string? inventoryJson, string[] methods, int max)
+    // Índice do inventário (método+caminho → operação). Mantém o JsonDocument vivo para consultas posteriores
+    // (existe GET na coleção? existe POST de criação com corpo?); descartar com Dispose.
+    internal sealed class Catalog : IDisposable
     {
-        var result = new List<Operation>();
-        if (string.IsNullOrWhiteSpace(inventoryJson)) return result;
-        try
+        private readonly JsonDocument? _document;
+        private readonly Dictionary<string, JsonElement> _index = new(StringComparer.Ordinal);
+        private readonly List<JsonElement> _ordered = [];
+
+        private Catalog(JsonDocument? document)
         {
-            using var json = JsonDocument.Parse(inventoryJson);
-            if (!json.RootElement.TryGetProperty("operations", out var operations) || operations.ValueKind != JsonValueKind.Array) return result;
+            _document = document;
+            if (document is null || !document.RootElement.TryGetProperty("operations", out var operations) || operations.ValueKind != JsonValueKind.Array) return;
             foreach (var operation in operations.EnumerateArray())
+            {
+                if (operation.ValueKind != JsonValueKind.Object || !operation.TryGetProperty("method", out var method) || !operation.TryGetProperty("path", out var path)
+                    || method.GetString() is not { } m || path.GetString() is not { } p) continue;
+                _index.TryAdd(m + " " + p, operation);
+                _ordered.Add(operation);
+            }
+        }
+
+        internal static Catalog Load(string? inventoryJson)
+        {
+            if (string.IsNullOrWhiteSpace(inventoryJson)) return new(null);
+            try { return new(JsonDocument.Parse(inventoryJson)); }
+            catch (JsonException) { return new(null); }
+        }
+
+        public void Dispose() => _document?.Dispose();
+
+        internal bool Has(string method, string path) => _index.ContainsKey(method + " " + path);
+
+        // Operação POST/PUT/PATCH... de corpo JSON com campos escrevíveis declarados, ou null.
+        internal Operation? Describe(string method, string path) => _index.TryGetValue(method + " " + path, out var operation) ? Read(operation, [method]) : null;
+
+        // Operações de corpo JSON dos métodos pedidos, com ou sem parâmetros de caminho (resolvidos depois).
+        internal List<Operation> Pick(string[] methods, int max)
+        {
+            var result = new List<Operation>();
+            foreach (var operation in _ordered)
+            {
+                if (Read(operation, methods) is not { } picked) continue;
+                result.Add(picked);
+                if (result.Count >= max) break;
+            }
+            return result;
+        }
+
+        private static Operation? Read(JsonElement operation, string[] methods)
+        {
+            try
             {
                 var method = operation.GetProperty("method").GetString();
                 var path = operation.GetProperty("path").GetString();
-                if (method is null || path is null || !methods.Contains(method) || path.Contains('{') || !SourceOpenApiCheck.SafePath(path)) continue;
-                if (!operation.TryGetProperty("body", out var body) || body.ValueKind != JsonValueKind.Object) continue;
-                if (!body.GetProperty("contentTypes").EnumerateArray().Any(c => c.GetString()?.Contains("json", StringComparison.OrdinalIgnoreCase) == true)) continue;
+                if (method is null || path is null || !methods.Contains(method) || !SourceOpenApiCheck.SafePath(path)) return null;
+                if (!operation.TryGetProperty("body", out var body) || body.ValueKind != JsonValueKind.Object) return null;
+                if (!body.GetProperty("contentTypes").EnumerateArray().Any(c => c.GetString()?.Contains("json", StringComparison.OrdinalIgnoreCase) == true)) return null;
                 var fields = body.GetProperty("fields").EnumerateArray().Where(f => !f.GetProperty("readOnly").GetBoolean()).Select(f => f.Clone()).ToArray();
-                if (fields.Length == 0) continue;
-                result.Add(new(method, path, fields));
-                if (result.Count >= max) break;
+                if (fields.Length == 0) return null;
+                var declared = operation.TryGetProperty("parameters", out var parameters) && parameters.ValueKind == JsonValueKind.Array
+                    ? parameters.EnumerateArray().Where(p => p.TryGetProperty("in", out var location) && location.GetString() == "path").Select(p => p.Clone()).ToArray() : [];
+                return new(method, path, fields, declared);
             }
+            catch (Exception exception) when (exception is KeyNotFoundException or InvalidOperationException) { return null; }
         }
-        catch (Exception exception) when (exception is JsonException or KeyNotFoundException or InvalidOperationException) { result.Clear(); }
-        return result;
     }
 
     internal static string Name(JsonElement field) => field.GetProperty("name").GetString()!;

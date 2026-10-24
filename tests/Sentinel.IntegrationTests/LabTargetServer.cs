@@ -81,22 +81,36 @@ public sealed class LabTargetServer : IDisposable
             var variant = path.Contains("/mass-vuln/", StringComparison.Ordinal) ? "vuln" : path.Contains("/mass-safe/", StringComparison.Ordinal) ? "safe" : path.Contains("/mass-strict/", StringComparison.Ordinal) ? "strict" : "hidden";
             var usersAt = path.LastIndexOf("/users", StringComparison.Ordinal);
             var directory = path[..usersAt];
+            var item = !path.EndsWith("/users", StringComparison.Ordinal);
             if (context.Request.HttpMethod == "GET")
             {
-                var key = path;
-                if (_massStore.TryGetValue(key, out var stored)) { context.Response.ContentType = "application/json"; WriteBody(context, stored); }
+                if (!item)
+                {
+                    // Coleção: só os usuários já criados nesta variante (o resolvedor de parâmetros de caminho a usa).
+                    var rows = _massStore.Where(pair => pair.Key.StartsWith(directory + "/users/", StringComparison.Ordinal)).OrderBy(pair => pair.Key, StringComparer.Ordinal).Select(pair => pair.Value);
+                    context.Response.ContentType = "application/json"; WriteBody(context, "[" + string.Join(",", rows) + "]"); return;
+                }
+                if (_massStore.TryGetValue(path, out var stored)) { context.Response.ContentType = "application/json"; WriteBody(context, stored); }
                 else { context.Response.StatusCode = 404; context.Response.Close(); }
                 return;
             }
-            if (context.Request.HttpMethod != "POST" || !path.EndsWith("/users", StringComparison.Ordinal)) { context.Response.StatusCode = 405; context.Response.Close(); return; }
+            if (item ? context.Request.HttpMethod is not ("PUT" or "PATCH") : context.Request.HttpMethod != "POST") { context.Response.StatusCode = 405; context.Response.Close(); return; }
+            if (item && !_massStore.ContainsKey(path)) { context.Response.StatusCode = 404; context.Response.Close(); return; }
             using var reader = new StreamReader(context.Request.InputStream);
             System.Text.Json.Nodes.JsonObject? input;
             try { input = System.Text.Json.Nodes.JsonNode.Parse(reader.ReadToEnd()) as System.Text.Json.Nodes.JsonObject; } catch (System.Text.Json.JsonException) { input = null; }
             if (input is null) { context.Response.StatusCode = 400; context.Response.Close(); return; }
             var allowed = new[] { "name", "email" };
             if (variant == "strict" && input.Any(pair => !allowed.Contains(pair.Key))) { context.Response.StatusCode = 400; context.Response.Close(); return; }
-            var saved = new System.Text.Json.Nodes.JsonObject();
+            var saved = item ? (System.Text.Json.Nodes.JsonNode.Parse(_massStore[path]) as System.Text.Json.Nodes.JsonObject)! : new System.Text.Json.Nodes.JsonObject();
             foreach (var (name, value) in input) if (variant is "vuln" or "hidden" || allowed.Contains(name)) saved[name] = value?.DeepClone();
+            if (item)
+            {
+                // PUT/PATCH em usuário existente: mesma regra de vinculação, resposta 200.
+                _massStore[path] = saved.ToJsonString();
+                if (variant == "hidden") { context.Response.Headers.Add("Location", path); context.Response.ContentLength64 = 0; context.Response.Close(); return; }
+                context.Response.ContentType = "application/json"; WriteBody(context, saved.ToJsonString()); return;
+            }
             var id = Interlocked.Increment(ref _massCounter);
             saved["id"] = id;
             _massStore[directory + "/users/" + id] = saved.ToJsonString();
@@ -215,8 +229,17 @@ public sealed class LabTargetServer : IDisposable
             // tags: array de string}. seguro valida tipos, obrigatórios, tamanhos e profundidade (4xx);
             // fragil confia no corpo e deixa a exceção virar 500 com stack trace; frouxo aceita tudo
             // que é JSON (2xx), inclusive obrigatório ausente/nulo e strings gigantes.
-            var mode = path.Contains("/fuzz-api-seguro", StringComparison.Ordinal) ? "seguro" : path.Contains("/fuzz-api-fragil", StringComparison.Ordinal) ? "fragil" : "frouxo";
-            if (context.Request.HttpMethod != "POST") { context.Response.StatusCode = 405; context.Response.Close(); return; }
+            var creation = path.Contains("/fuzz-api-criacao", StringComparison.Ordinal);
+            var mode = creation || path.Contains("/fuzz-api-seguro", StringComparison.Ordinal) ? "seguro" : path.Contains("/fuzz-api-fragil", StringComparison.Ordinal) ? "fragil" : "frouxo";
+            // Roteamento: /items (GET lista o id 7, exceto em criacao, que só revela o id ao criar via POST -> 42)
+            // e /items/{id} (PUT/PATCH só existem para o id real; qualquer outro id responde 404).
+            var tailStart = path.IndexOf('/', path.IndexOf("/fuzz-api-", StringComparison.Ordinal) + 1);
+            var tail = tailStart < 0 ? "" : path[tailStart..];
+            var validId = creation ? "42" : "7";
+            var itemRoute = tail.StartsWith("/items/", StringComparison.Ordinal);
+            if (tail == "/items" && context.Request.HttpMethod == "GET" && !creation) { context.Response.ContentType = "application/json"; WriteBody(context, "[{\"id\":7,\"name\":\"seed\"}]"); return; }
+            if (tail == "/items" ? context.Request.HttpMethod != "POST" : !itemRoute || context.Request.HttpMethod is not ("PUT" or "PATCH")) { context.Response.StatusCode = 405; context.Response.Close(); return; }
+            if (itemRoute && tail["/items/".Length..] != validId) { context.Response.StatusCode = 404; context.Response.Close(); return; }
             using var buffer = new MemoryStream();
             context.Request.InputStream.CopyTo(buffer);
             if (mode == "seguro" && buffer.Length > 128 * 1024) { context.Response.StatusCode = 413; context.Response.Close(); return; }
@@ -237,8 +260,8 @@ public sealed class LabTargetServer : IDisposable
                     var length = root.GetProperty("name").GetString()!.Length; // chave ausente, nulo ou tipo trocado explodem
                     if (root.TryGetProperty("quantity", out var quantity)) _ = quantity.GetInt32() + length;
                 }
-                context.Response.StatusCode = 201;
-                WriteBody(context, "{\"id\":1}");
+                context.Response.StatusCode = itemRoute ? 200 : 201;
+                WriteBody(context, itemRoute ? "{\"id\":" + validId + "}" : "{\"id\":" + validId + "}");
             }
             catch (Exception exception) when (exception is System.Text.Json.JsonException or ArgumentException or InvalidOperationException or KeyNotFoundException or NullReferenceException or FormatException)
             {
