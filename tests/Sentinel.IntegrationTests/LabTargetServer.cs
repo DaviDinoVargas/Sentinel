@@ -251,6 +251,39 @@ public sealed class LabTargetServer : IDisposable
             context.Response.Headers.Add("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'");
         }
 
+        if (path.Contains("/fuzz-rota-", StringComparison.Ordinal))
+        {
+            // FUZZ-01 em parâmetros do contrato: GET /items (query limit: inteiro) e GET /items/{id} (id inteiro).
+            // seguro recusa valor inválido com 400; fragil deixa a exceção virar 500 com stack trace; traversal
+            // devolve /etc/passwd quando o id contém "..", e quebrado responde 500 a tudo (falha sem fuzz).
+            var mode = path.Contains("/fuzz-rota-fragil", StringComparison.Ordinal) ? "fragil" : path.Contains("/fuzz-rota-traversal", StringComparison.Ordinal) ? "traversal"
+                : path.Contains("/fuzz-rota-quebrado", StringComparison.Ordinal) ? "quebrado" : "seguro";
+            if (context.Request.HttpMethod != "GET") { context.Response.StatusCode = 405; context.Response.Close(); return; }
+            if (mode == "quebrado") { context.Response.StatusCode = 500; WriteBody(context, "erro generico"); return; }
+            string Stack(string message) => "System.FormatException: " + message + "\n   at Sentinel.Lab.Fake.Parse()\n   at Sentinel.Lab.Fake.Handle() in C:\\lab\\Fake.cs:line 3";
+            var rawPath = (context.Request.RawUrl ?? path).Split('?')[0];
+            var limit = context.Request.QueryString["limit"];
+            if (limit is not null && !int.TryParse(limit, out _))
+            {
+                if (mode == "fragil") { context.Response.StatusCode = 500; WriteBody(context, Stack("limit")); return; }
+                context.Response.StatusCode = 400; context.Response.Close(); return;
+            }
+            var itemAt = rawPath.IndexOf("/items/", StringComparison.Ordinal);
+            if (itemAt >= 0)
+            {
+                var id = Uri.UnescapeDataString(rawPath[(itemAt + "/items/".Length)..]);
+                if (mode == "traversal" && id.Contains("..", StringComparison.Ordinal)) { WriteBody(context, "root:x:0:0:root:/root:/bin/bash\n"); return; }
+                if (!int.TryParse(id, out var number))
+                {
+                    if (mode == "fragil") { context.Response.StatusCode = 500; WriteBody(context, Stack("id")); return; }
+                    context.Response.StatusCode = 400; context.Response.Close(); return;
+                }
+                context.Response.ContentType = "application/json"; WriteBody(context, "{\"id\":" + number + "}"); return;
+            }
+            if (rawPath.EndsWith("/items", StringComparison.Ordinal)) { context.Response.ContentType = "application/json"; WriteBody(context, "[{\"id\":7}]"); return; }
+            context.Response.StatusCode = 404; context.Response.Close(); return;
+        }
+
         if (path.Contains("/fuzz-api-", StringComparison.Ordinal))
         {
             // FUZZ-05/WEB-INJ-07: POST /items com contrato {name: string obrigatório, quantity: integer,

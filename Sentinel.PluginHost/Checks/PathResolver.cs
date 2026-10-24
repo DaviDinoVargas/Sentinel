@@ -17,18 +17,19 @@ internal sealed class PathResolver(HttpClient client, string origin, ContractBod
     private static readonly Regex Param = new(@"\{(?<name>[A-Za-z_][A-Za-z0-9_]*)\}", RegexOptions.Compiled);
     private static readonly Regex SafeId = new("^[A-Za-z0-9_-]{1,64}$", RegexOptions.Compiled);
 
-    internal sealed record Resolution(string Path, string[] Sources, bool Synthetic, int Created);
+    internal sealed record Resolution(string Path, string[] Sources, bool Synthetic, int Created, IReadOnlyDictionary<string, string> Values);
 
     private readonly Dictionary<string, (string? Value, string Source)> _cache = new(StringComparer.Ordinal);
 
     internal async Task<Resolution> ResolveAsync(ContractBodies.Operation operation, CancellationToken ct)
     {
         var template = operation.Path;
-        if (!template.Contains('{')) return new(template, [], false, 0);
+        if (!template.Contains('{')) return new(template, [], false, 0, new Dictionary<string, string>());
         var sources = new List<string>();
         var created = 0;
         var synthetic = false;
         var resolved = new StringBuilder();
+        var values = new Dictionary<string, string>();
         var cursor = 0;
         foreach (Match match in Param.Matches(template))
         {
@@ -44,11 +45,11 @@ internal sealed class PathResolver(HttpClient client, string origin, ContractBod
                 _cache[key] = found;
                 if (found.Source == "created") created++;
             }
-            if (found.Value is null) { var sample = Synthetic(declaration); resolved.Append(sample); sources.Add(name + "=synthetic"); synthetic = true; }
-            else { resolved.Append(found.Value); sources.Add(name + "=" + found.Source); }
+            if (found.Value is null) { var sample = Synthetic(declaration); resolved.Append(sample); values[name] = sample; sources.Add(name + "=synthetic"); synthetic = true; }
+            else { resolved.Append(found.Value); values[name] = found.Value; sources.Add(name + "=" + found.Source); }
         }
         resolved.Append(template, cursor, template.Length - cursor);
-        return new(resolved.ToString(), sources.ToArray(), synthetic, created);
+        return new(resolved.ToString(), sources.ToArray(), synthetic, created, values);
     }
 
     private async Task<(string? Value, string Source)> FindAsync(string prefix, string name, JsonElement declaration, CancellationToken ct)

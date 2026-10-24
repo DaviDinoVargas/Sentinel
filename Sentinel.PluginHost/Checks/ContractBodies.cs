@@ -9,6 +9,7 @@ internal static class ContractBodies
 {
     // PathParams: declaração (name/type/format/enum) dos parâmetros de caminho da operação, na ordem do contrato.
     internal sealed record Operation(string Method, string Path, JsonElement[] Fields, JsonElement[] PathParams);
+    internal sealed record ReadOperation(string Path, JsonElement[] PathParams, JsonElement[] QueryParams);
 
     // Índice do inventário (método+caminho → operação). Mantém o JsonDocument vivo para consultas posteriores
     // (existe GET na coleção? existe POST de criação com corpo?); descartar com Dispose.
@@ -54,6 +55,29 @@ internal static class ContractBodies
                 if (Read(operation, methods) is not { } picked) continue;
                 result.Add(picked);
                 if (result.Count >= max) break;
+            }
+            return result;
+        }
+
+        // Operações GET com ao menos um parâmetro de caminho ou de query declarado (alvo do fuzz de parâmetros).
+        internal List<ReadOperation> PickReads(int max)
+        {
+            var result = new List<ReadOperation>();
+            foreach (var operation in _ordered)
+            {
+                try
+                {
+                    if (operation.GetProperty("method").GetString() != "GET") continue;
+                    var path = operation.GetProperty("path").GetString();
+                    if (path is null || !SourceOpenApiCheck.SafePath(path)) continue;
+                    if (!operation.TryGetProperty("parameters", out var parameters) || parameters.ValueKind != JsonValueKind.Array) continue;
+                    var pathParams = parameters.EnumerateArray().Where(p => p.GetProperty("in").GetString() == "path").Select(p => p.Clone()).ToArray();
+                    var queryParams = parameters.EnumerateArray().Where(p => p.GetProperty("in").GetString() == "query").Select(p => p.Clone()).ToArray();
+                    if (pathParams.Length == 0 && queryParams.Length == 0) continue;
+                    result.Add(new(path, pathParams, queryParams));
+                    if (result.Count >= max) break;
+                }
+                catch (Exception exception) when (exception is KeyNotFoundException or InvalidOperationException) { }
             }
             return result;
         }

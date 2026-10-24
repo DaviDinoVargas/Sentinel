@@ -14,12 +14,14 @@ spec:
     sourceRead: false
     artifactWrite: false
     gateway:
+      arbitraryPaths: true
+      maxRequests: 170
       bodyBytes: 65536
       requestHeaders: [Referer]
       requestHeaderCount: 1
       requestHeaderValueLength: 16384
   resources:
-    timeoutSeconds: 18
+    timeoutSeconds: 90
     memoryMiB: 128
   permissions: [target.http.lab-active]
   execution:
