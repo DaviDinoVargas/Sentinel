@@ -114,6 +114,7 @@ public sealed class MassAssignmentTests
         var queuedSource = await client.PostAsJsonAsync(sourceUrl + $"/{snapshot.RootElement.GetProperty("id").GetGuid()}/audits", new { });
         queuedSource.EnsureSuccessStatusCode();
         await WaitAsync(client, (await queuedSource.Content.ReadFromJsonAsync<Audit>(Json))!);
+        host.PurgeSnapshots(project.Id);
 
         var baseUrl = new Uri(host.LabTarget.BaseUri, "authenticated/").AbsoluteUri;
         var methods = allowPost ? new[] { "GET", "POST", "PUT", "PATCH" } : new[] { "GET" };

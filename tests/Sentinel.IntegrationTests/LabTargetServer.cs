@@ -122,24 +122,50 @@ public sealed class LabTargetServer : IDisposable
         }
         if (path.Contains("/bfla-", StringComparison.Ordinal))
         {
-            // Função administrativa (API-AUTHZ-06): tenant-a faz o papel privilegiado e tenant-b
-            // o menor. bfla-safe nega o menor com 403; bfla-vuln entrega a qualquer identidade.
+            // Função administrativa (API-AUTHZ-06): tenant-a faz o papel privilegiado e tenant-b o menor.
+            // bfla-safe nega o menor com 403; bfla-vuln entrega a qualquer identidade; bfla-soft nega com
+            // HTTP 200 + envelope {"error":"Forbidden"}. /admin/users lista o id 7; /admin/users/7 lê e
+            // atualiza (PUT/PATCH); POST em /admin/users cria. Qualquer outro id: 404.
             var auth = context.Request.Headers["Authorization"] ?? "";
             if (auth is not ("Bearer sentinel-tenant-a" or "Bearer sentinel-tenant-b")) { context.Response.StatusCode = 401; context.Response.Close(); return; }
+            using (var drain = new MemoryStream()) context.Request.InputStream.CopyTo(drain);
             var allowed = auth == "Bearer sentinel-tenant-a" || path.Contains("/bfla-vuln/", StringComparison.Ordinal);
-            context.Response.StatusCode = allowed ? 200 : 403;
-            WriteBody(context, allowed ? "[]" : "{}"); return;
+            if (!allowed)
+            {
+                if (path.Contains("/bfla-soft/", StringComparison.Ordinal)) { WriteBody(context, "{\"error\":\"Forbidden\",\"message\":\"permission denied\"}"); return; }
+                context.Response.StatusCode = 403; WriteBody(context, "{}"); return;
+            }
+            var method = context.Request.HttpMethod;
+            var usersAt = path.IndexOf("/admin/users", StringComparison.Ordinal);
+            if (usersAt >= 0)
+            {
+                var tail = path[(usersAt + "/admin/users".Length)..];
+                if (tail == "" && method == "POST") { context.Response.StatusCode = 201; WriteBody(context, "{\"id\":7}"); return; }
+                if (tail == "" && method == "GET") { WriteBody(context, "[{\"id\":7,\"name\":\"root\"}]"); return; }
+                if (tail != "/7") { context.Response.StatusCode = 404; WriteBody(context, "{}"); return; }
+                if (method is "PUT" or "PATCH") { WriteBody(context, "{\"id\":7,\"updated\":true}"); return; }
+                WriteBody(context, "{\"id\":7,\"name\":\"root\"}"); return;
+            }
+            if (method is "POST") { context.Response.StatusCode = 201; WriteBody(context, "{}"); return; }
+            WriteBody(context, "[]"); return;
         }
         if (path.Contains("/idor-", StringComparison.Ordinal))
         {
-            // Cenário de objeto por identidade (API-AUTHZ-02): idor-safe isola por dono,
-            // idor-vuln entrega qualquer objeto a qualquer identidade válida.
+            // Objeto por identidade (API-AUTHZ-02). idor-safe isola por dono; idor-vuln entrega qualquer
+            // objeto; idor-parcial só vaza /invoices (/orders isola); idor-assimetrico deixa o tenant-a ler
+            // tudo (só a direção secundária->primária vaza); idor-soft responde 200 + envelope de recusa;
+            // idor-diferente responde 200 com uma visão limitada (corpo diferente do da dona).
             var auth = context.Request.Headers["Authorization"] ?? "";
             var letter = auth == "Bearer sentinel-tenant-a" ? "a" : auth == "Bearer sentinel-tenant-b" ? "b" : null;
             if (letter is null) { context.Response.StatusCode = 401; context.Response.Close(); return; }
-            if (path.EndsWith("/orders", StringComparison.Ordinal)) { WriteBody(context, $"[{{\"id\":\"{letter}1\"}},{{\"id\":\"{letter}2\"}}]"); return; }
+            if (path.EndsWith("/orders", StringComparison.Ordinal) || path.EndsWith("/invoices", StringComparison.Ordinal)) { WriteBody(context, $"[{{\"id\":\"{letter}1\"}},{{\"id\":\"{letter}2\"}}]"); return; }
             var id = path[(path.LastIndexOf('/') + 1)..];
-            var visible = path.Contains("/idor-vuln/", StringComparison.Ordinal) || id.StartsWith(letter, StringComparison.Ordinal);
+            var owns = id.StartsWith(letter, StringComparison.Ordinal);
+            var visible = owns || path.Contains("/idor-vuln/", StringComparison.Ordinal)
+                || (path.Contains("/idor-parcial/", StringComparison.Ordinal) && path.Contains("/invoices/", StringComparison.Ordinal))
+                || (path.Contains("/idor-assimetrico/", StringComparison.Ordinal) && letter == "a");
+            if (!visible && path.Contains("/idor-soft/", StringComparison.Ordinal)) { WriteBody(context, "{\"error\":\"Forbidden\",\"status\":403}"); return; }
+            if (!visible && path.Contains("/idor-diferente/", StringComparison.Ordinal)) { WriteBody(context, $"{{\"id\":\"{id}\",\"view\":\"limited\"}}"); return; }
             context.Response.StatusCode = visible ? 200 : 404;
             WriteBody(context, visible ? $"{{\"id\":\"{id}\",\"owner\":\"{id[..1]}\"}}" : "{}"); return;
         }

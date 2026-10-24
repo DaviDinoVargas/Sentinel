@@ -16,9 +16,10 @@ spec:
     gateway:
       identity: dual
       arbitraryPaths: true
-      bodyBytes: 65536
+      bodyBytes: 131072
+      maxRequests: 120
   resources:
-    timeoutSeconds: 18
+    timeoutSeconds: 60
     memoryMiB: 128
   permissions: [target.http.authenticated-lab]
   execution:
