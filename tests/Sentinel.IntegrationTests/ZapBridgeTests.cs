@@ -76,6 +76,24 @@ public sealed class ZapBridgeTests
     }
 
     [Fact]
+    public async Task Hosts_fora_do_alvo_sao_bloqueados_na_ponte_sem_gastar_orcamento_nem_virar_lacuna()
+    {
+        var stub = new Stub(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent([1]) }));
+        using var bridge = new ZapBridge(new HttpClient(stub), allowedOrigin: new Uri("http://alvo.local:8080/app/"));
+        bridge.Start();
+
+        Assert.StartsWith("HTTP/1.1 403", await RawAsync(bridge.Port, "GET http://cfu.zaproxy.org/check HTTP/1.1\r\nHost: cfu.zaproxy.org\r\n\r\n"));
+        Assert.StartsWith("HTTP/1.1 403", await RawAsync(bridge.Port, "CONNECT cfu.zaproxy.org:443 HTTP/1.1\r\nHost: cfu.zaproxy.org:443\r\n\r\n"));
+        Assert.Equal(0, stub.Calls);
+        Assert.Equal(2, bridge.OffTarget);
+        Assert.Equal(0, bridge.Refused);
+        Assert.Equal(0, bridge.Unsupported);
+
+        Assert.StartsWith("HTTP/1.1 200", await RawAsync(bridge.Port, "GET http://alvo.local:8080/app/p HTTP/1.1\r\nHost: alvo.local:8080\r\n\r\n"));
+        Assert.Equal(1, stub.Calls);
+    }
+
+    [Fact]
     public async Task Recusa_do_gateway_vira_502_contabilizado_e_nunca_sucesso()
     {
         var stub = new Stub(_ => throw new HttpRequestException("Gateway recusou escopo."));

@@ -1,0 +1,36 @@
+apiVersion: sentinel.dev/v1
+kind: PluginManifest
+metadata:
+  id: sentinel.dast.zap-baseline
+  version: 1.0.0
+  name: OWASP ZAP baseline passivo (DAST-01)
+spec:
+  type: dast
+  contractVersion: "1.0"
+  mode: passive
+  activation: explicit
+  controls: [DAST-01]
+  capabilities:
+    network: scoped-egress
+    sourceRead: false
+    artifactWrite: false
+    gateway:
+      arbitraryPaths: true
+      bodyBytes: 262144
+      headerCount: 128
+      headerValueLength: 4096
+      headerBytes: 32768
+      cookieAttributes: true
+      maxRequests: 200
+      requestHeaders: [Accept, Accept-Language, Cache-Control, Pragma, Referer, User-Agent, Origin, If-None-Match, If-Modified-Since]
+      requestHeaderCount: 9
+  resources:
+    timeoutSeconds: 240
+    memoryMiB: 1536
+    cpus: 1
+    pids: 512
+    tmpfsMiB: 256
+  permissions: [target.http.passive]
+  execution:
+    isolation: container
+  riskClass: medium

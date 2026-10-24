@@ -168,6 +168,41 @@ public sealed class LabTargetServer : IDisposable
             context.Response.Headers.Add("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'");
         }
 
+        if (path.Contains("/dast-vulneravel", StringComparison.Ordinal))
+        {
+            // Alvo para o ZAP baseline (DAST-01): HTML sem cabeçalhos de segurança, formulário sem
+            // token anti-CSRF, cookie sem flags e comentário com credencial; a segunda página só
+            // é alcançada seguindo o link (prova que o spider rastreia).
+            context.Response.ContentType = "text/html; charset=utf-8";
+            context.Response.Headers.Add("Set-Cookie", "tracker=abc; Path=/");
+            var directory = path[..(path.LastIndexOf("/dast-vulneravel", StringComparison.Ordinal) + "/dast-vulneravel".Length)];
+            WriteBody(context, path.EndsWith("/pagina2", StringComparison.Ordinal)
+                ? "<html><head><title>Pagina 2</title></head><body><h1>Pagina 2</h1><!-- TODO: senha admin=123 --></body></html>"
+                : $"<html><head><title>Vulneravel</title></head><body><a href=\"{directory}/pagina2\">pagina 2</a><form method=\"post\" action=\"{directory}/login\"><input name=\"usuario\"><input type=\"password\" name=\"senha\"><input type=\"submit\"></form></body></html>");
+            return;
+        }
+        if (path.Contains("/dast-seguro", StringComparison.Ordinal))
+        {
+            // Contraparte segura: cabeçalhos de segurança completos, cookie com todas as flags e
+            // nenhum formulário. O ZAP não deve levantar alerta High/Medium.
+            context.Response.ContentType = "text/html; charset=utf-8";
+            context.Response.Headers.Add("Content-Security-Policy", "default-src 'self'; frame-ancestors 'none'; form-action 'self'");
+            context.Response.Headers.Add("X-Content-Type-Options", "nosniff");
+            context.Response.Headers.Add("Referrer-Policy", "no-referrer");
+            context.Response.Headers.Add("Permissions-Policy", "geolocation=(), camera=()");
+            context.Response.Headers.Add("Cache-Control", "no-store, max-age=0");
+            context.Response.Headers.Add("Pragma", "no-cache");
+            context.Response.Headers.Add("Cross-Origin-Opener-Policy", "same-origin");
+            context.Response.Headers.Add("Cross-Origin-Embedder-Policy", "require-corp");
+            context.Response.Headers.Add("Cross-Origin-Resource-Policy", "same-origin");
+            context.Response.Headers.Add("Set-Cookie", "sessao=opaco; Secure; HttpOnly; SameSite=Strict; Path=/");
+            var directory = path[..(path.LastIndexOf("/dast-seguro", StringComparison.Ordinal) + "/dast-seguro".Length)];
+            WriteBody(context, path.EndsWith("/pagina2", StringComparison.Ordinal)
+                ? "<html><head><title>Pagina 2</title></head><body><h1>Pagina 2 segura</h1></body></html>"
+                : $"<html><head><title>Seguro</title></head><body><h1>Seguro</h1><a href=\"{directory}/pagina2\">pagina 2</a></body></html>");
+            return;
+        }
+
         if (path.Contains("csp-longo", StringComparison.OrdinalIgnoreCase))
         {
             // CSP real de grande porte: a diretiva fraca só aparece depois de ~1.200 caracteres.

@@ -47,6 +47,7 @@ public static class Program
         ["sentinel.source.api-auth-declared"] = () => new ApiAuthDeclaredCheck(),
         ["sentinel.lab.object-level-authz"] = () => new ObjectLevelAuthzCheck(),
         ["sentinel.lab.function-level-authz"] = () => new FunctionLevelAuthzCheck(),
+        ["sentinel.dast.zap-baseline"] = () => new ZapBaselineCheck(),
     };
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)

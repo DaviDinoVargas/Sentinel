@@ -21,14 +21,21 @@ public sealed class ZapBridge : IDisposable
 
     private readonly TcpListener _listener;
     private readonly HttpClient _client;
+    // Quando definido, a ponte só encaminha para esta origem; o resto (ex.: o ZAP checando
+    // atualizações em zaproxy.org) é bloqueado aqui mesmo, sem gastar orçamento do gateway, e
+    // contabilizado à parte: não é lacuna de cobertura do alvo.
+    private readonly Uri? _allowedOrigin;
+    private long _offTarget;
     private readonly HashSet<string> _forwardHeaders;
     private readonly CancellationTokenSource _cancellation = new();
     private Task? _acceptLoop;
     private long _forwarded, _refused, _unsupported, _truncated;
+    private readonly System.Collections.Concurrent.ConcurrentQueue<string> _events = new();
 
-    public ZapBridge(HttpClient client, IEnumerable<string>? forwardHeaders = null, int port = 0)
+    public ZapBridge(HttpClient client, IEnumerable<string>? forwardHeaders = null, int port = 0, Uri? allowedOrigin = null)
     {
         _client = client;
+        _allowedOrigin = allowedOrigin;
         _forwardHeaders = new(forwardHeaders ?? ["Accept", "Accept-Language", "Cache-Control", "Pragma", "Referer", "User-Agent", "Origin", "If-None-Match", "If-Modified-Since"], StringComparer.OrdinalIgnoreCase);
         _listener = new TcpListener(IPAddress.Loopback, port);
     }
@@ -38,6 +45,12 @@ public sealed class ZapBridge : IDisposable
     public long Refused => Interlocked.Read(ref _refused);
     public long Unsupported => Interlocked.Read(ref _unsupported);
     public long TruncatedBodies => Interlocked.Read(ref _truncated);
+    public long OffTarget => Interlocked.Read(ref _offTarget);
+    private bool OffTargetHost(string authority) => _allowedOrigin is not null && !string.Equals(authority, _allowedOrigin.Authority, StringComparison.OrdinalIgnoreCase);
+    // Últimas requisições vistas (método, destino, resultado e motivo de recusa): diagnóstico que
+    // vai para a evidência, para um resultado parcial nunca ficar sem explicação.
+    public IReadOnlyList<string> RecentEvents => _events.ToArray();
+    private void Note(string text) { _events.Enqueue(text.Length > 220 ? text[..220] : text); while (_events.Count > 40) _events.TryDequeue(out _); }
 
     public void Start()
     {
@@ -69,11 +82,13 @@ public sealed class ZapBridge : IDisposable
                 var parts = lines[0].Split(' ');
                 if (parts.Length < 3) { await WriteAsync(stream, 400, "Bad Request", [], [], ct); return; }
                 var method = parts[0].ToUpperInvariant();
-                if (method == "CONNECT") { Interlocked.Increment(ref _unsupported); await WriteAsync(stream, 501, "Not Implemented", [], Encoding.UTF8.GetBytes("Sentinel: HTTPS via CONNECT nao suportado pela ponte."), ct); return; }
-                if (method is not ("GET" or "HEAD")) { Interlocked.Increment(ref _unsupported); await WriteAsync(stream, 405, "Method Not Allowed", [("Allow", "GET, HEAD")], [], ct); return; }
+                if (method == "CONNECT" && OffTargetHost(parts[1])) { Interlocked.Increment(ref _offTarget); Note($"CONNECT {parts[1]} -> 403 (fora do alvo)"); await WriteAsync(stream, 403, "Forbidden", [], Encoding.UTF8.GetBytes("Sentinel: host fora do alvo autorizado."), ct); return; }
+                if (method == "CONNECT") { Note($"CONNECT {parts[1]} -> 501"); Interlocked.Increment(ref _unsupported); await WriteAsync(stream, 501, "Not Implemented", [], Encoding.UTF8.GetBytes("Sentinel: HTTPS via CONNECT nao suportado pela ponte."), ct); return; }
+                if (method is not ("GET" or "HEAD")) { Note($"{method} {parts[1]} -> 405"); Interlocked.Increment(ref _unsupported); await WriteAsync(stream, 405, "Method Not Allowed", [("Allow", "GET, HEAD")], [], ct); return; }
                 if (!Uri.TryCreate(parts[1], UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https"))
                 { await WriteAsync(stream, 400, "Bad Request", [], Encoding.UTF8.GetBytes("Sentinel: use proxy com URL absoluta."), ct); return; }
 
+                if (OffTargetHost(uri.Authority)) { Interlocked.Increment(ref _offTarget); Note($"{method} {uri} -> 403 (fora do alvo)"); await WriteAsync(stream, 403, "Forbidden", [], Encoding.UTF8.GetBytes("Sentinel: host fora do alvo autorizado."), ct); return; }
                 using var message = new HttpRequestMessage(HttpMethod.Get, uri);
                 var sent = 0;
                 foreach (var line in lines.Skip(1))
@@ -98,6 +113,7 @@ public sealed class ZapBridge : IDisposable
                 catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException)
                 {
                     Interlocked.Increment(ref _refused);
+                    Note($"GET {uri} -> 502 ({exception.Message})");
                     await WriteAsync(stream, 502, "Bad Gateway", [], Encoding.UTF8.GetBytes("Sentinel: gateway recusou ou nao completou a requisicao."), ct);
                     return;
                 }
@@ -105,6 +121,7 @@ public sealed class ZapBridge : IDisposable
                 using (response)
                 {
                     Interlocked.Increment(ref _forwarded);
+                    Note($"{method} {uri} -> {(int)response.StatusCode}");
                     if (response.Headers.TryGetValues("X-Sentinel-Body-Truncated", out var truncated) && truncated.Contains("true")) Interlocked.Increment(ref _truncated);
                     var headers = new List<(string, string)>();
                     foreach (var header in response.Headers.Concat(response.Content.Headers))
