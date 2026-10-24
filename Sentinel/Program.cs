@@ -55,6 +55,7 @@ builder.Services.AddSingleton<ScopeLifecycle>();
 builder.Services.AddSingleton<DataOriginClassification>();
 builder.Services.AddSingleton<ScopedHttpGateway>();
 builder.Services.Configure<AsnLookupOptions>(builder.Configuration.GetSection("AsnLookup"));
+builder.Services.Configure<PlainHttpOptions>(builder.Configuration.GetSection("PlainHttp"));
 builder.Services.Configure<PluginRuntimeOptions>(builder.Configuration.GetSection("PluginRuntime"));
 builder.Services.AddSingleton<PluginRuntime>();
 builder.Services.AddHostedService<PluginSandboxReaper>();

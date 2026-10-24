@@ -64,7 +64,7 @@ public sealed class WorkerDuplicationTests : IAsyncLifetime
         }
 
         var completed = new List<Audit>();
-        var deadline = DateTime.UtcNow.AddSeconds(60);
+        var deadline = DateTime.UtcNow.AddSeconds(180); // cada auditoria passiva roda ~14 plugins pelo gateway (permissão por requisição no Postgres); o teste prova ausência de duplicação, não velocidade
         while (completed.Count < auditCount && DateTime.UtcNow < deadline)
         {
             completed.Clear();

@@ -17,6 +17,8 @@ public sealed class LabTargetServer : IDisposable
     private int _massCounter;
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _massStore = new();
     public int MaxRefererLength => Volatile.Read(ref _maxRefererLength);
+    // Liga um /.env real na RAIZ do host (WEB-CFG-05 na raiz); desligado por padrão para não afetar outros testes.
+    public volatile bool ExposeRootSecrets;
 
     public Uri BaseUri { get; }
 
@@ -425,6 +427,21 @@ public sealed class LabTargetServer : IDisposable
             return;
         }
 
+        // WEB-CFG-05 v2. spa-catchall: SPA que devolve o MESMO HTML para qualquer caminho (200 em tudo; só a
+        // assinatura de conteúdo separa "exposto" de "catch-all"). ambiguo: /swagger.json responde 200 com
+        // JSON sem a assinatura de documentação (nem erro nem exposição comprovada). A raiz do host expõe um
+        // /.env real apenas quando o teste liga ExposeRootSecrets.
+        if (path.Contains("/spa-catchall/", StringComparison.Ordinal)) { context.Response.ContentType = "text/html"; WriteBody(context, "<html><body><div id=\"app\">aplicacao</div></body></html>"); return; }
+        if (path.Contains("/ambiguo/", StringComparison.Ordinal))
+        {
+            if (path.EndsWith("/swagger.json", StringComparison.Ordinal)) { context.Response.ContentType = "application/json"; WriteBody(context, "{\"ok\":true}"); return; }
+            context.Response.StatusCode = 404; context.Response.Close(); return;
+        }
+        if (path == "/.env" && ExposeRootSecrets) { context.Response.ContentType = "text/plain"; WriteBody(context, "APP_KEY=base64:c2VudGluZWw=\nDB_PASSWORD=sintetico-123\n"); return; }
+        if (path.Contains("expor-debug", StringComparison.Ordinal) && path.EndsWith("/swagger/index.html", StringComparison.Ordinal))
+        {
+            context.Response.ContentType = "text/html"; WriteBody(context, "<html><head><title>Swagger UI</title></head><body><div id=\"swagger-ui\"></div></body></html>"); return;
+        }
         if (path.EndsWith("/swagger/index.html", StringComparison.Ordinal) || path.EndsWith("/swagger-ui.html", StringComparison.Ordinal) ||
             path.EndsWith("/api-docs", StringComparison.Ordinal) || path.EndsWith("/actuator/health", StringComparison.Ordinal) ||
             path.EndsWith("/.env", StringComparison.Ordinal) || path.EndsWith("/.git/config", StringComparison.Ordinal) ||

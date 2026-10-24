@@ -74,6 +74,10 @@ public sealed class IsolatedPluginRunner
         using var relaySlots = new SemaphoreSlim(2, 2);
         using var pipeWriter = new SemaphoreSlim(1, 1);
         var forwarding = new List<Task>();
+        // O limite de linhas de requisição HTTP segue o maxRequests declarado no manifesto (teto do host: GatewayLimits.MaxRequests),
+        // com folga para linhas recusadas; antes era fixo em 64 e contradizia o próprio manifesto. TCP continua com limite fixo.
+        var httpLines = 0; var tcpLines = 0;
+        var httpLineBudget = Math.Clamp(manifest.Spec.Capabilities.Gateway.MaxRequests, 8, GatewayLimits.MaxRequests) + 8;
         var outputLimit = Math.Clamp(manifest.Spec.Resources.ResultBytes, RuntimeLimits.MinResultBytes, RuntimeLimits.MaxResultBytes);
         Task stderrReader = Task.CompletedTask;
 
@@ -162,13 +166,13 @@ public sealed class IsolatedPluginRunner
                 }
                 else if (line.StartsWith("{\"kind\":\"http-request\"", StringComparison.Ordinal))
                 {
-                    if (line.Length > 1_500_000 || forwarding.Count >= 64) throw new InvalidOperationException("Orçamento do protocolo HTTP excedido.");
+                    if (line.Length > 1_500_000 || ++httpLines > httpLineBudget) throw new InvalidOperationException("Orçamento do protocolo HTTP excedido.");
                     var call = JsonSerializer.Deserialize<HttpRelayRequest>(line, JsonOptions) ?? throw new JsonException("Requisição HTTP inválida.");
                     forwarding.Add(ForwardAsync(call));
                 }
                 else if (line.StartsWith("{\"kind\":\"tcp-probe\"", StringComparison.Ordinal))
                 {
-                    if (line.Length > 1_000 || forwarding.Count >= 64) throw new InvalidOperationException("Orçamento do protocolo TCP excedido.");
+                    if (line.Length > 1_000 || ++tcpLines > 64) throw new InvalidOperationException("Orçamento do protocolo TCP excedido.");
                     var call = JsonSerializer.Deserialize<TcpProbeRequest>(line, JsonOptions) ?? throw new JsonException("Requisição TCP inválida.");
                     forwarding.Add(ForwardTcpAsync(call));
                 }

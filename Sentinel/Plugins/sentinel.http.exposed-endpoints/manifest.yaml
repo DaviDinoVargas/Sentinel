@@ -15,8 +15,10 @@ spec:
     artifactWrite: false
     gateway:
       arbitraryPaths: true
+      maxRequests: 80
+      bodyBytes: 65536
   resources:
-    timeoutSeconds: 12
+    timeoutSeconds: 90
     memoryMiB: 128
   permissions: [target.http.passive]
   execution:

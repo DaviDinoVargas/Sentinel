@@ -115,6 +115,10 @@ public sealed class PluginManifestGateway
     // V43: entrega cabeçalhos de resposta a plugins em sessão autenticada (valores que contenham a
     // credencial viram <redacted>). Padrão false: só status e tempo.
     public bool AuthenticatedResponseHeaders { get; set; }
+    // V47: permite UM GET sem corpo e sem credencial na contraparte http://host:80 do alvo HTTPS (mesmo
+    // host, caminho e query), sem seguir redirecionamento, registrado na trilha da execução. Serve ao
+    // TLS-01 (redirecionamento http→https). Nunca vale em auditoria autenticada.
+    public bool PlainHttpCounterpart { get; set; }
 }
 
 // V39: limites do host para recursos de container e cabeçalhos de requisição que um manifesto

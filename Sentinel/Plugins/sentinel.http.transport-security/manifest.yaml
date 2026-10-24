@@ -3,7 +3,7 @@ kind: PluginManifest
 metadata:
   id: sentinel.http.transport-security
   version: 1.0.0
-  name: HSTS e protocolo TLS negociado (TLS-01, parcial)
+  name: HSTS, protocolo TLS e redirecionamento http→https (TLS-01)
 spec:
   type: dast
   contractVersion: "1.0"
@@ -17,6 +17,7 @@ spec:
       headerCount: 128
       headerValueLength: 4096
       headerBytes: 32768
+      plainHttpCounterpart: true
   resources:
     timeoutSeconds: 10
     memoryMiB: 128

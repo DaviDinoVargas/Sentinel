@@ -24,7 +24,14 @@ public sealed class AsnLookupOptions
     public int TimeoutSeconds { get; set; } = 3;
 }
 
-public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine policy, ExecutionCoordinator coordinator, TimeProvider time, TargetCredentialVault? credentials = null, IOptions<AsnLookupOptions>? asnLookupOptions = null) : IDisposable
+// V47: contraparte HTTP em texto claro do alvo HTTPS (TLS-01, redirecionamento). O plugin sempre pede a
+// porta canônica 80; `Port` é a porta REAL a conectar (80 em produção; os testes apontam para um servidor local).
+public sealed class PlainHttpOptions
+{
+    public int Port { get; set; } = 80;
+}
+
+public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine policy, ExecutionCoordinator coordinator, TimeProvider time, TargetCredentialVault? credentials = null, IOptions<AsnLookupOptions>? asnLookupOptions = null, IOptions<PlainHttpOptions>? plainHttpOptions = null) : IDisposable
 {
     private readonly ISentinelStore _store = store;
     private readonly ScopePolicyEngine _policy = policy;
@@ -32,6 +39,7 @@ public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine po
     private readonly TimeProvider _time = time;
     private readonly TargetCredentialVault? _credentials = credentials;
     private readonly AsnLookupOptions _asnOptions = asnLookupOptions?.Value ?? new();
+    private readonly PlainHttpOptions _plainHttp = plainHttpOptions?.Value ?? new();
     // Cliente separado do cliente por-execução das sessões: nunca restrito ao
     // alvo autorizado (ConnectCallback), porque esta é a única chamada deste
     // host que sai para um destino diferente do alvo. Sem cookies/proxy; segue
@@ -136,12 +144,22 @@ public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine po
             return Convert.TryFromBase64String(call.BodyBase64, buffer, out var written) && written <= limit;
         }
 
+        // V47: GET sem corpo e sem credencial para http://<mesmo host>:80<mesmo caminho+query> quando o alvo é
+        // HTTPS e o manifesto declarou plainHttpCounterpart. Nunca em auditoria autenticada (nenhuma credencial
+        // pode viajar em texto claro) e nunca para outro host, caminho ou porta.
+        private bool IsPlainCounterpart(HttpRelayRequest call) =>
+            _manifest.Spec.Capabilities.Gateway.PlainHttpCounterpart && _target.Scheme == Uri.UriSchemeHttps && _credential is null && _request.Action != "authenticated-lab"
+            && call.Method == "GET" && string.IsNullOrEmpty(call.BodyBase64) && call.Persona == "primary" && !call.Anonymous
+            && Uri.TryCreate(call.Uri, UriKind.Absolute, out var plain) && plain.Scheme == Uri.UriSchemeHttp && plain.Port == 80
+            && plain.IdnHost == _target.IdnHost && plain.PathAndQuery == _target.PathAndQuery && string.IsNullOrEmpty(plain.UserInfo) && string.IsNullOrEmpty(plain.Fragment);
+
         internal bool IsValid(HttpRelayRequest call)
         {
+            var counterpart = IsPlainCounterpart(call);
             if (call.Kind != "http-request" || call.RequestId == Guid.Empty || !MethodAndBodyAllowed(call) || _manifest.Spec.Capabilities.Network != "scoped-egress" ||
                 !Uri.TryCreate(call.Uri, UriKind.Absolute, out var uri) || uri.Scheme is not "http" and not "https" ||
                 !string.IsNullOrEmpty(uri.UserInfo) || !string.IsNullOrEmpty(uri.Fragment) ||
-                uri.Scheme != _target.Scheme || uri.IdnHost != _target.IdnHost || uri.Port != _target.Port ||
+                (!counterpart && (uri.Scheme != _target.Scheme || uri.Port != _target.Port)) || uri.IdnHost != _target.IdnHost ||
                 (uri.AbsolutePath != _target.AbsolutePath && !AllowsArbitraryPath && !(_manifest.Metadata.Id == "sentinel.lab.authenticated-access" && uri == _baseline)) ||
                 (_request.Action != "lab-active" && uri.Query != _target.Query && !AllowsArbitraryPath && !(_manifest.Metadata.Id == "sentinel.lab.authenticated-access" && uri == _baseline)) || call.Headers is null || call.Headers.Count > Math.Min(_manifest.Spec.Capabilities.Gateway.RequestHeaderCount, RuntimeLimits.MaxRequestHeaders)) return false;
             if (call.Persona is not ("primary" or "secondary") || call.Persona == "secondary" && (_manifest.Spec.Capabilities.Gateway.Identity != "dual" || _secondary is null || call.Anonymous)) return false;
@@ -154,6 +172,7 @@ public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine po
         {
             if (!IsValid(call)) return Denied(call.RequestId, "Gateway recusou método, destino, capacidade ou cabeçalhos fora do contrato.");
             var isWrite = GatewayLimits.WriteMethods.Contains(call.Method);
+            var plainCounterpart = IsPlainCounterpart(call);
             var host = _target.IdnHost.Trim('[', ']');
             if (IPAddress.TryParse(host, out var literal) && IsForbiddenAddress(literal, host))
                 return Denied(call.RequestId, "Gateway recusou endereço de rede protegido.");
@@ -166,7 +185,7 @@ public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine po
                 {
                     cancellationToken.ThrowIfCancellationRequested();
                     var scopes = _gateway._store.GetScopes(_request.ProjectId);
-                    var decision = _gateway._policy.Evaluate(scopes, new Uri(call.Uri), _request.Action, _gateway._time.GetUtcNow(), ScopePolicyEngine.IsActive(_request.Action), call.Method, _request.ScopeId);
+                    var decision = _gateway._policy.Evaluate(scopes, plainCounterpart ? _target : new Uri(call.Uri), _request.Action, _gateway._time.GetUtcNow(), ScopePolicyEngine.IsActive(_request.Action), call.Method, _request.ScopeId);
                     if (!decision.IsAllowed || _gateway._time.GetUtcNow() >= _request.DeadlineUtc) return Denied(call.RequestId, "Gateway recusou escopo, consentimento ou prazo de execução.");
                     if (!dnsValidated) { await ValidateDns(cancellationToken); dnsValidated = true; }
                     if (_request.Action == "authenticated-lab")
@@ -202,6 +221,7 @@ public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine po
                 using var response = await _client.SendAsync(message, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
                 var elapsed = clock.Elapsed.TotalMilliseconds;
                 if (isWrite) _gateway._coordinator.Trail(_lease, "WriteResult", $"{_manifest.Metadata.Id} {call.Method} {new Uri(call.Uri).AbsolutePath} -> {(int)response.StatusCode}");
+                if (plainCounterpart) _gateway._coordinator.Trail(_lease, "PlainHttpProbe", $"{_manifest.Metadata.Id} GET http://{_target.IdnHost}{_target.AbsolutePath} -> {(int)response.StatusCode}");
                 // Responses are bounded before crossing the process boundary. Cookie
                 // VALUES are never exposed; only name+attributes, and only to the two
                 // plugins that need them (redacted even for those).
@@ -450,7 +470,10 @@ public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine po
 
         private async ValueTask<Stream> ConnectAsync(SocketsHttpConnectionContext context, CancellationToken cancellationToken)
         {
-            if (!context.DnsEndPoint.Host.Equals(_target.IdnHost, StringComparison.OrdinalIgnoreCase) || context.DnsEndPoint.Port != _target.Port)
+            // V47: a contraparte em texto claro (porta canônica 80) só é conectável com a capacidade declarada;
+            // conecta na porta configurada do host (80 em produção) e NUNCA negocia TLS.
+            var plain = _manifest.Spec.Capabilities.Gateway.PlainHttpCounterpart && _target.Scheme == Uri.UriSchemeHttps && context.DnsEndPoint.Port == 80 && _target.Port != 80;
+            if (!context.DnsEndPoint.Host.Equals(_target.IdnHost, StringComparison.OrdinalIgnoreCase) || (context.DnsEndPoint.Port != _target.Port && !plain))
                 throw new HttpRequestException("Destino da conexão fora do alvo.");
             await ValidateDns(cancellationToken);
             Exception? last = null;
@@ -459,11 +482,11 @@ public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine po
                 var socket = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
                 try
                 {
-                    await socket.ConnectAsync(new IPEndPoint(address, _target.Port), cancellationToken);
+                    await socket.ConnectAsync(new IPEndPoint(address, plain ? _gateway._plainHttp.Port : _target.Port), cancellationToken);
                     var stream = new NetworkStream(socket, true);
                     // Return an authenticated stream (.NET 7+) so a Host-header probe
                     // cannot change SNI or the certificate name being validated.
-                    if (_target.Scheme != Uri.UriSchemeHttps) return stream;
+                    if (plain || _target.Scheme != Uri.UriSchemeHttps) return stream;
                     var tls = await AuthenticateTlsAsync(stream, _target.IdnHost.Trim('[', ']'), cancellationToken);
                     _negotiatedProtocol = tls.SslProtocol;
                     return tls;
