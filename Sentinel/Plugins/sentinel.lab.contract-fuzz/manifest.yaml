@@ -1,0 +1,30 @@
+apiVersion: sentinel.dev/v1
+kind: PluginManifest
+metadata:
+  id: sentinel.lab.contract-fuzz
+  version: 1.0.0
+  name: Fuzz de corpo guiado pelo contrato OpenAPI (FUZZ-05, WEB-INJ-07)
+spec:
+  type: security-test
+  contractVersion: "1.0"
+  mode: active
+  controls: [FUZZ-05, WEB-INJ-07]
+  capabilities:
+    network: scoped-egress
+    sourceRead: false
+    artifactWrite: false
+    gateway:
+      arbitraryPaths: true
+      methods: [POST, PUT, PATCH]
+      requestBodyBytes: 262144
+      requestContentTypes: [application/json]
+      writeRequests: 40
+      maxRequests: 40
+      bodyBytes: 65536
+  resources:
+    timeoutSeconds: 90
+    memoryMiB: 128
+  permissions: [target.http.lab-active]
+  execution:
+    isolation: container
+  riskClass: medium

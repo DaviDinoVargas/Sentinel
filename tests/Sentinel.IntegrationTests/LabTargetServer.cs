@@ -209,6 +209,45 @@ public sealed class LabTargetServer : IDisposable
             context.Response.Headers.Add("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'");
         }
 
+        if (path.Contains("/fuzz-api-", StringComparison.Ordinal))
+        {
+            // FUZZ-05/WEB-INJ-07: POST /items com contrato {name: string obrigatório, quantity: integer,
+            // tags: array de string}. seguro valida tipos, obrigatórios, tamanhos e profundidade (4xx);
+            // fragil confia no corpo e deixa a exceção virar 500 com stack trace; frouxo aceita tudo
+            // que é JSON (2xx), inclusive obrigatório ausente/nulo e strings gigantes.
+            var mode = path.Contains("/fuzz-api-seguro", StringComparison.Ordinal) ? "seguro" : path.Contains("/fuzz-api-fragil", StringComparison.Ordinal) ? "fragil" : "frouxo";
+            if (context.Request.HttpMethod != "POST") { context.Response.StatusCode = 405; context.Response.Close(); return; }
+            using var buffer = new MemoryStream();
+            context.Request.InputStream.CopyTo(buffer);
+            if (mode == "seguro" && buffer.Length > 128 * 1024) { context.Response.StatusCode = 413; context.Response.Close(); return; }
+            try
+            {
+                using var document = System.Text.Json.JsonDocument.Parse(new System.Text.UTF8Encoding(false, true).GetString(buffer.ToArray()));
+                var root = document.RootElement;
+                if (mode == "seguro")
+                {
+                    var valid = root.ValueKind == System.Text.Json.JsonValueKind.Object
+                        && root.TryGetProperty("name", out var name) && name.ValueKind == System.Text.Json.JsonValueKind.String && name.GetString()!.Length is > 0 and <= 200
+                        && (!root.TryGetProperty("quantity", out var quantity) || (quantity.ValueKind == System.Text.Json.JsonValueKind.Number && quantity.TryGetInt32(out var q) && q is >= 0 and <= 100_000))
+                        && (!root.TryGetProperty("tags", out var tags) || (tags.ValueKind == System.Text.Json.JsonValueKind.Array && tags.GetArrayLength() <= 100 && tags.EnumerateArray().All(tag => tag.ValueKind == System.Text.Json.JsonValueKind.String)));
+                    if (!valid) { context.Response.StatusCode = 400; context.Response.Close(); return; }
+                }
+                else if (mode == "fragil")
+                {
+                    var length = root.GetProperty("name").GetString()!.Length; // chave ausente, nulo ou tipo trocado explodem
+                    if (root.TryGetProperty("quantity", out var quantity)) _ = quantity.GetInt32() + length;
+                }
+                context.Response.StatusCode = 201;
+                WriteBody(context, "{\"id\":1}");
+            }
+            catch (Exception exception) when (exception is System.Text.Json.JsonException or ArgumentException or InvalidOperationException or KeyNotFoundException or NullReferenceException or FormatException)
+            {
+                if (mode != "fragil") { context.Response.StatusCode = mode == "seguro" ? 400 : 201; if (mode == "seguro") { context.Response.Close(); return; } WriteBody(context, "{\"id\":1}"); return; }
+                context.Response.StatusCode = 500;
+                WriteBody(context, exception.GetType().FullName + ": " + exception.Message + "\n   at Sentinel.Lab.Fake.Handle() in C:\\lab\\Fake.cs:line 9");
+            }
+            return;
+        }
         if (path.Contains("/json-api-", StringComparison.Ordinal))
         {
             // WEB-INJ-03: API JSON que só aceita POST. json-api-seguro valida o corpo e recusa com 4xx

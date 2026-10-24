@@ -50,6 +50,7 @@ public static class Program
         ["sentinel.dast.zap-baseline"] = () => new ZapBaselineCheck(),
         ["sentinel.lab.body-robustness"] = () => new BodyRobustnessCheck(),
         ["sentinel.lab.mass-assignment"] = () => new MassAssignmentCheck(),
+        ["sentinel.lab.contract-fuzz"] = () => new ContractFuzzCheck(),
     };
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)

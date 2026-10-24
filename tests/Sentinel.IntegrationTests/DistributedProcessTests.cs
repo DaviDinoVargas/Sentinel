@@ -67,9 +67,9 @@ public sealed class DistributedProcessTests
         await Task.Delay(350);
         var cancelledAgain = await Read<ExecutionSnapshot>(second.Client, $"/api/v1/audits/{firstAudit.Id}/execution");
         Assert.Equal(cancelled.GrantedRequests, cancelledAgain.GrantedRequests);
-        var completed = await WaitAudit(second.Client, queued.Id, audit => AuditStates.IsTerminal(audit.State));
+        var completed = await WaitAudit(second.Client, queued.Id, audit => AuditStates.IsTerminal(audit.State), 150);
         Assert.Equal(AuditState.Completed, completed.State);
-        Assert.Equal(7, completed.Controls.Count);
+        Assert.Equal(8, completed.Controls.Count);
         var evidence = completed.Evidence.First(item => item.Artifact is not null);
         var artifactPath = $"/api/v1/audits/{completed.Id}/evidence/{evidence.Id}/artifact";
         var artifactFirst = await Read<Sentinel.Evidence.VerifiedEvidenceArtifact>(first.Client, artifactPath);
@@ -117,9 +117,9 @@ public sealed class DistributedProcessTests
         return (await response.Content.ReadFromJsonAsync<Audit>(Json))!;
     }
     private static async Task<T> Read<T>(HttpClient client, string path) => (await client.GetFromJsonAsync<T>(path, Json))!;
-    private static async Task<Audit> WaitAudit(HttpClient client, Guid id, Func<Audit, bool> predicate)
+    private static async Task<Audit> WaitAudit(HttpClient client, Guid id, Func<Audit, bool> predicate, int seconds = 45)
     {
-        var deadline = DateTime.UtcNow.AddSeconds(45);
+        var deadline = DateTime.UtcNow.AddSeconds(seconds);
         while (DateTime.UtcNow < deadline)
         {
             var audit = await Read<Audit>(client, $"/api/v1/audits/{id}");
