@@ -111,7 +111,7 @@ public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine po
         // esses plugins pedirem ainda passa pela mesma avaliação de política/escopo por
         // requisição abaixo (policy.Evaluate), igual a qualquer outro plugin; uma rota
         // fora do prefixo/métodos/exclusões autorizados continua sendo recusada.
-        private static readonly HashSet<string> ArbitraryPathPlugins = new(StringComparer.Ordinal) { "sentinel.lab.endpoint-discovery", "sentinel.http.exposed-endpoints", "sentinel.lab.api-anonymous-access", "sentinel.lab.object-level-authz" };
+        private static readonly HashSet<string> ArbitraryPathPlugins = new(StringComparer.Ordinal) { "sentinel.lab.endpoint-discovery", "sentinel.http.exposed-endpoints", "sentinel.lab.api-anonymous-access", "sentinel.lab.object-level-authz", "sentinel.lab.function-level-authz" };
         private bool AllowsArbitraryPath => ArbitraryPathPlugins.Contains(_manifest.Metadata.Id);
 
         internal bool IsValid(HttpRelayRequest call)
@@ -122,7 +122,7 @@ public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine po
                 uri.Scheme != _target.Scheme || uri.IdnHost != _target.IdnHost || uri.Port != _target.Port ||
                 (uri.AbsolutePath != _target.AbsolutePath && !AllowsArbitraryPath && !(_manifest.Metadata.Id == "sentinel.lab.authenticated-access" && uri == _baseline)) ||
                 (_request.Action != "lab-active" && uri.Query != _target.Query && !AllowsArbitraryPath && !(_manifest.Metadata.Id == "sentinel.lab.authenticated-access" && uri == _baseline)) || call.Headers is null || call.Headers.Count > 4) return false;
-            if (call.Persona is not ("primary" or "secondary") || call.Persona == "secondary" && (_manifest.Metadata.Id != "sentinel.lab.object-level-authz" || _secondary is null || call.Anonymous)) return false;
+            if (call.Persona is not ("primary" or "secondary") || call.Persona == "secondary" && (_manifest.Metadata.Id is not ("sentinel.lab.object-level-authz" or "sentinel.lab.function-level-authz") || _secondary is null || call.Anonymous)) return false;
             if (call.Anonymous && (_request.Action != "authenticated-lab" || _manifest.Metadata.Id != "sentinel.lab.authenticated-access" || uri != _baseline)) return false;
             return call.Headers.All(header => AllowedHeaders.Contains(header.Key) && header.Value is { Length: > 0 and <= 2 } &&
                 header.Value.All(value => value is not null && value.Length <= 512 && !value.Any(char.IsControl)));

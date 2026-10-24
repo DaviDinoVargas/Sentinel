@@ -46,6 +46,7 @@ public static class Program
         ["sentinel.lab.api-anonymous-access"] = () => new ApiAnonymousAccessCheck(),
         ["sentinel.source.api-auth-declared"] = () => new ApiAuthDeclaredCheck(),
         ["sentinel.lab.object-level-authz"] = () => new ObjectLevelAuthzCheck(),
+        ["sentinel.lab.function-level-authz"] = () => new FunctionLevelAuthzCheck(),
     };
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)

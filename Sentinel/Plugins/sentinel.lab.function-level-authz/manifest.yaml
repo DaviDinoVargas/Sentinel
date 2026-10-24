@@ -1,0 +1,22 @@
+apiVersion: sentinel.dev/v1
+kind: PluginManifest
+metadata:
+  id: sentinel.lab.function-level-authz
+  version: 1.0.0
+  name: Autorização em nível de função com papel privilegiado e menor (API-AUTHZ-06)
+spec:
+  type: security-test
+  contractVersion: "1.0"
+  mode: active
+  controls: [API-AUTHZ-06]
+  capabilities:
+    network: scoped-egress
+    sourceRead: false
+    artifactWrite: false
+  resources:
+    timeoutSeconds: 18
+    memoryMiB: 128
+  permissions: [target.http.authenticated-lab]
+  execution:
+    isolation: container
+  riskClass: medium

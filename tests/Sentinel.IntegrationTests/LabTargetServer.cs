@@ -65,6 +65,16 @@ public sealed class LabTargetServer : IDisposable
             else if (context.Request.HttpMethod != "POST") context.Response.StatusCode = 405;
             WriteBody(context, context.Response.StatusCode == 200 ? "{\"data\":{\"token\":\"sentinel-tenant-a\"}}" : "{\"error\":\"synthetic-password must never escape\"}"); return;
         }
+        if (path.Contains("/bfla-", StringComparison.Ordinal))
+        {
+            // Função administrativa (API-AUTHZ-06): tenant-a faz o papel privilegiado e tenant-b
+            // o menor. bfla-safe nega o menor com 403; bfla-vuln entrega a qualquer identidade.
+            var auth = context.Request.Headers["Authorization"] ?? "";
+            if (auth is not ("Bearer sentinel-tenant-a" or "Bearer sentinel-tenant-b")) { context.Response.StatusCode = 401; context.Response.Close(); return; }
+            var allowed = auth == "Bearer sentinel-tenant-a" || path.Contains("/bfla-vuln/", StringComparison.Ordinal);
+            context.Response.StatusCode = allowed ? 200 : 403;
+            WriteBody(context, allowed ? "[]" : "{}"); return;
+        }
         if (path.Contains("/idor-", StringComparison.Ordinal))
         {
             // Cenário de objeto por identidade (API-AUTHZ-02): idor-safe isola por dono,
