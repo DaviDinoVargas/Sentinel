@@ -66,13 +66,15 @@ public sealed class AuditService
     private readonly ScopePolicyEngine _policy;
     private readonly TimeProvider _timeProvider;
     private readonly Execution.TargetCredentialVault _credentials;
+    private readonly Execution.PluginRegistry? _registry;
 
-    public AuditService(ISentinelStore store, ScopePolicyEngine policy, TimeProvider timeProvider, Execution.TargetCredentialVault credentials)
+    public AuditService(ISentinelStore store, ScopePolicyEngine policy, TimeProvider timeProvider, Execution.TargetCredentialVault credentials, Execution.PluginRegistry? registry = null)
     {
         _store = store;
         _policy = policy;
         _timeProvider = timeProvider;
         _credentials = credentials;
+        _registry = registry;
     }
 
     public SentinelProject CreateProject(CreateProjectRequest request)
@@ -155,6 +157,17 @@ public sealed class AuditService
         // (D11 / ADR-0011 / ADR-0004). A auditoria nasce em Queued; o cliente consulta o
         // estado em GET /api/v1/audits/{auditId}. A mensagem do outbox é gravada na mesma
         // transação que a auditoria — nunca existe uma auditoria Queued sem job pendente.
+        string[]? additionalPlugins = null;
+        if (request.AdditionalPlugins is { Count: > 0 } requested)
+        {
+            if (request.Action.Equals("authenticated-lab", StringComparison.OrdinalIgnoreCase) || request.Action.Equals("source-analysis", StringComparison.OrdinalIgnoreCase))
+                throw new ArgumentException("Plugins adicionais só valem em auditorias passivas ou lab-active.");
+            additionalPlugins = requested.Select(id => id?.Trim() ?? "").Distinct(StringComparer.Ordinal).ToArray();
+            if (additionalPlugins.Length > 5) throw new ArgumentException("No máximo 5 plugins adicionais por auditoria.");
+            var known = _registry?.Approved.Where(item => item.Spec.Activation == "explicit" && item.Spec.Capabilities.Network == "scoped-egress").Select(item => item.Metadata.Id).ToHashSet(StringComparer.Ordinal) ?? [];
+            var unknown = additionalPlugins.Where(id => !known.Contains(id)).ToArray();
+            if (unknown.Length > 0) throw new ArgumentException("Plugin adicional inexistente ou que não é de ativação explícita: " + string.Join(", ", unknown.Select(id => id.Length > 80 ? id[..80] : id)));
+        }
         var auditId = Guid.NewGuid();
         Execution.CredentialBinding? credential = null;
         Execution.CredentialBinding? secondaryCredential = null;
@@ -174,7 +187,7 @@ public sealed class AuditService
         else if (request.CredentialProfileId is not null || request.ExpectedAccess is not null || request.IncludeAuthenticatedLoad || request.SecondaryCredentialProfileId is not null)
             throw new ArgumentException("Credenciais e expectativas exigem perfil authenticated-lab.");
         var outboxPayload = new Execution.OutboxMessagePayload(auditId, projectId, decision.Scope!.Id, targetUri.AbsoluteUri, request.Action.ToLowerInvariant(), request.ConfirmActive,
-            credential, request.ExpectedAccess, request.IncludeAuthenticatedLoad, SecondaryCredential: secondaryCredential);
+            credential, request.ExpectedAccess, request.IncludeAuthenticatedLoad, SecondaryCredential: secondaryCredential, AdditionalPlugins: additionalPlugins);
         var outboxPayloadJson = System.Text.Json.JsonSerializer.Serialize(outboxPayload, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
         return _store.SaveQueuedAuditWithOutbox(
             new Audit(auditId, projectId, decision.Scope.Id, targetUri, AuditState.Queued, correlationId, null, nowUtc, Array.Empty<AuditControlResult>(), Array.Empty<AuditEvidence>(), request.DataOrigin,

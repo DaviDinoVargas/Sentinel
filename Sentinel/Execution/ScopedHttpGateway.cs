@@ -85,12 +85,12 @@ public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine po
         // Esses dois plugins só recebem metadados sintéticos (não o cabeçalho HTTP
         // original): nome do cookie + atributos, com o valor sempre trocado por
         // <redacted>. Nenhum outro plugin vê Set-Cookie, mesmo redigido.
-        private static readonly HashSet<string> CookieAwarePlugins = new(StringComparer.Ordinal) { "sentinel.http.cookie-security", "sentinel.http.waf-fingerprint" };
         private readonly SemaphoreSlim _loginLock = new(1, 1);
         private bool _loginAttempted;
         private string? _loginToken;
         private string _loginStatus = "NotTested";
-        private static readonly HashSet<string> AllowedHeaders = new(StringComparer.OrdinalIgnoreCase) { "Origin", "Host", "X-Forwarded-Host", "Authorization" };
+        private HashSet<string>? _allowedRequestHeaders;
+        private HashSet<string> AllowedHeaders => _allowedRequestHeaders ??= new(_manifest.Spec.Capabilities.Gateway.RequestHeaders.Intersect(RuntimeLimits.AllowedRequestHeaders, StringComparer.OrdinalIgnoreCase), StringComparer.OrdinalIgnoreCase);
 
         internal Session(ScopedHttpGateway gateway, ExecutionLease lease, PluginExecutionRequest request, PluginManifest manifest, CredentialBinding? credential, CredentialBinding? secondary = null)
         {
@@ -121,7 +121,7 @@ public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine po
                 !string.IsNullOrEmpty(uri.UserInfo) || !string.IsNullOrEmpty(uri.Fragment) ||
                 uri.Scheme != _target.Scheme || uri.IdnHost != _target.IdnHost || uri.Port != _target.Port ||
                 (uri.AbsolutePath != _target.AbsolutePath && !AllowsArbitraryPath && !(_manifest.Metadata.Id == "sentinel.lab.authenticated-access" && uri == _baseline)) ||
-                (_request.Action != "lab-active" && uri.Query != _target.Query && !AllowsArbitraryPath && !(_manifest.Metadata.Id == "sentinel.lab.authenticated-access" && uri == _baseline)) || call.Headers is null || call.Headers.Count > 4) return false;
+                (_request.Action != "lab-active" && uri.Query != _target.Query && !AllowsArbitraryPath && !(_manifest.Metadata.Id == "sentinel.lab.authenticated-access" && uri == _baseline)) || call.Headers is null || call.Headers.Count > Math.Min(_manifest.Spec.Capabilities.Gateway.RequestHeaderCount, RuntimeLimits.MaxRequestHeaders)) return false;
             if (call.Persona is not ("primary" or "secondary") || call.Persona == "secondary" && (_manifest.Spec.Capabilities.Gateway.Identity != "dual" || _secondary is null || call.Anonymous)) return false;
             if (call.Anonymous && (_request.Action != "authenticated-lab" || _manifest.Metadata.Id != "sentinel.lab.authenticated-access" || uri != _baseline)) return false;
             return call.Headers.All(header => AllowedHeaders.Contains(header.Key) && header.Value is { Length: > 0 and <= 2 } &&
@@ -182,7 +182,7 @@ public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine po
                 // plugins that need them (redacted even for those).
                 var headers = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
                 var headerSize = 0;
-                var cookieAware = CookieAwarePlugins.Contains(_manifest.Metadata.Id);
+                var cookieAware = _manifest.Spec.Capabilities.Gateway.CookieAttributes;
                 var limits = _manifest.Spec.Capabilities.Gateway;
                 foreach (var header in response.Headers.Concat(response.Content.Headers))
                 {

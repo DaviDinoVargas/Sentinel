@@ -120,7 +120,7 @@ public sealed record CreateProjectRequest(string Name, string? Description, stri
 public sealed record CreateScopeRequest(string TargetBaseUrl, string Environment, DateTimeOffset ExpiresAtUtc, ScopeRules? Rules = null);
 
 public sealed record RequestAuditRequest(string TargetUrl, string Action = "simulated", bool ConfirmActive = false,
-    Guid? CredentialProfileId = null, string? ExpectedAccess = null, bool IncludeAuthenticatedLoad = false, string DataOrigin = DataOrigins.Unknown, Guid? SecondaryCredentialProfileId = null);
+    Guid? CredentialProfileId = null, string? ExpectedAccess = null, bool IncludeAuthenticatedLoad = false, string DataOrigin = DataOrigins.Unknown, Guid? SecondaryCredentialProfileId = null, IReadOnlyList<string>? AdditionalPlugins = null);
 
 public sealed record AuditReport(
     Guid AuditId,

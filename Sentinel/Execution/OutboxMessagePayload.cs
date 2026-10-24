@@ -12,4 +12,5 @@ public sealed record OutboxMessagePayload(
     string? ExpectedAccess = null,
     bool IncludeAuthenticatedLoad = false,
     Source.SourceSnapshotBinding? Source = null,
-    CredentialBinding? SecondaryCredential = null);
+    CredentialBinding? SecondaryCredential = null,
+    IReadOnlyList<string>? AdditionalPlugins = null);

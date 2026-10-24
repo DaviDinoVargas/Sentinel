@@ -48,12 +48,16 @@ public sealed class PluginRuntime(IOptions<PluginRuntimeOptions> options, IHostE
             return start;
         }
         if (!Regex.IsMatch(Options.Image, "^sha256:[a-f0-9]{64}$")) throw new InvalidOperationException("Sandbox exige uma imagem local fixada por digest SHA-256.");
-        var memory = Math.Clamp(manifest.Spec.Resources.MemoryMiB, 64, 512).ToString(CultureInfo.InvariantCulture) + "m";
+        var resources = manifest.Spec.Resources;
+        var memory = Math.Clamp(resources.MemoryMiB, 64, RuntimeLimits.MaxMemoryMiB).ToString(CultureInfo.InvariantCulture) + "m";
+        var cpus = Math.Clamp(resources.Cpus, 0.1, RuntimeLimits.MaxCpus).ToString("0.##", CultureInfo.InvariantCulture);
+        var pids = Math.Clamp(resources.Pids, 16, RuntimeLimits.MaxPids).ToString(CultureInfo.InvariantCulture);
+        var tmpfs = "/tmp:rw,noexec,nosuid,size=" + Math.Clamp(resources.TmpfsMiB, 1, RuntimeLimits.MaxTmpfsMiB).ToString(CultureInfo.InvariantCulture) + "m";
         var arguments = new List<string> { "run", "--rm", "-i", "--name", name, "--label", "sentinel.sandbox=true",
             "--label", "sentinel.deadline=" + deadline.ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture),
             "--network", "none", "--read-only", "--user", "65532:65532", "--cap-drop", "ALL",
             "--security-opt", "no-new-privileges:true", "--memory", memory, "--memory-swap", memory,
-            "--cpus", "0.5", "--pids-limit", "64", "--tmpfs", "/tmp:rw,noexec,nosuid,size=16m",
+            "--cpus", cpus, "--pids-limit", pids, "--tmpfs", tmpfs,
             "--log-driver", "none" };
         if (sourceDirectory is not null)
         {

@@ -25,6 +25,7 @@
         },
         "contractVersion": { "type": "string", "minLength": 1 },
         "mode": { "enum": ["passive", "active"] },
+        "activation": { "enum": ["default", "explicit"] },
         "controls": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
         "capabilities": {
           "type": "object",
@@ -43,7 +44,10 @@
                 "headerValueLength": { "type": "integer", "minimum": 1, "maximum": 4096 },
                 "headerBytes": { "type": "integer", "minimum": 1, "maximum": 32768 },
                 "arbitraryPaths": { "type": "boolean" },
-                "maxRequests": { "type": "integer", "minimum": 1, "maximum": 200 }
+                "maxRequests": { "type": "integer", "minimum": 1, "maximum": 200 },
+                "requestHeaders": { "type": "array", "uniqueItems": true, "items": { "enum": ["Origin", "Host", "X-Forwarded-Host", "Authorization", "Accept", "Accept-Language", "Cache-Control", "Pragma", "Referer", "User-Agent", "If-Modified-Since", "If-None-Match"] } },
+                "requestHeaderCount": { "type": "integer", "minimum": 1, "maximum": 16 },
+                "cookieAttributes": { "type": "boolean" }
               }
             }
           }
@@ -53,7 +57,10 @@
           "required": ["timeoutSeconds", "memoryMiB"],
           "properties": {
             "timeoutSeconds": { "type": "integer", "minimum": 1, "maximum": 1800 },
-            "memoryMiB": { "type": "integer", "minimum": 16 }
+            "memoryMiB": { "type": "integer", "minimum": 16, "maximum": 2048 },
+            "cpus": { "type": "number", "exclusiveMinimum": 0, "maximum": 2 },
+            "pids": { "type": "integer", "minimum": 16, "maximum": 512 },
+            "tmpfsMiB": { "type": "integer", "minimum": 1, "maximum": 512 }
           }
         },
         "permissions": { "type": "array", "items": { "type": "string" } },

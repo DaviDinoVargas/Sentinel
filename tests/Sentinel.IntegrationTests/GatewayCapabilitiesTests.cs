@@ -66,6 +66,56 @@ public sealed class GatewayCapabilitiesTests
     }
 
     [Fact]
+    public void Cabecalhos_de_requisicao_e_recursos_de_container_tambem_sao_limitados_pelo_schema()
+    {
+        var validator = new PluginSchemaValidator(Schemas);
+        PluginManifest Manifest(Action<PluginManifest> change)
+        {
+            var manifest = new PluginManifest
+            {
+                ApiVersion = "sentinel.dev/v1", Kind = "PluginManifest",
+                Metadata = { Id = "teste.v39", Version = "1.0.0", Name = "Teste" },
+                Spec = { Type = "dast", ContractVersion = "1.0", Mode = "passive", Controls = ["X-01"], RiskClass = "low", Permissions = ["target.http.passive"] },
+            };
+            manifest.Spec.Capabilities.Network = "scoped-egress";
+            change(manifest);
+            return manifest;
+        }
+        Assert.True(validator.ValidateManifest(Manifest(m =>
+        {
+            m.Spec.Capabilities.Gateway.RequestHeaders = ["Accept", "User-Agent", "Referer"];
+            m.Spec.Capabilities.Gateway.RequestHeaderCount = RuntimeLimits.MaxRequestHeaders;
+            m.Spec.Capabilities.Gateway.CookieAttributes = true;
+            m.Spec.Resources.MemoryMiB = RuntimeLimits.MaxMemoryMiB; m.Spec.Resources.Cpus = RuntimeLimits.MaxCpus; m.Spec.Resources.Pids = RuntimeLimits.MaxPids; m.Spec.Resources.TmpfsMiB = RuntimeLimits.MaxTmpfsMiB;
+        })).IsValid);
+        Assert.False(validator.ValidateManifest(Manifest(m => m.Spec.Capabilities.Gateway.RequestHeaders = ["Cookie"])).IsValid);
+        Assert.False(validator.ValidateManifest(Manifest(m => m.Spec.Capabilities.Gateway.RequestHeaderCount = RuntimeLimits.MaxRequestHeaders + 1)).IsValid);
+        Assert.False(validator.ValidateManifest(Manifest(m => m.Spec.Resources.MemoryMiB = RuntimeLimits.MaxMemoryMiB + 1)).IsValid);
+        Assert.False(validator.ValidateManifest(Manifest(m => m.Spec.Resources.Pids = RuntimeLimits.MaxPids + 1)).IsValid);
+        Assert.False(validator.ValidateManifest(Manifest(m => m.Spec.Resources.TmpfsMiB = RuntimeLimits.MaxTmpfsMiB + 1)).IsValid);
+    }
+
+    [Fact]
+    public async Task Plugins_adicionais_so_aceitam_plugins_de_ativacao_explicita()
+    {
+        using var host = new SentinelApiFactory();
+        using var client = host.CreateClient();
+        var projectResponse = await client.PostAsJsonAsync("/api/v1/projects", new CreateProjectRequest("Adicionais " + Guid.NewGuid().ToString("N"), null));
+        projectResponse.EnsureSuccessStatusCode();
+        var project = (await projectResponse.Content.ReadFromJsonAsync<SentinelProject>(Json))!;
+        var baseUrl = $"{host.LabTarget.BaseUri}aplicacao/";
+        (await client.PostAsJsonAsync($"/api/v1/projects/{project.Id}/scopes", new CreateScopeRequest(baseUrl, "teste", DateTimeOffset.UtcNow.AddHours(1)))).EnsureSuccessStatusCode();
+
+        async Task<System.Net.HttpStatusCode> Request(params string[] plugins) =>
+            (await client.PostAsJsonAsync($"/api/v1/projects/{project.Id}/audits", new RequestAuditRequest(baseUrl + "area-segura", "simulated", false, null, null, false, DataOrigins.Unknown, null, plugins))).StatusCode;
+
+        Assert.Equal(System.Net.HttpStatusCode.BadRequest, await Request("plugin.que.nao.existe"));
+        // existe e está aprovado, mas é de ativação "default": não pode ser pedido como adicional.
+        Assert.Equal(System.Net.HttpStatusCode.BadRequest, await Request("sentinel.http.security-headers"));
+        Assert.Equal(System.Net.HttpStatusCode.BadRequest, await Request("a", "b", "c", "d", "e", "f"));
+    }
+
+    [Fact]
     public void Plugin_sem_declaracao_mantem_o_comportamento_conservador_anterior()
     {
         var gateway = new PluginManifest().Spec.Capabilities.Gateway;

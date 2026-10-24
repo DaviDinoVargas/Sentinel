@@ -68,7 +68,7 @@ public sealed class AuditWorker(
             var validationProject = store.FindProject(payload.ProjectId)?.Purpose == ProjectPurposes.Validation;
             var selected = registry.Approved.Where(item => validationProject || item.Metadata.Id != "sentinel.fixture.sim-001").Where(item => source ? item.Spec.Capabilities.SourceRead && item.Spec.Capabilities.Network == "false" : !item.Spec.Capabilities.SourceRead && (authenticated
                 ? item.Spec.Capabilities.Gateway.Identity == "primary" || payload.SecondaryCredential is not null && item.Spec.Capabilities.Gateway.Identity == "dual" || payload.IncludeAuthenticatedLoad && item.Metadata.Id == "sentinel.lab.bounded-http-load"
-                : item.Spec.Mode == mode && item.Spec.Capabilities.Gateway.Identity == "none"));
+                : item.Spec.Activation == "explicit" ? payload.AdditionalPlugins?.Contains(item.Metadata.Id) == true : item.Spec.Mode == mode && item.Spec.Capabilities.Gateway.Identity == "none"));
             foreach (var manifest in selected.OrderBy(item => item.Metadata.Id is "sentinel.lab.authenticated-access" or "sentinel.source.inventory" ? 0 : item.Metadata.Id == "sentinel.source.sbom-diff" ? 2 : 1))
             {
                 stage = "politica";

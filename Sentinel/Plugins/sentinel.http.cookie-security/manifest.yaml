@@ -17,6 +17,7 @@ spec:
       headerCount: 128
       headerValueLength: 4096
       headerBytes: 32768
+      cookieAttributes: true
   resources:
     timeoutSeconds: 10
     memoryMiB: 128
