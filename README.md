@@ -1,5 +1,13 @@
 # Sentinel
 
+## Workspace Harpia e plano reutilizavel — V51
+
+Nova identidade vetorial local, temas escuro/claro e navegacao responsiva. **Projetos → Abrir projeto** centraliza alvos/escopos, usuarios/acessos, fontes, plano de testes e resultados. O projeto no cabecalho e somente um indicador; a selecao acontece em Projetos ou Rodar testes.
+
+O plano persiste URLs e referencias de credenciais/snapshots no PostgreSQL, com versao otimista e isolamento por organizacao. Rodar testes envia as modalidades selecionadas e disponiveis, informa motivos das nao enviadas e preserva links das auditorias aceitas ou bloqueadas. Cada auditoria continua independente e sujeita as politicas do host. Opcoes explicitas de plugins permanecem nas modalidades avancadas; salvar configuracao nao renova autorizacoes. Senhas e tokens continuam no cofre existente.
+
+Infraestrutura e filas oferece pausa, intervalos de5/15/30/60s, historico de amostras AMQP e monitor de containers. Nao calcula taxas de entrega a partir de contagens. A documentacao de fluxo, componentes, marca e limites esta em [Sentinel.Web/DESIGN-SYSTEM.md](Sentinel.Web/DESIGN-SYSTEM.md). A migration AddProjectRunProfiles e aditiva. Rotas anteriores, OIDC/PKCE, permissoes, resultados, evidencias e separacao de corpus foram preservados. O redesign nao altera a baseline empresarial descrita abaixo.
+
 ## Autenticacao e injecao — V50
 
 **Estado em 25/10/2026: desenvolvimento em validacao, sem homologacao empresarial.** A baseline integrada anterior as ultimas correcoes terminou com 358/375 testes aprovados e 17 falhas: perda de lease, preparacao da sandbox, carga incompleta, timeouts entre processos e uma URI relativa incorreta nas sondagens de rota. A regressao posterior com imagem6776be58451c terminou28/32 em44m56s: uma indisponibilidade de daemon, uma perda de lease e duas incompatibilidades de API Docker. Recortes reais com workers distintos passaram7/7; componentes117/117. Novas correcoes de CSP/CORS, monitor, SQL e leitura governada de contratos passaram nos recortes descritos abaixo; a rodada real posterior terminou13/14, com uma interrupcao por daemon-unavailable no caso de XSS. A reexecucao focada depois da entrega de fonte passou2/2, incluindo esse caso. O resultado anterior permanece registrado; nenhum destes recortes substitui os375testes ou comprova estabilidade definitiva da infraestrutura. Recortes aprovados nao substituem a validacao integrada nem demonstram uma causa unica para todas as falhas. Publicar a branch preserva o progresso revisado e nao declara essas pendencias resolvidas. Os alvos e resultados destas baterias sao sinteticos, sem atribuicao ao software de clientes.
