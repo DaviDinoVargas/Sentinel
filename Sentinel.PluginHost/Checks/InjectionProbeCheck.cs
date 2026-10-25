@@ -20,7 +20,7 @@ public sealed class InjectionProbeCheck : IIsolatedCheck
 {
     private const int MaxFindings = 40;
     private static readonly string[] SqlErrorMarkers =
-        ["SQL syntax", "syntax error at or near", "SQLSTATE 42601", "ORA-01756", "ORA-00933", "ORA-00936", "unclosed quotation mark",
+        ["SQL syntax", "syntax error at or near", "Incorrect syntax near", "unterminated quoted string", "SQLSTATE 42601", "ORA-01756", "ORA-00933", "ORA-00936", "unclosed quotation mark",
          "You have an error in your SQL syntax", "quoted string not properly terminated"];
     private static readonly (string Class, string Value)[] SqlErrorPayloads =
         [("aspa-simples", "'"), ("aspa-dupla", "\""), ("ponto-virgula-comentario", "';--"), ("comentario-duplo", "\"--")];
@@ -67,7 +67,7 @@ public sealed class InjectionProbeCheck : IIsolatedCheck
                         probes++;
                         var reply = await GetAsync(client, Build(payload), ct);
                         if (reply.Truncated) incomplete++;
-                        if (!reply.Truncated && reply.Status >= 500 && SqlErrorMarkers.Any(marker => reply.Body.Contains(marker, StringComparison.OrdinalIgnoreCase) && !baseline.Body.Contains(marker, StringComparison.OrdinalIgnoreCase)))
+                        if (!reply.Truncated && reply.Status >= 500 && SyntaxSignal(reply.Body) && !SyntaxSignal(baseline.Body))
                         {
                             // Provider names/type-conversion errors are not SQL execution.
                             // A fresh valid control must still work before repeating the exact probe.
@@ -142,6 +142,10 @@ public sealed class InjectionProbeCheck : IIsolatedCheck
     }
 
     private static string Label(string kind) => kind == "route" ? "rota" : "query";
+
+    private static bool SyntaxSignal(string body) => SqlErrorMarkers.Any(marker => body.Contains(marker, StringComparison.OrdinalIgnoreCase)) ||
+        (body.Contains("syntax error", StringComparison.OrdinalIgnoreCase) &&
+         (body.Contains("sqlite3.OperationalError", StringComparison.OrdinalIgnoreCase) || body.Contains("SQLite error", StringComparison.OrdinalIgnoreCase)));
 
     private static string SubstituteRoute(string template, PathResolver.Resolution resolution, string paramName, string value)
     {

@@ -16,6 +16,8 @@ public sealed class InjectionRouteResponseTests
     [Theory]
     [InlineData("safe")]
     [InlineData("sql-error")]
+    [InlineData("sqlite-syntax")]
+    [InlineData("sqlserver-syntax")]
     [InlineData("provider-error")]
     [InlineData("conversion-error")]
     [InlineData("transient-error")]
@@ -57,6 +59,8 @@ public sealed class InjectionRouteResponseTests
             var body = collection ? "[{\"id\":\"7\"}]" : "stable-response";
             var type = "application/json";
             if (!collection && oracle == "sql-error" && (value.Contains('\'') || value.Contains('"'))) { status = 500; body = "SQL syntax error (synthetic fixture)"; }
+            if (!collection && oracle == "sqlite-syntax" && (value.Contains('\'') || value.Contains('"'))) { status = 500; body = "sqlite3.OperationalError: near input: syntax error (synthetic fixture)"; }
+            if (!collection && oracle == "sqlserver-syntax" && (value.Contains('\'') || value.Contains('"'))) { status = 500; body = "Incorrect syntax near input (synthetic fixture)"; }
             if (!collection && oracle == "provider-error" && value != "7") { status = 500; body = "Npgsql driver rejected input (synthetic fixture)"; }
             if (!collection && oracle == "conversion-error" && value != "7") { status = 500; body = "SQLSTATE 22P02 invalid input syntax for integer; parameterized query (synthetic fixture)"; }
             if (!collection && oracle == "transient-error" && value != "7" && attempts[value] == 1) { status = 500; body = "SQL syntax error (synthetic transient fixture)"; }
@@ -72,7 +76,7 @@ public sealed class InjectionRouteResponseTests
         Assert.NotEqual(PluginExecutionOutcome.Failed, result.Outcome);
         Assert.DoesNotContain(result.Checks, row => row.State == "ScriptError");
         if (oracle is "safe" or "budget-denied" or "provider-error" or "conversion-error" or "transient-error" or "unstable-control") Assert.All(result.Checks, row => Assert.Equal("Inconclusive", row.State));
-        if (oracle == "sql-error")
+        if (oracle is "sql-error" or "sqlite-syntax" or "sqlserver-syntax")
         {
             Assert.Contains(result.Checks, row => row.ControlId == "WEB-INJ-01" && row.State == "Failed" && row.Confidence == "Inferred" && row.Severity == "Medium");
             Assert.True(baselineCount > 1);
