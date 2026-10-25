@@ -86,6 +86,13 @@ public sealed class PluginRegistry
         if (manifest.Spec.Capabilities.OpenApiRead != manifest.Spec.Permissions.Contains("project.openapi.read", StringComparer.Ordinal))
             return "openApiRead e a permissão project.openapi.read devem ser declarados juntos.";
         var gateway = manifest.Spec.Capabilities.Gateway;
+        if (gateway.LogoutCheck && (manifest.Spec.Activation != "explicit" || manifest.Spec.Mode != "active" ||
+            gateway.Identity != "primary" || !gateway.ArbitraryPaths || gateway.LoginRequests < 2 ||
+            !gateway.Methods.Contains("GET") || !gateway.Methods.Contains("POST") || gateway.BodyBytes < 1 || gateway.WriteRequests < 2 || gateway.MaxRequests < 6 ||
+            !manifest.Spec.Permissions.Contains("target.session.logout", StringComparer.Ordinal)))
+            return "logoutCheck exige ativação explícita, modo ativo, identidade primária, POST, corpo, duas autenticações e permissão target.session.logout.";
+        if (manifest.Spec.Permissions.Contains("target.session.logout", StringComparer.Ordinal) != gateway.LogoutCheck)
+            return "logoutCheck e target.session.logout devem ser declarados juntos.";
         var writes = gateway.Methods.Where(method => GatewayLimits.WriteMethods.Contains(method)).ToArray();
         if (writes.Length > 0)
         {

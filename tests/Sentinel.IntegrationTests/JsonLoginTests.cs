@@ -53,7 +53,17 @@ public sealed class JsonLoginTests : IDisposable
             var call = new HttpRelayRequest("http-request", Guid.NewGuid(), "GET", request.TargetUri, []);
             var first = await gateway.SendAsync(call, default); var second = await gateway.SendAsync(call with { RequestId = Guid.NewGuid() }, default);
             Assert.Equal(status, first.StatusCode); Assert.Equal(status, second.StatusCode);
-            Assert.Empty(first.Headers); Assert.Empty(first.BodyBase64);
+            if (status == 200)
+            {
+                // Authenticated target headers stay private; only host omission metadata is exported.
+                Assert.Equal(4, first.Headers.Count);
+                Assert.Equal(["true"], first.Headers["X-Sentinel-Headers-Incomplete"]);
+                Assert.Equal(["0"], first.Headers["X-Sentinel-Header-Values-Eligible"]);
+                Assert.Equal(["0"], first.Headers["X-Sentinel-Header-Values-Delivered"]);
+                Assert.Equal(["policy-restricted"], first.Headers["X-Sentinel-Header-Omissions"]);
+            }
+            else Assert.Empty(first.Headers);
+            Assert.Empty(first.BodyBase64);
             Assert.Equal(1, _host.LabTarget.RequestsFor(new Uri(login.Configuration.Url).AbsolutePath));
             Assert.Equal(0, _host.LabTarget.RequestsFor("/login-must-not-follow"));
             var listed = await client.GetStringAsync($"/api/v1/projects/{project.Id}/target-credentials");

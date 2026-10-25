@@ -31,7 +31,7 @@ public sealed class PlainHttpOptions
     public int Port { get; set; } = 80;
 }
 
-public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine policy, ExecutionCoordinator coordinator, TimeProvider time, TargetCredentialVault? credentials = null, IOptions<AsnLookupOptions>? asnLookupOptions = null, IOptions<PlainHttpOptions>? plainHttpOptions = null) : IDisposable
+public sealed partial class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine policy, ExecutionCoordinator coordinator, TimeProvider time, TargetCredentialVault? credentials = null, IOptions<AsnLookupOptions>? asnLookupOptions = null, IOptions<PlainHttpOptions>? plainHttpOptions = null) : IDisposable
 {
     private readonly ISentinelStore _store = store;
     private readonly ScopePolicyEngine _policy = policy;
@@ -73,7 +73,7 @@ public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine po
         { return null; }
     }
 
-    public sealed class Session : IDisposable
+    public sealed partial class Session : IDisposable
     {
         private readonly ScopedHttpGateway _gateway;
         private readonly ExecutionLease _lease;
@@ -163,12 +163,18 @@ public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine po
                 (uri.AbsolutePath != _target.AbsolutePath && !AllowsArbitraryPath && !(_manifest.Metadata.Id == "sentinel.lab.authenticated-access" && uri == _baseline)) ||
                 (_request.Action != "lab-active" && uri.Query != _target.Query && !AllowsArbitraryPath && !(_manifest.Metadata.Id == "sentinel.lab.authenticated-access" && uri == _baseline)) || call.Headers is null || call.Headers.Count > Math.Min(_manifest.Spec.Capabilities.Gateway.RequestHeaderCount, RuntimeLimits.MaxRequestHeaders)) return false;
             if (call.Persona is not ("primary" or "secondary") || call.Persona == "secondary" && (_manifest.Spec.Capabilities.Gateway.Identity != "dual" || _secondary is null || call.Anonymous)) return false;
-            if (call.Anonymous && (_request.Action != "authenticated-lab" || _manifest.Metadata.Id != "sentinel.lab.authenticated-access" || uri != _baseline)) return false;
+            if (call.Anonymous && (_request.Action != "authenticated-lab" ||
+                !(_manifest.Metadata.Id == "sentinel.lab.authenticated-access" && uri == _baseline ||
+                  _manifest.Spec.Capabilities.Gateway.LogoutCheck && uri == _target && call.Method == "GET"))) return false;
             return call.Headers.All(header => AllowedHeaders.Contains(header.Key) && header.Value is { Length: > 0 and <= 2 } &&
                 header.Value.All(value => value is not null && value.Length <= Math.Min(_manifest.Spec.Capabilities.Gateway.RequestHeaderValueLength, GatewayLimits.MaxRequestHeaderValueLength) && !value.Any(char.IsControl)));
         }
 
         public async Task<HttpRelayResponse> SendAsync(HttpRelayRequest call, CancellationToken cancellationToken)
+            => await SendCoreAsync(call, cancellationToken);
+
+        private async Task<HttpRelayResponse> SendCoreAsync(HttpRelayRequest call, CancellationToken cancellationToken,
+            Action<ReadOnlyMemory<byte>, bool, string?>? observeBody = null)
         {
             if (!IsValid(call)) return Denied(call.RequestId, "Gateway recusou método, destino, capacidade ou cabeçalhos fora do contrato.");
             var isWrite = GatewayLimits.WriteMethods.Contains(call.Method);
@@ -271,6 +277,17 @@ public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine po
                     var truncated = length == buffer.Length && await body.ReadAsync(new byte[1], cancellationToken) > 0;
                     headers["X-Sentinel-Body-Truncated"] = [truncated ? "true" : "false"];
                     if (response.Content.Headers.ContentLength is { } declared) headers["X-Sentinel-Content-Length"] = [declared.ToString()];
+                }
+                if (limits.LogoutCheck)
+                {
+                    try
+                    {
+                        var complete = headers.TryGetValue("X-Sentinel-Body-Truncated", out var values) && values is ["false"];
+                        observeBody?.Invoke(buffer.AsMemory(0, length), complete, response.Content.Headers.ContentType?.MediaType);
+                    }
+                    finally { System.Security.Cryptography.CryptographicOperations.ZeroMemory(buffer); }
+                    // Session responses and identity values never cross into the plugin.
+                    return new("http-response", call.RequestId, (int)response.StatusCode, headers, "", elapsed, null);
                 }
                 // Defesa em profundidade: se o alvo refletir a credencial no corpo, o plugin recebe <redacted>.
                 if (bearer is { Length: > 0 } token && length > 0)
@@ -384,7 +401,8 @@ public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine po
                         if (scope is null) { _loginStatus = "OutsideScope"; return null; }
                         TargetJsonLogin.Validate(login, scope, _gateway._time.GetUtcNow());
                         _gateway._credentials!.Material(_request.ProjectId, _request.ScopeId, _credential!);
-                        var permit = _gateway._coordinator.Permit(_lease, login: true, loginAllowed: _credential is not null);
+                        var permit = _gateway._coordinator.Permit(_lease, login: true, loginAllowed: _credential is not null,
+                            loginBudget: _manifest.Spec.Capabilities.Gateway.LoginRequests);
                         if (permit.Allowed) break;
                         if (permit.RetryAfterMs == 0) { _loginStatus = "CancelledOrBudgetDenied"; return null; }
                         await Task.Delay(Math.Min(permit.RetryAfterMs, 200), ct);

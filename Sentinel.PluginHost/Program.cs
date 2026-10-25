@@ -29,6 +29,7 @@ public static class Program
         ["sentinel.lab.input-probes"] = () => new LabInputProbesCheck(),
         ["sentinel.lab.bounded-http-load"] = () => new BoundedHttpLoadCheck(),
         ["sentinel.lab.authenticated-access"] = () => new AuthenticatedAccessCheck(),
+        ["sentinel.lab.session-logout"] = () => new SessionLogoutCheck(),
         ["sentinel.http.cookie-security"] = () => new CookieSecurityCheck(),
         ["sentinel.http.transport-security"] = () => new TransportSecurityCheck(),
         ["sentinel.http.waf-fingerprint"] = () => new WafFingerprintCheck(),

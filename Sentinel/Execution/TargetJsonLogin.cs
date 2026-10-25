@@ -4,8 +4,10 @@ using Sentinel.Core;
 namespace Sentinel.Execution;
 
 public sealed record JsonLoginConfiguration(string Url, string UsernameField, string PasswordField, string TokenPath,
-    string? TenantField = null, string Method = "POST");
-public sealed record JsonLoginInput(JsonLoginConfiguration Configuration, string Username, string Password, string? Tenant = null);
+    string? TenantField = null, string Method = "POST", TargetLogoutConfiguration? Logout = null);
+public sealed record TargetLogoutConfiguration(string Url, string IdentityPath, string BodyFormat = "none");
+public sealed record JsonLoginInput(JsonLoginConfiguration Configuration, string Username, string Password, string? Tenant = null,
+    string? ExpectedIdentity = null);
 internal sealed record CredentialMaterial(string Type, string? Bearer, JsonLoginInput? Login);
 
 public static class TargetJsonLogin
@@ -14,6 +16,18 @@ public static class TargetJsonLogin
     {
         if (input is null || input.Configuration is null) throw new ArgumentException("Informe configuração e credenciais do login JSON.");
         var c = input.Configuration;
+        if (c.Logout is { } logout)
+        {
+            if (!Uri.TryCreate(logout.Url, UriKind.Absolute, out var logoutUri) || logout.Url.Length > 2048 ||
+                logoutUri.Scheme != scope.TargetBaseUri.Scheme || logoutUri.UserInfo.Length != 0 ||
+                logoutUri.Query.Length != 0 || logoutUri.Fragment.Length != 0 || logout.BodyFormat is not ("none" or "empty-json") ||
+                !new ScopePolicyEngine().Evaluate([scope], logoutUri, "authenticated-lab", now, true, "POST").IsAllowed ||
+                string.IsNullOrWhiteSpace(logout.IdentityPath) || logout.IdentityPath.Length > 200 || logout.IdentityPath.Split('.').Length > 8 ||
+                logout.IdentityPath.Split('.').Any(p => !ValidField(p)) || string.IsNullOrWhiteSpace(input.ExpectedIdentity) ||
+                input.ExpectedIdentity.Length > 512 || input.ExpectedIdentity.Any(char.IsControl))
+                throw new ArgumentException("Logout exige POST no mesmo escopo, formato none/empty-json, caminho JSON e identidade esperada privada. Configure somente quando o contrato exigir revogação imediata do Bearer.");
+        }
+        else if (!string.IsNullOrEmpty(input.ExpectedIdentity)) throw new ArgumentException("Identidade esperada exige contrato de logout.");
         if (c.Method != "POST" || !Uri.TryCreate(c.Url, UriKind.Absolute, out var uri) || c.Url.Length > 2048 ||
             uri.Scheme is not ("http" or "https") || uri.UserInfo.Length != 0 || uri.Query.Length != 0 || uri.Fragment.Length != 0 ||
             !new ScopePolicyEngine().Evaluate([scope], uri, "authenticated-lab", now, true, "POST").IsAllowed)

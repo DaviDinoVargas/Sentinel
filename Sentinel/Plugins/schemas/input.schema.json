@@ -22,6 +22,23 @@
     "sourceRoot": { "enum": [null, "/source"] },
     "sourceSha256": { "type": ["null", "string"], "pattern": "^[a-f0-9]{64}$" },
     "currentSourceInventoryJson": { "type": ["null", "string"], "maxLength": 32000 },
-    "priorSourceInventoryJson": { "type": ["null", "string"], "maxLength": 32000 }
+    "priorSourceInventoryJson": { "type": ["null", "string"], "maxLength": 32000 },
+    "logoutObservation": {
+      "type": ["null", "object"],
+      "required": ["code"],
+      "additionalProperties": false,
+      "properties": {
+        "code": { "enum": ["NotConfigured", "AnonymousNotDenied", "IdentityNotVerified", "LogoutNotAcknowledged", "ReplayUncertain", "FreshControlUnavailable", "FreshControlNotIndependent", "ConfigurationOrCredentialUnavailable", "OldBearerDenied", "OldBearerStillAccepted"] },
+        "anonymousStatus": { "type": ["null", "integer"], "minimum": 0, "maximum": 599 },
+        "baselineStatus": { "type": ["null", "integer"], "minimum": 0, "maximum": 599 },
+        "logoutStatus": { "type": ["null", "integer"], "minimum": 0, "maximum": 599 },
+        "replayStatus": { "type": ["null", "integer"], "minimum": 0, "maximum": 599 },
+        "controlStatus": { "type": ["null", "integer"], "minimum": 0, "maximum": 599 },
+        "cleanupStatus": { "type": ["null", "integer"], "minimum": 0, "maximum": 599 },
+        "baselineIdentity": { "type": ["null", "boolean"] },
+        "replayIdentity": { "type": ["null", "boolean"] },
+        "controlIdentity": { "type": ["null", "boolean"] }
+      }
+    }
   }
 }

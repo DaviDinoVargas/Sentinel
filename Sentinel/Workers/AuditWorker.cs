@@ -143,6 +143,8 @@ public sealed class AuditWorker(
                 using var gatewaySession = source ? null : gateway.Open(lease, request, manifest, payload.Credential, payload.SecondaryCredential);
                 stage = "login";
                 if (loginPreparationSeconds != 0) await gatewaySession!.PrepareAuthenticationAsync(executionCts.Token);
+                if (manifest.Spec.Capabilities.Gateway.LogoutCheck)
+                    request = request with { LogoutObservation = await gatewaySession!.EvaluateLogoutAsync(executionCts.Token) };
                 childStopped = false;
                 stage = "sandbox";
                 var result = await runner.RunAsync(manifest, request, executionCts.Token, async token =>

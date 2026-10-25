@@ -120,7 +120,7 @@ public sealed class ExecutionCoordinator(IDbContextFactory<SentinelDbContext> fa
 
     // Each HTTP send requires a grant on the bidirectional child pipe. No future
     // slots are reserved; cancellation, lease loss or a dead parent denies new sends.
-    public RequestPermit Permit(ExecutionLease lease, bool login = false, int requestBudget = 8, bool loginAllowed = false, int writeBudget = 0, string? writeTrail = null) => Locked(lease.AuditId, (db, execution, audit, now) =>
+    public RequestPermit Permit(ExecutionLease lease, bool login = false, int requestBudget = 8, bool loginAllowed = false, int writeBudget = 0, string? writeTrail = null, int loginBudget = 1) => Locked(lease.AuditId, (db, execution, audit, now) =>
     {
         if (!Owns(execution, lease, now) || execution.CancelRequestedAtUtc is not null || execution.CurrentPluginId is null || execution.PluginDeadlineUtc <= now ||
             execution.ReplaySafety == PluginReplaySafety.ReadOnlySourceSandbox)
@@ -131,7 +131,7 @@ public sealed class ExecutionCoordinator(IDbContextFactory<SentinelDbContext> fa
             return new RequestPermit(false, Math.Max(1, (int)Math.Ceiling((budget.NextRequestAtUtc.Value - now).TotalMilliseconds)));
         // Cap each plugin to its approved small HTTP budget, including malformed children.
         var kind = login ? "LoginGranted" : "RequestGranted";
-        var maxRequests = login ? 1 : Math.Clamp(requestBudget, 1, GatewayLimits.MaxRequests);
+        var maxRequests = login ? Math.Clamp(loginBudget, 1, 10) : Math.Clamp(requestBudget, 1, GatewayLimits.MaxRequests);
         if (login && !loginAllowed) return new RequestPermit(false);
         var count = db.ExecutionEvents.Count(row => row.AuditId == lease.AuditId && row.Kind == kind && row.Detail == execution.CurrentPluginId);
         if (count >= maxRequests) return new RequestPermit(false);

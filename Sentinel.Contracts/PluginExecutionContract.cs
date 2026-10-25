@@ -25,7 +25,13 @@ public sealed record PluginExecutionRequest(
     // plugin nunca consulta o histórico de auditorias por conta própria.
     string? CurrentSourceInventoryJson = null,
     string? PriorSourceInventoryJson = null,
-    string? OpenApiInventoryJson = null);
+    string? OpenApiInventoryJson = null,
+    LogoutObservation? LogoutObservation = null);
+
+// Only host-derived statuses and comparisons cross the plugin boundary.
+public sealed record LogoutObservation(string Code, int? AnonymousStatus = null, int? BaselineStatus = null,
+    int? LogoutStatus = null, int? ReplayStatus = null, int? ControlStatus = null,
+    bool? BaselineIdentity = null, bool? ReplayIdentity = null, bool? ControlIdentity = null, int? CleanupStatus = null);
 
 public sealed record HttpRelayRequest(string Kind, Guid RequestId, string Method, string Uri, Dictionary<string, string[]> Headers, bool Anonymous = false, string Persona = "primary", string? BodyBase64 = null, string? ContentType = null);
 public sealed record HttpRelayResponse(string Kind, Guid RequestId, int StatusCode, Dictionary<string, string[]> Headers, string BodyBase64, double ElapsedMs, string? Error);

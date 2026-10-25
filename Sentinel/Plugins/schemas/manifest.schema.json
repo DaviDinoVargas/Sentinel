@@ -56,7 +56,9 @@
                 "writeRequests": { "type": "integer", "minimum": 0, "maximum": 200 },
                 "authenticatedResponseHeaders": { "type": "boolean" },
                 "plainHttpCounterpart": { "type": "boolean" },
-                "tokenMetadata": { "type": "boolean" }
+                "tokenMetadata": { "type": "boolean" },
+                "logoutCheck": { "type": "boolean" },
+                "loginRequests": { "type": "integer", "minimum": 1, "maximum": 10 }
               }
             }
           }

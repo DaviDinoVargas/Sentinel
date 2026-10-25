@@ -124,6 +124,9 @@ public sealed class PluginManifestGateway
     // V50: metadados estruturais do JWT já usado pelo gateway em authenticated-lab (alg, presença de kid,
     // nomes de claims, exp/iat/nbf numéricos) — nunca o token nem o valor das claims. Serve ao AUTH-JWT-02.
     public bool TokenMetadata { get; set; }
+    // Session workflows keep credentials and identity assertions inside the host.
+    public bool LogoutCheck { get; set; }
+    public int LoginRequests { get; set; } = 1;
 }
 
 // V39: limites do host para recursos de container e cabeçalhos de requisição que um manifesto

@@ -1,0 +1,34 @@
+apiVersion: sentinel.dev/v1
+kind: PluginManifest
+metadata:
+  id: sentinel.lab.session-logout
+  version: 1.0.0
+  name: Revogação de Bearer após logout com identidade verificada
+spec:
+  type: security-test
+  contractVersion: "1.0"
+  mode: active
+  activation: explicit
+  controls: [AUTH-SES-01-LOGOUT]
+  capabilities:
+    network: scoped-egress
+    sourceRead: false
+    artifactWrite: false
+    gateway:
+      identity: primary
+      logoutCheck: true
+      loginRequests: 2
+      arbitraryPaths: true
+      bodyBytes: 32768
+      maxRequests: 8
+      methods: [GET, POST]
+      writeRequests: 2
+      requestBodyBytes: 2
+      requestContentTypes: [application/json]
+  resources:
+    timeoutSeconds: 90
+    memoryMiB: 128
+  permissions: [target.http.authenticated-lab, target.session.logout]
+  execution:
+    isolation: container
+  riskClass: medium
