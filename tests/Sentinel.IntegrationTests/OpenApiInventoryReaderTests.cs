@@ -45,7 +45,7 @@ public sealed class OpenApiInventoryReaderTests
         }
         var controls = new[] { new AuditControlResult("SRC-API-01", variant == "producer-partial" ? "Inconclusive" : "Informational", "Synthetic declared inventory", "Confirmed-by-inspection", PluginId: OpenApiInventoryReader.PluginId) };
         var audit = new Audit(id, project, scope, target, AuditState.Completed, id.ToString("N"), null, now, controls, evidence,
-            variant == "origin" ? DataOrigins.Synthetic : DataOrigins.Software);
+            variant == "origin" ? DataOrigins.Synthetic : variant == "unknown" ? DataOrigins.Unknown : DataOrigins.Software);
         if (variant == "binding") payload = payload with { ProjectId = Guid.NewGuid() };
         return new(audit, payload, artifacts);
     }
@@ -95,9 +95,19 @@ public sealed class OpenApiInventoryReaderTests
     [Fact]
     public async Task Origem_desconhecida_nao_injeta_contrato_em_avaliacao_de_software_e_nao_le_artefatos()
     {
-        var fixture = Create(); var reads = 0;
-        var result = await OpenApiInventoryReader.ReadAsync(fixture.Audit, fixture.Payload, DataOrigins.Unknown,
+        var fixture = Create("unknown"); var reads = 0;
+        var result = await OpenApiInventoryReader.ReadAsync(fixture.Audit, fixture.Payload, DataOrigins.Software,
             (evidence, _) => { reads++; return Task.FromResult(fixture.Artifacts[evidence.Id]); }, Limits, CancellationToken.None);
         Assert.False(result.Complete); Assert.Null(result.Json); Assert.Equal(0, reads);
+    }
+    [Fact]
+    public async Task Historico_sem_classificacao_pode_ser_avaliado_na_mesma_particao_sem_virar_resultado_de_software()
+    {
+        var fixture = Create("unknown");
+        var result = await OpenApiInventoryReader.ReadAsync(fixture.Audit, fixture.Payload, DataOrigins.Unknown,
+            (evidence, _) => Task.FromResult(fixture.Artifacts[evidence.Id]), Limits, CancellationToken.None);
+        Assert.True(result.Complete); Assert.Equal(DataOrigins.Unknown, fixture.Audit.DataOrigin);
+        var software = await Read(fixture);
+        Assert.False(software.Complete); Assert.Null(software.Json);
     }
 }

@@ -31,13 +31,13 @@ public sealed class OpenApiInventoryProvenanceTests
         var store = host.Services.GetRequiredService<ISentinelStore>();
         var coordinator = host.Services.GetRequiredService<ExecutionCoordinator>();
         var artifacts = host.Services.GetRequiredService<EvidenceArtifactStore>();
-        var project = store.CreateProject("Catalog provenance " + fixture, "Synthetic contract; no target requests", DateTimeOffset.UtcNow);
+        var project = store.CreateProject("Catalog provenance " + fixture, "Synthetic contract; no target requests", DateTimeOffset.UtcNow, ProjectPurposes.Validation);
         var paths = Enumerable.Range(1, 150).ToDictionary(index => "/items" + index,
             _ => new { get = new { security = new[] { new { bearer = Array.Empty<string>() } }, responses = new Dictionary<string, object> { ["200"] = new { description = "fixture" } } } });
         var contract = JsonSerializer.Serialize(new { openapi = "3.0.3", paths });
         using var zip = new ByteArrayContent(SourceSnapshotTests.Zip(("openapi.json", contract)));
         zip.Headers.ContentType = new("application/zip");
-        var uploaded = await client.PostAsync($"/api/v1/projects/{project.Id}/source-snapshots?sourceKey=catalog&revision=synthetic-r1", zip);
+        var uploaded = await client.PostAsync($"/api/v1/projects/{project.Id}/source-snapshots?sourceKey=catalog&revision=synthetic-r1&dataOrigin=SyntheticCorpus", zip);
         uploaded.EnsureSuccessStatusCode();
         using var snapshot = JsonDocument.Parse(await uploaded.Content.ReadAsStringAsync());
         var queued = await client.PostAsJsonAsync($"/api/v1/projects/{project.Id}/source-snapshots/{snapshot.RootElement.GetProperty("id").GetGuid()}/audits", new { });
@@ -61,14 +61,19 @@ public sealed class OpenApiInventoryProvenanceTests
             if (variant == "corrupt-artifact")
                 await File.WriteAllBytesAsync(artifacts.PathFor(evidence[^1].Artifact!.Reference), [1, 2, 3, 4]);
             var persisted = store.FindAudit(audit.Id)!;
-            var inventory = await OpenApiInventoryReader.ReadAsync(persisted, coordinator.Payload(audit.Id), DataOrigins.Software,
+            Assert.Equal(DataOrigins.Synthetic, persisted.DataOrigin);
+            var inventory = await OpenApiInventoryReader.ReadAsync(persisted, coordinator.Payload(audit.Id), DataOrigins.Synthetic,
                 (item, token) => artifacts.ReadAsync(project.Id, audit.Id, item, token), new(100, 1_048_576, 1000), CancellationToken.None);
             if (variant == "complete")
             {
                 Assert.True(inventory.Complete, string.Join(",", inventory.Issues));
                 Assert.Equal(150, inventory.LoadedOperations); Assert.Contains("/items150", inventory.Json);
             }
-            else { Assert.False(inventory.Complete); Assert.Null(inventory.Json); Assert.NotEmpty(inventory.Issues); }
+            else
+            {
+                Assert.False(inventory.Complete); Assert.Null(inventory.Json);
+                Assert.Contains(variant == "missing-part" ? "missing-parts" : "artifact-unavailable-or-malformed", inventory.Issues);
+            }
             Assert.Equal(0, coordinator.Snapshot(audit.Id)!.GrantedRequests);
         }
         finally

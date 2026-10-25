@@ -16,7 +16,7 @@ internal static class OpenApiInventoryReader
         Func<AuditEvidence, CancellationToken, Task<VerifiedEvidenceArtifact>> read, InventoryAssemblyLimits limits, CancellationToken ct)
     {
         InventoryAssemblyResult Rejected(string issue) => new(null, false, 0, 0, 0, 0, [issue]);
-        if (audit.State != AuditState.Completed || audit.DataOrigin != expectedOrigin || expectedOrigin == DataOrigins.Unknown)
+        if (audit.State != AuditState.Completed || audit.DataOrigin != expectedOrigin || !DataOrigins.Valid(expectedOrigin))
             return Rejected("audit-origin-or-state-mismatch");
         if (payload is not { Action: "source-analysis", Source: { } source } || payload.AuditId != audit.Id ||
             payload.ProjectId != audit.ProjectId || payload.ScopeId != audit.ScopeId ||
