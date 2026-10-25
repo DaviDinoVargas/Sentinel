@@ -30,4 +30,13 @@ internal sealed class TestPluginDirectory : IDisposable
         }
         if (Directory.Exists(Root)) Directory.Delete(Root, recursive: false);
     }
+    internal void Add(string id, string manifest)
+    {
+        if (!System.Text.RegularExpressions.Regex.IsMatch(id, "\\A[a-z][a-z0-9.-]{2,100}\\z")) throw new ArgumentException("Invalid fixture plugin id.");
+        var folder = Path.Combine(Root, id);
+        Directory.CreateDirectory(folder);
+        var path = Path.Combine(folder, "manifest.yaml");
+        File.WriteAllText(path, manifest);
+        _files.Add(path);
+    }
 }

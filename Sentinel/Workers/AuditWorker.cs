@@ -62,14 +62,13 @@ public sealed class AuditWorker(
         {
             var target = new Uri(payload.TargetUrl);
             var completed = coordinator.Snapshot(payload.AuditId)!.CompletedPlugins;
-            var mode = payload.Action.Equals("lab-active", StringComparison.OrdinalIgnoreCase) ? "active" : "passive";
             var authenticated = payload.Action == "authenticated-lab";
             var source = payload.Action == "source-analysis";
             if (source && (payload.Source is null || !runtime.Container)) { coordinator.Finish(lease, AuditState.Blocked, "Análise de fontes exige snapshot persistido e sandbox Docker."); return; }
             var validationProject = store.FindProject(payload.ProjectId)?.Purpose == ProjectPurposes.Validation;
-            var selected = registry.Approved.Where(item => validationProject || item.Metadata.Id != "sentinel.fixture.sim-001").Where(item => source ? item.Spec.Capabilities.SourceRead && item.Spec.Capabilities.Network == "false" : !item.Spec.Capabilities.SourceRead && (authenticated
-                ? item.Spec.Capabilities.Gateway.Identity == "primary" || payload.SecondaryCredential is not null && item.Spec.Capabilities.Gateway.Identity == "dual" || payload.IncludeAuthenticatedLoad && item.Metadata.Id == "sentinel.lab.bounded-http-load"
-                : item.Spec.Activation == "explicit" ? payload.AdditionalPlugins?.Contains(item.Metadata.Id) == true : item.Spec.Mode == mode && item.Spec.Capabilities.Gateway.Identity == "none"));
+            var selected = registry.Approved.Where(item => validationProject || item.Metadata.Id != "sentinel.fixture.sim-001").Where(item =>
+                PluginSelectionPolicy.Selected(item, payload.Action, payload.SecondaryCredential is not null, payload.AdditionalPlugins) ||
+                authenticated && payload.IncludeAuthenticatedLoad && item.Metadata.Id == "sentinel.lab.bounded-http-load" && item.Spec.Activation != "explicit");
             foreach (var manifest in selected.OrderBy(item => item.Metadata.Id is "sentinel.lab.authenticated-access" or "sentinel.source.inventory" ? 0 : item.Metadata.Id == "sentinel.source.sbom-diff" ? 2 : 1))
             {
                 stage = "politica";

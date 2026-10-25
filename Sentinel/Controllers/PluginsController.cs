@@ -25,6 +25,8 @@ public sealed class PluginsController(PluginRegistry registry, PluginRuntime run
                 manifest.Spec.ContractVersion,
                 manifest.Spec.Type,
                 manifest.Spec.Mode,
+                manifest.Spec.Activation,
+                eligibleProfiles = PluginSelectionPolicy.Profiles(manifest),
                 manifest.Spec.Controls,
                 manifest.Spec.Capabilities,
                 manifest.Spec.Resources,

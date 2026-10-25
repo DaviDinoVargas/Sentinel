@@ -108,6 +108,7 @@ public sealed class ProjectsController : ControllerBase
     }
 
     [HttpPost("{projectId:guid}/audits")]
+    [RequestSizeLimit(65_536)]
     [Authorize(Policy = Permissions.Execute)]
     [ProducesResponseType(typeof(Audit), StatusCodes.Status202Accepted)]
     [ProducesResponseType(typeof(Audit), StatusCodes.Status403Forbidden)]

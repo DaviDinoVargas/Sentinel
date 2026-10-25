@@ -160,13 +160,14 @@ public sealed class AuditService
         string[]? additionalPlugins = null;
         if (request.AdditionalPlugins is { Count: > 0 } requested)
         {
-            if (request.Action.Equals("authenticated-lab", StringComparison.OrdinalIgnoreCase) || request.Action.Equals("source-analysis", StringComparison.OrdinalIgnoreCase))
-                throw new ArgumentException("Plugins adicionais só valem em auditorias passivas ou lab-active.");
+            if (request.Action.Equals("source-analysis", StringComparison.OrdinalIgnoreCase))
+                throw new ArgumentException("Plugins adicionais de fonte exigem configuração própria do snapshot.");
             additionalPlugins = requested.Select(id => id?.Trim() ?? "").Distinct(StringComparer.Ordinal).ToArray();
-            if (additionalPlugins.Length > 5) throw new ArgumentException("No máximo 5 plugins adicionais por auditoria.");
-            var known = _registry?.Approved.Where(item => item.Spec.Activation == "explicit" && item.Spec.Capabilities.Network == "scoped-egress").Select(item => item.Metadata.Id).ToHashSet(StringComparer.Ordinal) ?? [];
+            var known = _registry?.Approved.Where(item => item.Spec.Activation == "explicit" && item.Spec.Capabilities.Network == "scoped-egress" &&
+                Execution.PluginSelectionPolicy.Compatible(item, request.Action.ToLowerInvariant(), request.SecondaryCredentialProfileId is not null))
+                .Select(item => item.Metadata.Id).ToHashSet(StringComparer.Ordinal) ?? [];
             var unknown = additionalPlugins.Where(id => !known.Contains(id)).ToArray();
-            if (unknown.Length > 0) throw new ArgumentException("Plugin adicional inexistente ou que não é de ativação explícita: " + string.Join(", ", unknown.Select(id => id.Length > 80 ? id[..80] : id)));
+            if (unknown.Length > 0) throw new ArgumentException("Plugin adicional inexistente, incompatível com o perfil ou sem ativação explícita: " + string.Join(", ", unknown.Select(id => id.Length > 80 ? id[..80] : id)));
         }
         var auditId = Guid.NewGuid();
         Execution.CredentialBinding? credential = null;
