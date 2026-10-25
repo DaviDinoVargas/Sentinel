@@ -106,8 +106,16 @@ public sealed class AuditWorker(
                 if (manifest.Metadata.Id is "sentinel.lab.api-anonymous-access" or "sentinel.lab.object-level-authz" or "sentinel.lab.function-level-authz" or "sentinel.lab.mass-assignment" or "sentinel.lab.contract-fuzz" or "sentinel.lab.fuzz-surface" or "sentinel.lab.injection-probe")
                 {
                     stage = "openapi-historico";
-                    foreach (var candidate in store.GetAudits(payload.ProjectId).Where(item => item.State == AuditState.Completed).OrderByDescending(item => item.CreatedAtUtc).Take(20))
-                        if ((openApiJson = await FindOpenApiInventoryAsync(payload.ProjectId, candidate.Id, executionCts.Token)) is not null) break;
+                    var unavailable = "no-matching-inventory";
+                    foreach (var candidate in store.GetAudits(payload.ProjectId).Where(item => item.State == AuditState.Completed && item.DataOrigin == existing.DataOrigin &&
+                        item.Evidence.Any(evidence => evidence.Artifact?.SourcePluginId == OpenApiInventoryReader.PluginId)).OrderByDescending(item => item.CreatedAtUtc))
+                    {
+                        var inventory = await FindOpenApiInventoryAsync(payload.ProjectId, candidate.Id, existing.DataOrigin, executionCts.Token);
+                        if (inventory.Complete) { openApiJson = inventory.Json; break; }
+                        unavailable = string.Join(",", inventory.Issues);
+                    }
+                    if (openApiJson is null) coordinator.Trail(lease, "InventoryUnavailable",
+                        $"{manifest.Metadata.Id} · OpenAPI completo da mesma origem indisponível ({unavailable}); catálogo parcial não foi fornecido ao plugin. Consulte a evidência de SRC-API-01.");
                     stage = "sandbox";
                 }
                 var request = new PluginExecutionRequest(manifest.Spec.ContractVersion, Guid.NewGuid(), payload.AuditId, payload.ProjectId,
@@ -194,35 +202,16 @@ public sealed class AuditWorker(
         }
     }
 
-    // Monta o inventário OpenAPI completo (v2: várias partes por auditoria) em um único
-    // {"operations":[...]}; sem partes v2 (auditorias antigas) usa o recorte v1.
-    private async Task<string?> FindOpenApiInventoryAsync(Guid projectId, Guid auditId, CancellationToken ct)
+    private async Task<InventoryAssemblyResult> FindOpenApiInventoryAsync(Guid projectId, Guid auditId, string expectedOrigin, CancellationToken ct)
     {
         var audit = store.FindAudit(auditId);
-        var all = audit?.Evidence.Where(item => item.Artifact?.SourcePluginId == "sentinel.source.openapi").ToArray() ?? [];
-        if (all.Length == 0) return null;
-        var parts = new SortedDictionary<int, string>();
-        string? v1 = null;
-        foreach (var evidence in all)
-        {
-            try
-            {
-                var verified = await artifacts.ReadAsync(projectId, auditId, evidence, ct);
-                if (!verified.IntegrityVerified) continue;
-                using var wrapper = JsonDocument.Parse(verified.Content);
-                if (!wrapper.RootElement.TryGetProperty("details", out var details) || details.ValueKind != JsonValueKind.String) continue;
-                var text = details.GetString()!;
-                using var body = JsonDocument.Parse(text);
-                var kind = body.RootElement.TryGetProperty("kind", out var k) ? k.GetString() : null;
-                if (kind == "sentinel-openapi-inventory-v2" && body.RootElement.TryGetProperty("chunk", out var chunk) && body.RootElement.TryGetProperty("operations", out var operations))
-                    parts[chunk.GetInt32()] = operations.GetRawText();
-                else if (kind == "sentinel-openapi-inventory-v1") v1 = text;
-            }
-            catch (Exception exception) when (exception is InvalidOperationException or System.Security.Cryptography.CryptographicException or IOException or JsonException
-                or Sentinel.Evidence.EvidenceExpiredException or Sentinel.Evidence.EvidenceStorageUnavailableException) { }
-        }
-        if (parts.Count == 0) return v1;
-        return "{\"operations\":[" + string.Join(",", parts.Values.Select(array => array[1..^1]).Where(array => array.Length > 0)) + "]}";
+        if (audit is null || audit.ProjectId != projectId)
+            return new(null, false, 0, 0, 0, 0, ["audit-project-mismatch"]);
+        // Reuse the existing protocol output budget; no silent prefix or new
+        // operation-count ceiling is introduced by reassembly.
+        var limits = new InventoryAssemblyLimits(RuntimeLimits.MaxResultBytes / 64, RuntimeLimits.MaxResultBytes, RuntimeLimits.MaxResultBytes / 2);
+        return await OpenApiInventoryReader.ReadAsync(audit, coordinator.Payload(auditId), expectedOrigin,
+            (evidence, token) => artifacts.ReadAsync(projectId, auditId, evidence, token), limits, ct);
     }
 
 }

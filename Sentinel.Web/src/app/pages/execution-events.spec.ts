@@ -74,6 +74,20 @@ describe('Histórico completo de eventos', () => {
     fixture.destroy();
     http.verify();
   });
+  it('permite consultar e entender a recusa de inventário incompleto sem confundir com ausência de endpoints', () => {
+    const { fixture, page, http } = render();
+    page.filters.controls.kind.setValue('InventoryUnavailable');
+    page.refresh();
+    http.expectOne('/api/v1/audits/audit/execution/events?pageSize=100&kind=InventoryUnavailable').flush({
+      items: [{ id: 400, atUtc: '', kind: 'InventoryUnavailable', detail: 'sentinel.lab.injection-probe · missing-parts; catálogo parcial não foi fornecido.' }],
+      nextBeforeId: null,
+    });
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('Inventário OpenAPI indisponível ou incompleto');
+    expect(fixture.nativeElement.textContent).toContain('catálogo parcial não foi fornecido');
+    fixture.destroy();
+    http.verify();
+  });
   it('troca de auditoria cancela resposta pendente e limpa filtros e dados', () => {
     const { fixture, page, http } = render();
     page.refresh();

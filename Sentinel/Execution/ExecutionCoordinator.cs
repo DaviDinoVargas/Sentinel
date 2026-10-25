@@ -288,6 +288,7 @@ public sealed class ExecutionCoordinator(IDbContextFactory<SentinelDbContext> fa
                 "Conteúdo original cifrado retido por uma hora; evidências seguem política do projeto. .gitleaksignore não é materializado." } : new[] { "Uma auditoria por origem (host/porta), compartilhada entre projetos e perfis; localhost e IPs de loopback usam a mesma chave.",
                 "Aliases DNS externos que apontam ao mesmo serviço ainda exigem agrupamento explícito futuro.",
                 "Queda durante plugin produz Interrupted e preserva checkpoints; efeitos externos incertos não são repetidos automaticamente.",
+                "Controles guiados por OpenAPI recebem apenas inventário completo com evidências íntegras, hash vinculado e mesma origem do resultado. Inventário indisponível/incompleto é registrado no histórico; não significa ausência de endpoints.",
                 "Permissões controlam início de requisições dos plugins internos; não substituem sandbox de plugins de terceiros. Prévia: últimos 100 eventos; histórico completo disponível por páginas e filtros." },
             payload?.Credential is { } credential ? new(credential, payload.ExpectedAccess ?? "", payload.IncludeAuthenticatedLoad) : null, payload?.Source, row.ReplaySafety);
     }

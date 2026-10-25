@@ -38,6 +38,7 @@ import { ExecutionEvent, SentinelApiService } from '../core/sentinel-api.service
             <option value="WriteTrail">Trilha de escrita</option>
             <option value="WriteResult">Resultado de escrita</option>
             <option value="Interrupted">Interrompida</option>
+            <option value="InventoryUnavailable">Inventário OpenAPI indisponível ou incompleto</option>
             <option value="CancelRequested">Cancelamento solicitado</option>
           </datalist>
           <label for="execution-event-plugin"
@@ -239,6 +240,7 @@ export class ExecutionEvents {
           WriteResult: 'Resultado de escrita',
           CancelRequested: 'Cancelamento solicitado',
           Interrupted: 'Interrompida',
+          InventoryUnavailable: 'Inventário OpenAPI indisponível ou incompleto',
           Completed: 'Concluída',
           Acquired: 'Posse obtida',
           WaitingForBudget: 'Aguardando orçamento',
