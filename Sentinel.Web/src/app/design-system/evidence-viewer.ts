@@ -2,6 +2,7 @@ import { Component, computed, DestroyRef, effect, inject, input, signal } from '
 import { CommonModule } from '@angular/common';
 import { Subject, takeUntil } from 'rxjs';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { BodyCoveragePanel, readBodyCoverage } from './body-coverage';
 import {
   AuditEvidence,
   SentinelApiService,
@@ -10,7 +11,7 @@ import {
 
 @Component({
   selector: 's-evidence-viewer',
-  imports: [CommonModule],
+  imports: [CommonModule, BodyCoveragePanel],
   template: `
     @if (evidence().artifact; as metadata) {
       <dl class="detail-list artifact-meta">
@@ -47,6 +48,14 @@ import {
             Integridade confirmada: SHA-256 verificado pela API e neste navegador.
           </p>
           <button class="button small" (click)="download()">Exportar artefato verificado</button>
+          @if (bodyCoverage(); as coverage) {
+            <s-body-coverage [value]="coverage" />
+          } @else if (artifact.metadata.sourcePluginId === 'sentinel.lab.body-robustness') {
+            <p class="help">
+              Resumo de cobertura indisponível para este formato ou conteúdo incompleto. Consulte o
+              conteúdo verificado.
+            </p>
+          }
           <p class="help">
             A visualização organiza o JSON. A exportação preserva os bytes UTF-8 que produziram o
             hash.
@@ -96,6 +105,7 @@ export class EvidenceViewer {
   readonly loading = signal(false);
   readonly error = signal('');
   readonly document = signal<VerifiedEvidenceArtifact | null>(null);
+  readonly bodyCoverage = computed(() => readBodyCoverage(this.document()));
   private readonly key = computed(() =>
     [
       this.auditId(),

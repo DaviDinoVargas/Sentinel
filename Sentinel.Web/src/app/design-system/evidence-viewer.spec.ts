@@ -89,6 +89,60 @@ describe('Artefato privado verificável', () => {
     expect(fixture.componentInstance.error()).toContain('não confirmou');
     expect(fixture.nativeElement.textContent).not.toContain('tampered');
   });
+  it('exibe cobertura somente após verificar o hash e limpa ao trocar de auditoria', async () => {
+    const body = JSON.stringify({
+      truncated: false,
+      details: JSON.stringify({
+        kind: 'body-robustness-v2',
+        plannedProbes: 7,
+        attempted: 1,
+        unattempted: 6,
+        assessed: 0,
+        unassessed: 7,
+        deniedByGateway: 0,
+        stopReason: 'rate-limit-or-retry-after',
+        probes: [
+          {
+            probe: 'json-malformado',
+            status: 429,
+            stackTrace: false,
+            bodyTruncated: false,
+            headersIncomplete: false,
+            backoff: true,
+            assessed: false,
+          },
+        ],
+      }),
+    });
+    const digest = await realCrypto.subtle.digest('SHA-256', new TextEncoder().encode(body));
+    const bodyHash = Array.from(new Uint8Array(digest), (byte) =>
+      byte.toString(16).padStart(2, '0'),
+    ).join('');
+    const bodyMetadata = {
+      ...metadata,
+      reference: 'sha256:' + bodyHash,
+      sourcePluginId: 'sentinel.lab.body-robustness',
+      sourcePluginVersion: '1.0.1',
+      redacted: false,
+    };
+    fixture.componentRef.setInput('evidence', {
+      ...evidence,
+      sha256: bodyHash,
+      artifact: bodyMetadata,
+    });
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('s-body-coverage')).toBeNull();
+    fixture.componentInstance.load();
+    http
+      .expectOne('/api/v1/audits/audit/evidence/evidence/artifact')
+      .flush({ sha256: bodyHash, content: body, integrityVerified: true, metadata: bodyMetadata });
+    await vi.waitFor(() => expect(fixture.componentInstance.loading()).toBe(false));
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('s-body-coverage')?.textContent).toContain('0 / 7');
+    fixture.componentRef.setInput('auditId', 'other-audit');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('s-body-coverage')).toBeNull();
+  });
   it('troca de auditoria cancela a consulta e não revela resposta anterior', () => {
     fixture.componentInstance.load();
     const old = http.expectOne('/api/v1/audits/audit/evidence/evidence/artifact');

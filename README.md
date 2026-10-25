@@ -43,6 +43,16 @@ Os testes criam sessões sintéticas. Quando há contrato de logout, o host tent
 
 Validação:68 testes de contratos, host, login e logout aprovados, incluindo quatro cenários de refresh em container real (JSON seguro, formulário seguro, reutilização aceita e família não revogada);107 testes de frontend aprovados. A interpretação por família/grant segue o recorte da [RFC9700§4.14.2](https://www.rfc-editor.org/rfc/rfc9700.html#section-4.14.2); sucesso HTTP isolado de revogação não prova a operação conforme [RFC7009§2.2](https://www.rfc-editor.org/rfc/rfc7009.html#section-2.2). As evidências são do laboratório sintético, sem atribuição à Locadora. Os resultados completos anteriores com falhas permanecem no histórico desta documentação.
 
+## Cobertura das sondagens de corpo — V50
+
+`sentinel.lab.body-robustness` v1.0.1 exige avaliação de todas as sete sondagens declaradas para aprovar `WEB-INJ-03`. Autenticação, redirect, resposta incompatível, truncamento, indisponibilidade ou cabeçalhos incompletos deixam cobertura inconclusiva. HTTP429 ou Retry-After encerram as sondagens seguintes. HTTP5xx genérico sem referência válida também é inconclusivo; marcadores de stack trace observados continuam registrados, sem afirmar execução de código. Resposta2xx a JSON intrinsecamente inválido gera candidato Inferred a revisar com o contrato e eventual processamento assíncrono.
+
+Use o perfil de laboratório ativo com POST autorizado no escopo. No detalhe da auditoria, consulte e verifique a evidência: o formato `body-robustness-v2` mostra planejadas, tentadas, avaliadas, não avaliadas, não tentadas e motivo de interrupção, com tabela por sonda. Tentativa não significa tráfego confirmado: recusas do gateway e falhas de transporte aparecem separadas. O painel só usa artefato íntegro do produtor esperado e contagens coerentes; conteúdo parcial, redigido ou legado mantém a visualização original. O SHA-256 é verificado pela API e pelo navegador antes de apresentar a cobertura.
+
+Este recorte continua limitado a sete corpos fixos por POST na URL autorizada, com orçamento do manifesto. Não comprova toda a validação de negócio, outros endpoints, SQL injection ou execução de XSS. Corpos enviados e respostas não são persistidos nessa evidência. Resultados históricos não são recalculados; reexecute com a versão nova para obter a avaliação corrigida.
+
+Validação: contraprovas de processo passaram de3/15 para15/15;5 casos de integração/conformidade aprovados, incluindo os cenários seguro, com vazamento e sem POST em auditorias com containers;111 testes de frontend aprovados, incluindo bloqueio do painel antes do hash e limpeza na troca de auditoria. A baseline completa com falhas registrada acima continua pendente de revalidação.
+
 ## Seleção explícita e segunda identidade — V50
 
 Auditorias e Acessos do alvo exibem verificações opcionais compatíveis com o perfil. O catálogo informa ativação e perfis elegíveis; a mesma política é aplicada na admissão da API e na seleção do worker. Plugins explícitos não executam automaticamente. A seleção não concede escopo, métodos, identidade ou permissões adicionais. O teto antigo de cinco plugins foi removido; o endpoint de criação aceita corpo de até 64 KiB, com orçamentos por manifesto e limite distribuído por alvo preservados.
