@@ -167,8 +167,9 @@ public sealed class AuditWorker(
         }
         catch (Exception exception) when (exception is InvalidOperationException or System.IO.IOException or System.Security.Cryptography.CryptographicException)
         {
-            logger.LogWarning("Falha na etapa {Stage} da auditoria {AuditId}: {Kind}.", stage, payload.AuditId, exception.GetType().Name);
-            coordinator.Finish(lease, AuditState.Interrupted, $"Não foi possível preparar/validar o recurso autorizado. Etapa: {stage}; falha: {exception.GetType().Name}. Verifique snapshot, volume, chaves e sandbox; nenhuma aprovação inferida.");
+            var failure = exception is SandboxControlException control ? control.Code : exception.GetType().Name;
+            logger.LogWarning("Falha na etapa {Stage} da auditoria {AuditId}: {Kind}.", stage, payload.AuditId, failure);
+            coordinator.Finish(lease, AuditState.Interrupted, $"Não foi possível preparar/validar o recurso autorizado. Etapa: {stage}; falha: {failure}. Verifique snapshot, volume, chaves e sandbox; nenhuma aprovação inferida.");
         }
         finally
         {

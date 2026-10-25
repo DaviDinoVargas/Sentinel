@@ -16,9 +16,23 @@ public sealed class PluginRuntime(IOptions<PluginRuntimeOptions> options, IHostE
 {
     public PluginRuntimeOptions Options { get; } = options.Value;
     public bool Container => Options.Mode == "container";
-    public sealed record SandboxState(DateTimeOffset? SampledAtUtc, string Status, int ActiveContainers, int RemovedContainers);
+    public sealed record SandboxDiagnostic(DateTimeOffset AtUtc, string Code, string Operation);
+    public sealed record SandboxState(DateTimeOffset? SampledAtUtc, string Status, int ActiveContainers, int RemovedContainers, SandboxDiagnostic? LastFailure = null);
     private SandboxState _state = new(null, "pending", 0, 0);
-    public SandboxState State => Volatile.Read(ref _state);
+    private SandboxDiagnostic? _lastFailure;
+    public SandboxState State => Volatile.Read(ref _state) with { LastFailure = Volatile.Read(ref _lastFailure) };
+    private void RecordFailure(string code, string operation)
+        => Volatile.Write(ref _lastFailure, new(DateTimeOffset.UtcNow, code, operation));
+    private SandboxControlException Failure(string code, string operation)
+    {
+        RecordFailure(code, operation);
+        return new(code, operation);
+    }
+    private Process StartControl(ProcessStartInfo start, string operation)
+    {
+        try { return Process.Start(start) ?? throw Failure("client-unavailable", operation); }
+        catch (System.ComponentModel.Win32Exception) { throw Failure("client-unavailable", operation); }
+    }
 
     public object Describe() => new
     {
@@ -75,13 +89,18 @@ public sealed class PluginRuntime(IOptions<PluginRuntimeOptions> options, IHostE
         if (!Regex.IsMatch(name, "^sentinel-plugin-[a-f0-9]{32}$")) throw new InvalidOperationException("Nome de sandbox inválido.");
         var start = new ProcessStartInfo("docker") { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true };
         start.ArgumentList.Add("rm"); start.ArgumentList.Add("--force"); start.ArgumentList.Add(name);
-        using var process = Process.Start(start) ?? throw new InvalidOperationException("Docker indisponível para limpar a sandbox.");
+        using var process = StartControl(start, "rm");
         var output = process.StandardOutput.ReadToEndAsync(); var errors = process.StandardError.ReadToEndAsync();
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
         try { await process.WaitForExitAsync(timeout.Token); }
-        catch { process.Kill(true); throw; }
+        catch (OperationCanceledException) when (timeout.IsCancellationRequested)
+        {
+            if (!process.HasExited) process.Kill(true);
+            throw Failure("command-timeout", "rm");
+        }
         await output; var error = await errors;
         if (process.ExitCode == 0 || error.Contains("No such container", StringComparison.OrdinalIgnoreCase)) return;
+        var removalFailure = SandboxControlException.Classify(error);
         // --rm, the runner and another worker's reaper may remove the same
         // container concurrently. A rejected rm is not proof that it still runs.
         // Confirm absence with a successful daemon query, never by swallowing errors.
@@ -94,25 +113,29 @@ public sealed class PluginRuntime(IOptions<PluginRuntimeOptions> options, IHostE
             if (string.IsNullOrWhiteSpace(present)) return;
             await Task.Delay(100);
         } while (DateTimeOffset.UtcNow < deadline);
-        throw new InvalidOperationException("Não foi possível confirmar o encerramento da sandbox.");
+        throw Failure(removalFailure == "command-rejected" ? "removal-unconfirmed" : removalFailure, "rm");
     }
 
-    public async Task ReapAsync(CancellationToken cancellationToken)
+    public Task ReapAsync(CancellationToken cancellationToken) => ReapAsync(DockerAsync, cancellationToken);
+
+    // Same monitor policy with a replaceable command transport for deterministic
+    // daemon-failure tests; plugins cannot select or replace this host transport.
+    internal async Task ReapAsync(Func<CancellationToken, string[], Task<string>> command, CancellationToken cancellationToken)
     {
         if (!Container) { Volatile.Write(ref _state, new(DateTimeOffset.UtcNow, "development-process", 0, 0)); return; }
         try
         {
             if (!Regex.IsMatch(Options.Image, "^sha256:[a-f0-9]{64}$")) throw new InvalidOperationException("Imagem ausente.");
-            await DockerAsync(cancellationToken, "image", "inspect", Options.Image, "--format", "{{.Id}}");
-            var names = (await DockerAsync(cancellationToken, "ps", "-a", "--filter", "label=sentinel.sandbox=true", "--format", "{{.Names}}"))
+            await command(cancellationToken, ["image", "inspect", Options.Image, "--format", "{{.Id}}"]);
+            var names = (await command(cancellationToken, ["ps", "-a", "--filter", "label=sentinel.sandbox=true", "--format", "{{.Names}}"]))
                 .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Take(100).ToArray();
             var removed = State.RemovedContainers; var active = 0;
             foreach (var name in names.Where(name => Regex.IsMatch(name, "^sentinel-plugin-[a-f0-9]{32}$")))
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 string deadline;
-                try { deadline = await DockerAsync(cancellationToken, "inspect", name, "--format", "{{index .Config.Labels \"sentinel.deadline\"}}"); }
-                catch (InvalidOperationException) { continue; } // --rm can race inspection.
+                try { deadline = await command(cancellationToken, ["inspect", name, "--format", "{{index .Config.Labels \"sentinel.deadline\"}}"]); }
+                catch (SandboxControlException error) when (error.Code == "container-not-found") { continue; } // --rm can race inspection.
                 if (long.TryParse(deadline.Trim(), out var seconds) && seconds <= DateTimeOffset.UtcNow.AddSeconds(-2).ToUnixTimeSeconds())
                 { await RemoveAsync(name); removed++; }
                 else active++;
@@ -120,20 +143,40 @@ public sealed class PluginRuntime(IOptions<PluginRuntimeOptions> options, IHostE
             Volatile.Write(ref _state, new(DateTimeOffset.UtcNow, "healthy", active, removed));
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
-        catch { Volatile.Write(ref _state, new(DateTimeOffset.UtcNow, "unavailable", State.ActiveContainers, State.RemovedContainers)); }
+        catch (SandboxControlException error)
+        {
+            RecordFailure(error.Code, error.Operation);
+            Volatile.Write(ref _state, new(DateTimeOffset.UtcNow, "unavailable", State.ActiveContainers, State.RemovedContainers));
+        }
+        catch
+        {
+            RecordFailure("monitor-unavailable", "monitor");
+            Volatile.Write(ref _state, new(DateTimeOffset.UtcNow, "unavailable", State.ActiveContainers, State.RemovedContainers));
+        }
     }
 
-    private static async Task<string> DockerAsync(CancellationToken cancellationToken, params string[] arguments)
+    private async Task<string> DockerAsync(CancellationToken cancellationToken, params string[] arguments)
     {
         var start = new ProcessStartInfo("docker") { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true };
         foreach (var argument in arguments) start.ArgumentList.Add(argument);
-        using var process = Process.Start(start) ?? throw new InvalidOperationException("Docker indisponível.");
+        using var process = StartControl(start, arguments[0]);
         var output = process.StandardOutput.ReadToEndAsync(cancellationToken); var error = process.StandardError.ReadToEndAsync(cancellationToken);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken); timeout.CancelAfter(TimeSpan.FromSeconds(5));
         try { await process.WaitForExitAsync(timeout.Token); }
-        catch { process.Kill(true); throw; }
-        await error;
-        if (process.ExitCode != 0) throw new InvalidOperationException("Comando Docker recusado.");
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            if (!process.HasExited) process.Kill(true);
+            throw Failure("command-timeout", arguments[0]);
+        }
+        catch { if (!process.HasExited) process.Kill(true); throw; }
+        var stderr = await error;
+        if (process.ExitCode != 0)
+        {
+            var code = SandboxControlException.Classify(stderr);
+            // Expected --rm races are not an infrastructure incident.
+            if (code == "container-not-found") throw new SandboxControlException(code, arguments[0]);
+            throw Failure(code, arguments[0]);
+        }
         return await output;
     }
 }

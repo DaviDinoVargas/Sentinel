@@ -12,7 +12,7 @@ describe('Isolamento no catálogo', () => {
       providers: [{ provide: WorkspaceService, useValue: { catalog, refreshGlobal: vi.fn() } }],
     });
   });
-  function render(mode: string) {
+  function render(mode: string, failedControl = false) {
     catalog.set({
       approvalMode: 'automatic-schema-validation',
       rejectedCount: 0,
@@ -25,6 +25,9 @@ describe('Isolamento no catálogo', () => {
           status: mode === 'container' ? 'healthy' : 'development-process',
           activeContainers: 1,
           removedContainers: 2,
+          lastFailure: failedControl
+            ? { atUtc: '2026-10-25T10:00:00Z', code: 'api-version-mismatch', operation: 'inspect' }
+            : null,
         },
         network: 'HTTP somente pelo gateway',
         readOnlyRoot: mode === 'container',
@@ -55,5 +58,13 @@ describe('Isolamento no catálogo', () => {
     expect(text).toContain('Sem isolamento');
     expect(text).toContain('Sem container');
     expect(text).not.toContain('Sandbox disponível');
+  });
+  it('preserva diagnóstico observado após recuperação do monitor sem atribuí-lo ao alvo', () => {
+    const text = render('container', true);
+    expect(text).toContain('Sandbox disponível');
+    expect(text).toContain('Última falha de controle neste worker');
+    expect(text).toContain('api-version-mismatch');
+    expect(text).toContain('comando inspect');
+    expect(text).toContain('Não é falha do software avaliado');
   });
 });

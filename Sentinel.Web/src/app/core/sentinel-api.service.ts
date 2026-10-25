@@ -316,6 +316,7 @@ export interface PluginCatalog {
       status: string;
       activeContainers: number;
       removedContainers: number;
+      lastFailure?: { atUtc: string; code: string; operation: string } | null;
     };
     network: string;
     readOnlyRoot: boolean;

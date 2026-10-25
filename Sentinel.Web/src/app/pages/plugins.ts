@@ -1,9 +1,10 @@
 import { Component, computed, inject, signal } from '@angular/core';
+import { DatePipe } from '@angular/common';
 import { WorkspaceService } from '../core/workspace.service';
 import { Badge, EmptyState } from '../design-system/ui';
 import { Icon } from '../design-system/icon';
 @Component({
-  imports: [Badge, EmptyState, Icon],
+  imports: [Badge, EmptyState, Icon, DatePipe],
   template: `
     <div class="page-heading">
       <div>
@@ -65,6 +66,17 @@ import { Icon } from '../design-system/icon';
             </dd>
             <dt>Configuração</dt>
             <dd>{{ runtime.configuration }}</dd>
+            @if (runtime.monitor.lastFailure; as failure) {
+              <dt>Última falha de controle neste worker</dt>
+              <dd>
+                {{ failure.atUtc | date: 'dd/MM/yyyy HH:mm:ss' }} ·
+                <span class="mono">{{ failure.code }}</span> · comando {{ failure.operation }}
+                <p class="help">
+                  Diagnóstico observado, mesmo se o monitor voltou a ficar disponível. Não é falha
+                  do software avaliado. Sem stderr, caminhos ou credenciais do daemon.
+                </p>
+              </dd>
+            }
           </dl>
           <details>
             <summary>Limitações e recuperação após falhas</summary>
