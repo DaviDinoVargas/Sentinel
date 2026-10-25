@@ -32,6 +32,7 @@ public sealed class CspQualityCheck : IIsolatedCheck
 
         using (response)
         {
+            if (ScopedHttp.IncompleteHeaders(request, response, ControlId) is { } partial) return partial;
             var csp = response.Headers.TryGetValues("Content-Security-Policy", out var values) ? values.FirstOrDefault() : null;
             if (csp is null)
             {

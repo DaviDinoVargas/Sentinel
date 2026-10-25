@@ -225,34 +225,9 @@ public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine po
                 // Responses are bounded before crossing the process boundary. Cookie
                 // VALUES are never exposed; only name+attributes, and only to the two
                 // plugins that need them (redacted even for those).
-                var headers = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
-                var headerSize = 0;
-                var cookieAware = _manifest.Spec.Capabilities.Gateway.CookieAttributes;
                 var limits = _manifest.Spec.Capabilities.Gateway;
-                foreach (var header in response.Headers.Concat(response.Content.Headers))
-                {
-                    // Reserved metadata must never be supplied or spoofed by the target.
-                    if (header.Key.StartsWith("X-Sentinel-", StringComparison.OrdinalIgnoreCase)) continue;
-                    // Por padrão, plugins autenticados só recebem status/tempo: o alvo pode refletir a
-                    // credencial em qualquer cabeçalho. Com gateway.authenticatedResponseHeaders no manifesto
-                    // eles recebem os cabeçalhos, mas qualquer valor que contenha a credencial vira <redacted>.
-                    if (_credential is not null && !limits.AuthenticatedResponseHeaders) break;
-                    if (header.Key.Equals("Content-Length", StringComparison.OrdinalIgnoreCase) || header.Key.Equals("Transfer-Encoding", StringComparison.OrdinalIgnoreCase)) continue;
-                    if (header.Key.Equals("Set-Cookie", StringComparison.OrdinalIgnoreCase))
-                    {
-                        if (!cookieAware) continue;
-                        var redacted = header.Value.Take(8).Select(RedactCookieValue).ToArray();
-                        headerSize += header.Key.Length + redacted.Sum(value => value.Length);
-                        if (headerSize > limits.HeaderBytes || headers.Count >= limits.HeaderCount) break;
-                        headers[header.Key] = redacted;
-                        continue;
-                    }
-                    var values = header.Value.Take(2).Select(value => value.Length > limits.HeaderValueLength ? value[..limits.HeaderValueLength] : value)
-                        .Select(value => bearer is { Length: > 0 } secret && value.Contains(secret, StringComparison.Ordinal) ? "<redacted>" : value).ToArray();
-                    headerSize += header.Key.Length + values.Sum(value => value.Length);
-                    if (headerSize > limits.HeaderBytes || headers.Count >= limits.HeaderCount) break;
-                    headers[header.Key] = values;
-                }
+                var headerExport = GatewayHeaderExporter.Export(response.Headers.Concat(response.Content.Headers), limits, _credential is not null, bearer);
+                var headers = headerExport.ForRelay();
                 // Metadados sintéticos do próprio gateway (não vieram na resposta HTTP):
                 // protocolo TLS já negociado nesta conexão e os endereços já resolvidos e
                 // aprovados para o alvo nesta execução. Baixa sensibilidade — qualquer
@@ -520,17 +495,6 @@ public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine po
 
         // Mantém o nome do cookie e todos os atributos (Secure/HttpOnly/SameSite/Path/
         // Expires/Max-Age/Domain); troca só o valor pelo marcador, nunca o segredo.
-        private static string RedactCookieValue(string setCookie)
-        {
-            if (setCookie.Length > 1024) setCookie = setCookie[..1024];
-            var separator = setCookie.IndexOf(';');
-            var firstPair = separator < 0 ? setCookie : setCookie[..separator];
-            var rest = separator < 0 ? "" : setCookie[separator..];
-            var equals = firstPair.IndexOf('=');
-            var name = equals < 0 ? firstPair : firstPair[..equals];
-            return $"{name.Trim()}=<redacted>{rest}";
-        }
-
         public static HttpRelayResponse Denied(Guid id, string reason) => new("http-response", id, 0, [], "", 0, reason);
         public void Dispose() { _loginToken = null; _client.Dispose(); _concurrency.Dispose(); _dnsLock.Dispose(); _loginLock.Dispose(); }
     }

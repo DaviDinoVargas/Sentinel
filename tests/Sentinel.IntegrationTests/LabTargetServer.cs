@@ -497,6 +497,23 @@ public sealed class LabTargetServer : IDisposable
             return;
         }
 
+        if (path.Contains("cookies-nine", StringComparison.OrdinalIgnoreCase))
+        {
+            for (var index = 1; index <= 8; index++) context.Response.Headers.Add("Set-Cookie", $"safe{index}=synthetic-cookie-value; Secure; HttpOnly");
+            context.Response.Headers.Add("Set-Cookie", "ninth=synthetic-cookie-value; Path=/");
+            WriteBody(context, "Synthetic nine-cookie fixture"); return;
+        }
+        if (path.Contains("cookie-long-value", StringComparison.OrdinalIgnoreCase))
+        {
+            context.Response.Headers.Add("Set-Cookie", "session=" + new string('s', 2048) + "; Secure; HttpOnly");
+            WriteBody(context, "Synthetic long-value cookie fixture"); return;
+        }
+        if (path.Contains("cookie-omitted", StringComparison.OrdinalIgnoreCase))
+        {
+            context.Response.Headers.Add("Set-Cookie", "session=synthetic-cookie-value; Path=/" + new string('a', 5000) + "; Secure; HttpOnly");
+            context.Response.Headers.Add("X-Sentinel-Headers-Incomplete", "false");
+            WriteBody(context, "Synthetic omitted-cookie fixture with spoofed target metadata"); return;
+        }
         if (path.Contains("csp-longo", StringComparison.OrdinalIgnoreCase))
         {
             // CSP real de grande porte: a diretiva fraca só aparece depois de ~1.200 caracteres.

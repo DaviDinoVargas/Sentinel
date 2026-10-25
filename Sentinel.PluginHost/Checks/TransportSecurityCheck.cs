@@ -53,6 +53,7 @@ public sealed class TransportSecurityCheck : IIsolatedCheck
 
         using (response)
         {
+            if (ScopedHttp.IncompleteHeaders(request, response, ControlId) is { } partial) return partial;
             var hsts = response.Headers.TryGetValues("Strict-Transport-Security", out var hstsValues) ? hstsValues.FirstOrDefault() : null;
             var maxAge = ParseMaxAge(hsts);
             var protocolHeader = response.Headers.TryGetValues("X-Sentinel-Tls-Protocol", out var protocolValues) ? protocolValues.FirstOrDefault() : null;
@@ -98,6 +99,8 @@ public sealed class TransportSecurityCheck : IIsolatedCheck
         {
             using var message = new HttpRequestMessage(HttpMethod.Get, plain);
             using var reply = await client.SendAsync(message, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+            if (ScopedHttp.HeadersIncomplete(reply))
+                return new("headers-incomplete", "cabeçalhos da contraparte HTTP incompletos; Location não pôde ser avaliado integralmente.", false, false, "Info");
             var status = (int)reply.StatusCode;
             if (status is 301 or 302 or 303 or 307 or 308)
             {

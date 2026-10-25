@@ -122,7 +122,7 @@ public sealed class ZapBridge : IDisposable
                 {
                     Interlocked.Increment(ref _forwarded);
                     Note($"{method} {uri} -> {(int)response.StatusCode}");
-                    if (response.Headers.TryGetValues("X-Sentinel-Body-Truncated", out var truncated) && truncated.Contains("true")) Interlocked.Increment(ref _truncated);
+                    if (ScopedHttp.BodyTruncated(response) || ScopedHttp.HeadersIncomplete(response)) Interlocked.Increment(ref _truncated);
                     var headers = new List<(string, string)>();
                     foreach (var header in response.Headers.Concat(response.Content.Headers))
                     {

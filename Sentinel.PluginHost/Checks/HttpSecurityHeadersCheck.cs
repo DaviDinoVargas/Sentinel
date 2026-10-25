@@ -30,6 +30,7 @@ public sealed class HttpSecurityHeadersCheck : IIsolatedCheck
 
         using (response)
         {
+            if (ScopedHttp.IncompleteHeaders(request, response, "WEB-CFG-01") is { } partial) return partial;
             var present = RequiredHeaders
                 .Select(header => (Header: header, Present: HasHeader(response, header)))
                 .ToArray();

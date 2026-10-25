@@ -12,11 +12,45 @@ describe('Isolamento no catálogo', () => {
       providers: [{ provide: WorkspaceService, useValue: { catalog, refreshGlobal: vi.fn() } }],
     });
   });
-  function render(mode: string, failedControl = false) {
+  function render(mode: string, failedControl = false, withGateway = false) {
     catalog.set({
       approvalMode: 'automatic-schema-validation',
       rejectedCount: 0,
-      plugins: [],
+      plugins: withGateway
+        ? [
+            {
+              id: 'sentinel.http.cookie-security',
+              name: 'Cookie attributes',
+              version: '1.0.0',
+              manifestVersion: 'sentinel.dev/v1',
+              contractVersion: '1.0',
+              type: 'security-test',
+              mode: 'passive',
+              controls: ['TLS-02'],
+              capabilities: {
+                network: 'scoped-egress',
+                sourceRead: false,
+                artifactWrite: false,
+                gateway: {
+                  headerCount: 64,
+                  headerValueLength: 2048,
+                  headerBytes: 16000,
+                  bodyBytes: 0,
+                  maxRequests: 8,
+                  methods: ['GET'],
+                  writeRequests: 0,
+                  cookieAttributes: true,
+                  authenticatedResponseHeaders: false,
+                },
+              },
+              resources: { timeoutSeconds: 15, memoryMiB: 128 },
+              permissions: ['target.http.read'],
+              isolation: mode,
+              riskClass: 'low',
+              isFixture: false,
+            },
+          ]
+        : [],
       runtime: {
         mode,
         image: mode === 'container' ? 'sha256:immutable' : null,
@@ -66,5 +100,14 @@ describe('Isolamento no catálogo', () => {
     expect(text).toContain('api-version-mismatch');
     expect(text).toContain('comando inspect');
     expect(text).toContain('Não é falha do software avaliado');
+  });
+  it('exibe orçamento do manifesto e explica omissões sem anunciar cobertura completa', () => {
+    const text = render('container', false, true);
+    expect(text).toContain('Cobertura HTTP e orçamento aprovado');
+    expect(text).toContain('64 campos');
+    expect(text).toContain('2048 caracteres por valor');
+    expect(text).toContain('16000 bytes UTF-8');
+    expect(text).toContain('valores sempre redigidos');
+    expect(text).toContain('Omissões são sinalizadas');
   });
 });

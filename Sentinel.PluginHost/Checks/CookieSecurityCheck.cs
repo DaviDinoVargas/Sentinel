@@ -32,6 +32,7 @@ public sealed class CookieSecurityCheck : IIsolatedCheck
 
         using (response)
         {
+            if (ScopedHttp.IncompleteHeaders(request, response, ControlId) is { } partial) return partial;
             var rawCookies = response.Headers.TryGetValues("Set-Cookie", out var values) ? values.ToArray() : [];
             if (rawCookies.Length == 0)
             {

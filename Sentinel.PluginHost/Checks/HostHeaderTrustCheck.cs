@@ -42,6 +42,7 @@ public sealed class HostHeaderTrustCheck : IIsolatedCheck
 
         using (response)
         {
+            if (ScopedHttp.IncompleteHeaders(request, response, "WEB-CFG-06") is { } incompleteHeaders) return incompleteHeaders;
             var statusCode = (int)response.StatusCode;
             var locationHeader = response.Headers.Location?.ToString() ?? string.Empty;
             var reflectedInBody = body.Contains(ProbeHost, StringComparison.OrdinalIgnoreCase);

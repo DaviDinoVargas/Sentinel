@@ -296,7 +296,22 @@ export interface Plugin {
   type: string;
   mode: string;
   controls: string[];
-  capabilities: { network: string; sourceRead: boolean; artifactWrite: boolean };
+  capabilities: {
+    network: string;
+    sourceRead: boolean;
+    artifactWrite: boolean;
+    gateway?: {
+      headerCount: number;
+      headerValueLength: number;
+      headerBytes: number;
+      bodyBytes: number;
+      maxRequests: number;
+      methods: string[];
+      writeRequests: number;
+      cookieAttributes: boolean;
+      authenticatedResponseHeaders: boolean;
+    };
+  };
   resources: { timeoutSeconds: number; memoryMiB: number };
   permissions: string[];
   isolation: string;

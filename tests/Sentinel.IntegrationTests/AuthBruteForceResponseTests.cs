@@ -11,14 +11,16 @@ namespace Sentinel.IntegrationTests;
 public sealed class AuthBruteForceResponseTests
 {
     [Theory]
-    [InlineData(200, true, false, "Inconclusive", 1)]
-    [InlineData(401, true, false, "Inconclusive", 1)]
-    [InlineData(503, true, false, "Inconclusive", 1)]
-    [InlineData(429, true, false, "Passed", 1)]
-    [InlineData(423, false, false, "Passed", 1)]
-    [InlineData(401, false, false, "Inconclusive", 10)]
-    [InlineData(400, false, true, "Inconclusive", 1)]
-    public async Task Apenas_recusa_de_bloqueio_confirma_defesa_retry_after_e_mensagem_sozinhos_nao(int status, bool retry, bool wording, string expected, int expectedCalls)
+    [InlineData(200, true, false, "Inconclusive", 1, false)]
+    [InlineData(401, true, false, "Inconclusive", 1, false)]
+    [InlineData(503, true, false, "Inconclusive", 1, false)]
+    [InlineData(429, true, false, "Passed", 1, false)]
+    [InlineData(423, false, false, "Passed", 1, false)]
+    [InlineData(401, false, false, "Inconclusive", 10, false)]
+    [InlineData(400, false, true, "Inconclusive", 1, false)]
+    [InlineData(401, false, false, "Inconclusive", 1, true)]
+    [InlineData(429, false, false, "Passed", 1, true)]
+    public async Task Apenas_recusa_de_bloqueio_confirma_defesa_retry_after_e_mensagem_sozinhos_nao(int status, bool retry, bool wording, string expected, int expectedCalls, bool incomplete)
     {
         var manifest = new PluginManifest
         {
@@ -39,8 +41,11 @@ public sealed class AuthBruteForceResponseTests
         {
             Assert.Equal("POST", call.Method);
             Interlocked.Increment(ref calls);
+            var headers = new Dictionary<string, string[]>();
+            if (retry) headers["Retry-After"] = ["60"];
+            if (incomplete) headers["X-Sentinel-Headers-Incomplete"] = ["true"];
             return Task.FromResult(new HttpRelayResponse("http-response", call.RequestId, status,
-                retry ? new Dictionary<string, string[]> { ["Retry-After"] = ["60"] } : [],
+                headers,
                 Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(wording ? "account locked" : "{}")), 0, null));
         });
         var check = Assert.Single(result.Checks);

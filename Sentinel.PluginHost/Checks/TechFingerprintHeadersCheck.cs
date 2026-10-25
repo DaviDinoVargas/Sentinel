@@ -37,6 +37,7 @@ public sealed class TechFingerprintHeadersCheck : IIsolatedCheck
 
         using (response)
         {
+            if (ScopedHttp.IncompleteHeaders(request, response, "WEB-CFG-09") is { } partial) return partial;
             var exposed = DisclosureHeaders
                 .Select(header => (Header: header, Value: GetHeaderValue(response, header)))
                 .Where(item => item.Value is not null)

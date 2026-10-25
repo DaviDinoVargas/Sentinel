@@ -33,6 +33,7 @@ public sealed class CorsReflectionCheck : IIsolatedCheck
 
         using (response)
         {
+            if (ScopedHttp.IncompleteHeaders(request, response, "WEB-CFG-02") is { } partial) return partial;
             var allowOrigin = response.Headers.TryGetValues("Access-Control-Allow-Origin", out var originValues)
                 ? originValues.FirstOrDefault()
                 : null;

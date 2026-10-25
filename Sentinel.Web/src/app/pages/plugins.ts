@@ -160,6 +160,51 @@ import { Icon } from '../design-system/icon';
                   <dt>Contrato / manifesto</dt>
                   <dd>{{ plugin.contractVersion }} / {{ plugin.manifestVersion }}</dd>
                 </dl>
+                @if (
+                  plugin.capabilities.network === 'scoped-egress' && plugin.capabilities.gateway;
+                  as gateway
+                ) {
+                  <details>
+                    <summary>Cobertura HTTP e orçamento aprovado</summary>
+                    <dl class="detail-list">
+                      <dt>Cabeçalhos da resposta</dt>
+                      <dd>
+                        {{ gateway.headerCount }} campos ·
+                        {{ gateway.headerValueLength }} caracteres por valor ·
+                        {{ gateway.headerBytes }} bytes UTF-8 de dados
+                      </dd>
+                      <dt>Corpo / requisições</dt>
+                      <dd>
+                        {{ gateway.bodyBytes }} bytes de corpo · até
+                        {{ gateway.maxRequests }} permissões por execução do plugin
+                      </dd>
+                      <dt>Métodos / escrita</dt>
+                      <dd>
+                        {{ gateway.methods.join(', ') }} · até
+                        {{ gateway.writeRequests }} permissões de escrita, se o escopo autorizar
+                      </dd>
+                      <dt>Cookies / sessão</dt>
+                      <dd>
+                        {{
+                          gateway.cookieAttributes
+                            ? 'Nome e atributos de cookies; valores sempre redigidos'
+                            : 'Cookies não são entregues'
+                        }}.
+                        {{
+                          gateway.authenticatedResponseHeaders
+                            ? 'Cabeçalhos autenticados permitidos, com proteção da credencial.'
+                            : 'Resposta autenticada: somente status e tempo.'
+                        }}
+                      </dd>
+                    </dl>
+                    <p class="help">
+                      Valores inteiros dentro do orçamento; sem amostra fixa de cookies ou de
+                      valores por campo. Omissões são sinalizadas no resultado e impedem aprovação
+                      dos controles de cabeçalhos. Esta tela consulta o manifesto aprovado;
+                      alterações exigem revisão das permissões da plataforma.
+                    </p>
+                  </details>
+                }
               </article>
             }
           </div>

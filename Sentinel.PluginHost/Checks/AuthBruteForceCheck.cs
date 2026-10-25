@@ -33,7 +33,7 @@ public sealed class AuthBruteForceCheck : IIsolatedCheck
 
         using var client = ScopedHttp.CreateLabClient(target);
         var username = "sentinel-lab-probe-" + Guid.NewGuid().ToString("N")[..8];
-        var attempts = new List<(int Status, double Millis, bool RetryAfter, bool LockoutWord)>();
+        var attempts = new List<(int Status, double Millis, bool RetryAfter, bool LockoutWord, bool HeadersIncomplete)>();
         try
         {
             for (var index = 0; index < MaxAttempts; index++)
@@ -41,7 +41,7 @@ public sealed class AuthBruteForceCheck : IIsolatedCheck
                 ct.ThrowIfCancellationRequested();
                 var reply = await AttemptAsync(client, target, username, "sentinel-lab-wrong-" + Guid.NewGuid().ToString("N")[..10], ct);
                 attempts.Add(reply);
-                if (LockoutStatus.Contains(reply.Status) || reply.RetryAfter) break;
+                if (LockoutStatus.Contains(reply.Status) || reply.RetryAfter || reply.HeadersIncomplete) break;
                 if (index == 0 && !CleanRejection.Contains(reply.Status))
                     return Inconclusive(request, $"A primeira tentativa com senha errada respondeu HTTP {reply.Status} (esperado 400/401/403/422); o endpoint não demonstrou exigir a senha correta, nada a testar quanto a limite de tentativas.");
                 if (!CleanRejection.Contains(reply.Status) || reply.LockoutWord) break;
@@ -56,6 +56,7 @@ public sealed class AuthBruteForceCheck : IIsolatedCheck
             kind = "auth-brute-v1", attempts = attempts.Count, statuses = attempts.Select(a => a.Status),
             lockedOut, lockoutAttempt = lockedOut ? attempts.Count : (int?)null,
             retryAfterObserved = attempts.Any(a => a.RetryAfter), lockoutWordingObserved = attempts.Any(a => a.LockoutWord),
+            headersIncomplete = attempts.Any(a => a.HeadersIncomplete),
             limitation = "Até 10 tentativas com um único nome de usuário sintético (o plugin nunca recebe um nome de usuário real); não prova ausência de limite acima de 10 tentativas, não testa enumeração de usuário nem MFA/reset de senha.",
         });
         if (lockedOut)
@@ -63,7 +64,9 @@ public sealed class AuthBruteForceCheck : IIsolatedCheck
             var summary = $"A {attempts.Count}ª tentativa de login com senha sintética errada produziu HTTP {last.Status}: recusa de bloqueio observada nesta sonda. Não comprova proteção de contas existentes nem cobertura de outras políticas.";
             return new(request.ContractVersion, PluginExecutionOutcome.Succeeded, [new PluginCheckResult(ControlId, "Passed", summary, "Reproduced", "Info")], [new PluginEvidenceRef(summary, evidence)], []);
         }
-        var failSummary = last.RetryAfter
+        var failSummary = last.HeadersIncomplete
+            ? $"Sondagem interrompida após {attempts.Count} tentativa(s): cabeçalhos incompletos, não é possível verificar integralmente Retry-After ou outras instruções de recuo."
+            : last.RetryAfter
             ? $"Sondagem interrompida após {attempts.Count} tentativa(s) por Retry-After em HTTP {last.Status}; o pedido de recuo foi respeitado, mas esse cabeçalho sozinho não confirma bloqueio de tentativas."
             : last.LockoutWord
                 ? $"Sondagem interrompida após {attempts.Count} tentativa(s) por mensagem de bloqueio em HTTP {last.Status}; mensagem isolada não confirma defesa."
@@ -73,7 +76,7 @@ public sealed class AuthBruteForceCheck : IIsolatedCheck
         return new(request.ContractVersion, PluginExecutionOutcome.Inconclusive, [new PluginCheckResult(ControlId, "Inconclusive", failSummary + " Amostra com usuário sintético não comprova ausência de proteção de contas existentes; mensagem de bloqueio isolada não confirma defesa.", "NotAssessed", "Info")], [new PluginEvidenceRef(failSummary, evidence)], []);
     }
 
-    private static async Task<(int Status, double Millis, bool RetryAfter, bool LockoutWord)> AttemptAsync(HttpClient client, Uri target, string username, string password, CancellationToken ct)
+    private static async Task<(int Status, double Millis, bool RetryAfter, bool LockoutWord, bool HeadersIncomplete)> AttemptAsync(HttpClient client, Uri target, string username, string password, CancellationToken ct)
     {
         var body = JsonSerializer.Serialize(new { username, password });
         using var message = new HttpRequestMessage(HttpMethod.Post, target) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
@@ -83,7 +86,7 @@ public sealed class AuthBruteForceCheck : IIsolatedCheck
         var retryAfter = response.Headers.RetryAfter is not null;
         var text = await ScopedHttp.ReadPrefixAsync(response, ct);
         clock.Stop();
-        return (status, clock.Elapsed.TotalMilliseconds, retryAfter, LockoutWording.IsMatch(text));
+        return (status, clock.Elapsed.TotalMilliseconds, retryAfter, LockoutWording.IsMatch(text), ScopedHttp.HeadersIncomplete(response));
     }
 
     private static PluginExecutionResult Inconclusive(PluginExecutionRequest request, string reason) =>

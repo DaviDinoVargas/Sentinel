@@ -14,6 +14,7 @@ public sealed class SentinelApiFactory : WebApplicationFactory<Program>
     public string PluginImage { get; init; } = "";
     public string? EvidenceDirectory { get; init; }
     public string? SourceDirectory { get; init; }
+    public string? PluginDirectory { get; init; }
     public Dictionary<string, string?> EvidenceSettings { get; init; } = [];
     public Dictionary<string, string?> AsnLookupSettings { get; init; } = [];
     public TestIdentityProvider Identity { get; } = new();
@@ -29,6 +30,13 @@ public sealed class SentinelApiFactory : WebApplicationFactory<Program>
     {
         builder.UseEnvironment("Development");
         if (!StartWorkers) builder.ConfigureServices(services => services.RemoveAll<IHostedService>());
+        if (PluginDirectory is { } pluginDirectory) builder.ConfigureServices(services =>
+        {
+            services.RemoveAll<Sentinel.Execution.PluginRegistry>();
+            services.AddSingleton(provider => new Sentinel.Execution.PluginRegistry(pluginDirectory,
+                provider.GetRequiredService<Sentinel.Execution.PluginSchemaValidator>(),
+                provider.GetRequiredService<Microsoft.Extensions.Logging.ILogger<Sentinel.Execution.PluginRegistry>>()));
+        });
         builder.ConfigureAppConfiguration((_, configuration) =>
         {
             configuration.AddInMemoryCollection(new Dictionary<string, string?>
