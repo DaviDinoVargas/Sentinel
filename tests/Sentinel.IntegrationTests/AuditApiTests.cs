@@ -183,8 +183,9 @@ public sealed class AuditApiTests : IClassFixture<SentinelApiFactory>
         var corsControl = Assert.Single(audit.Controls, control => control.ControlId == "WEB-CFG-02");
         Assert.Equal("Failed", corsControl.State);
         Assert.Equal("High", corsControl.Severity);
-        Assert.Equal("Reproduced", corsControl.Confidence);
+        Assert.Equal("Inferred", corsControl.Confidence);
         Assert.Contains("Allow-Credentials", corsControl.Summary);
+        Assert.Contains("não foram comprovados", corsControl.Summary);
     }
 
     [Fact]
