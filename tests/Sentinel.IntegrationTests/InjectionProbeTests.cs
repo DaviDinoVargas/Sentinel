@@ -22,8 +22,8 @@ public sealed class InjectionProbeTests
         var audit = await RunAsync(Spec("inj-erro/items", "q"), "inj-erro/items");
         var findings = audit.Controls.Where(item => item.ControlId == "WEB-INJ-01" && item.State == "Failed" && item.SourceRuleId!.StartsWith("webinj01:error:")).ToArray();
         Assert.NotEmpty(findings);
-        Assert.All(findings, item => Assert.Equal("High", item.Severity));
-        Assert.Contains("erro de banco de dados", findings[0].Summary);
+        Assert.All(findings, item => { Assert.Equal("Medium", item.Severity); Assert.Equal("Inferred", item.Confidence); });
+        Assert.Contains("erro de sintaxe SQL repetível", findings[0].Summary);
     }
 
     [Fact]
