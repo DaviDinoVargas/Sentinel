@@ -367,7 +367,8 @@ import {
           Chaves locais protegidas por DPAPI no Windows; outros hosts exigem certificado
           configurado. Workers distribuídos precisam compartilhar o keyring e a proteção de chaves.
           Cada autenticação JSON tem prazo de até dez segundos, dentro do prazo e escopo da
-          execução. Refresh, cookies, MFA e outros mecanismos ainda não têm adaptador.
+          execução. Refresh exige contrato e plugin opcional; cookies, MFA, DPoP e mTLS ainda não
+          têm adaptador.
         </p>
         <a class="text-link" routerLink="/audits">Histórico e evidências das execuções</a> ·
         <a class="text-link" routerLink="/performance">Métricas no Performance Lab</a>

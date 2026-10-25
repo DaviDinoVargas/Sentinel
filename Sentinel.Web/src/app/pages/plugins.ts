@@ -241,6 +241,14 @@ import { Icon } from '../design-system/icon';
                           comparações; tokens e corpos ficam no host.
                         </dd>
                       }
+                      @if (gateway.refreshCheck) {
+                        <dt>Verificação de refresh no host</dt>
+                        <dd>
+                          Rotação e reutilização por contrato JSON/form · identidade e controle novo
+                          verificados · segredos ficam no host. Família/grant não representa todas
+                          as sessões do usuário.
+                        </dd>
+                      }
                       <dt>Exposição de resposta</dt>
                       <dd>
                         {{

@@ -243,6 +243,22 @@ export interface JsonLoginConfiguration {
   tenantField: string | null;
   tokenPath: string;
   logout?: { url: string; identityPath: string; bodyFormat: 'none' | 'empty-json' } | null;
+  refresh?: {
+    url: string;
+    initialTokenPath: string;
+    identityPath: string;
+    inputField: string;
+    accessTokenPath: string;
+    rotatedTokenPath: string;
+    contentType: string;
+    errorPath: string;
+    invalidGrantValue: string;
+    grantTypeField: string | null;
+    grantTypeValue: string;
+    clientIdField: string;
+    clientSecretField: string;
+    revokeFamilyOnReplay: boolean;
+  } | null;
 }
 export interface JsonLoginInput {
   configuration: JsonLoginConfiguration;
@@ -250,6 +266,8 @@ export interface JsonLoginInput {
   password: string;
   tenant: string | null;
   expectedIdentity?: string | null;
+  refreshClientId?: string | null;
+  refreshClientSecret?: string | null;
 }
 export interface SecurityScoreComponent {
   id: string;
@@ -308,6 +326,7 @@ export interface Plugin {
     gateway?: {
       identity?: string;
       logoutCheck?: boolean;
+      refreshCheck?: boolean;
       loginRequests?: number;
       headerCount: number;
       headerValueLength: number;
