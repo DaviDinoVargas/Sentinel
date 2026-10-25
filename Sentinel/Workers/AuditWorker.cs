@@ -145,6 +145,8 @@ public sealed class AuditWorker(
                 if (loginPreparationSeconds != 0) await gatewaySession!.PrepareAuthenticationAsync(executionCts.Token);
                 if (manifest.Spec.Capabilities.Gateway.LogoutCheck)
                     request = request with { LogoutObservation = await gatewaySession!.EvaluateLogoutAsync(executionCts.Token) };
+                if (manifest.Spec.Capabilities.Gateway.RefreshCheck)
+                    request = request with { RefreshObservation = await gatewaySession!.EvaluateRefreshAsync(executionCts.Token) };
                 childStopped = false;
                 stage = "sandbox";
                 var result = await runner.RunAsync(manifest, request, executionCts.Token, async token =>

@@ -39,6 +39,25 @@
         "replayIdentity": { "type": ["null", "boolean"] },
         "controlIdentity": { "type": ["null", "boolean"] }
       }
+    },
+    "refreshObservation": {
+      "type": ["null", "object"], "required": ["code"], "additionalProperties": false,
+      "properties": {
+        "code": { "enum": ["NotConfigured", "AnonymousNotDenied", "IdentityNotVerified", "InitialRefreshMissing", "InitialRefreshUncertain", "ActiveRefreshUncertain", "ReplayUncertain", "FamilyUncertain", "FreshControlUnavailable", "FreshControlNotIndependent", "Evaluated", "ConfigurationOrCredentialUnavailable"] },
+        "baselineVerified": { "type": "boolean" }, "initialRefreshVerified": { "type": "boolean" },
+        "rotated": { "type": ["null", "boolean"] }, "replayDenied": { "type": ["null", "boolean"] },
+        "replayAccepted": { "type": ["null", "boolean"] }, "familyDenied": { "type": ["null", "boolean"] },
+        "familyAccepted": { "type": ["null", "boolean"] }, "freshControlVerified": { "type": "boolean" },
+        "expectFamilyRevocation": { "type": "boolean" },
+        "steps": { "type": ["null", "array"], "maxItems": 16, "items": {
+          "type": "object", "required": ["step", "status"], "additionalProperties": false,
+          "properties": {
+            "step": { "enum": ["anonymous", "baseline", "initial-refresh", "initial-identity", "active-refresh-baseline", "active-identity-baseline", "old-refresh-replay", "replay-identity", "active-family-refresh", "family-identity", "fresh-control-refresh", "fresh-control-identity", "cleanup-logout"] },
+            "status": { "type": "integer", "minimum": 0, "maximum": 599 },
+            "identityMatched": { "type": ["null", "boolean"] }, "invalidGrant": { "type": ["null", "boolean"] }
+          }
+        } }
+      }
     }
   }
 }

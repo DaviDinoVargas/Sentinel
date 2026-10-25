@@ -86,6 +86,15 @@ public sealed class PluginRegistry
         if (manifest.Spec.Capabilities.OpenApiRead != manifest.Spec.Permissions.Contains("project.openapi.read", StringComparer.Ordinal))
             return "openApiRead e a permissão project.openapi.read devem ser declarados juntos.";
         var gateway = manifest.Spec.Capabilities.Gateway;
+        if (gateway.RefreshCheck && (manifest.Spec.Activation != "explicit" || manifest.Spec.Mode != "active" || gateway.Identity != "primary" ||
+            !gateway.ArbitraryPaths || gateway.LoginRequests < 2 || !gateway.Methods.Contains("GET") || !gateway.Methods.Contains("POST") ||
+            gateway.BodyBytes < 1 || gateway.WriteRequests < 6 || gateway.MaxRequests < 12 || gateway.RequestBodyBytes < 1 ||
+            !gateway.RequestContentTypes.Contains("application/json") || !gateway.RequestContentTypes.Contains("application/x-www-form-urlencoded") ||
+            !manifest.Spec.Permissions.Contains("target.session.refresh", StringComparer.Ordinal)))
+            return "refreshCheck exige seleção explícita, identidade primária, GET/POST JSON/form, orçamentos de autenticação/escrita e permissão target.session.refresh.";
+        if (manifest.Spec.Permissions.Contains("target.session.refresh", StringComparer.Ordinal) != gateway.RefreshCheck)
+            return "refreshCheck e target.session.refresh devem ser declarados juntos.";
+        if (gateway.RefreshCheck && gateway.LogoutCheck) return "Cada workflow de sessão exige manifesto próprio para evidências e orçamentos independentes.";
         if (gateway.LogoutCheck && (manifest.Spec.Activation != "explicit" || manifest.Spec.Mode != "active" ||
             gateway.Identity != "primary" || !gateway.ArbitraryPaths || gateway.LoginRequests < 2 ||
             !gateway.Methods.Contains("GET") || !gateway.Methods.Contains("POST") || gateway.BodyBytes < 1 || gateway.WriteRequests < 2 || gateway.MaxRequests < 6 ||

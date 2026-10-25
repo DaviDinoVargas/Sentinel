@@ -30,6 +30,7 @@ public static class Program
         ["sentinel.lab.bounded-http-load"] = () => new BoundedHttpLoadCheck(),
         ["sentinel.lab.authenticated-access"] = () => new AuthenticatedAccessCheck(),
         ["sentinel.lab.session-logout"] = () => new SessionLogoutCheck(),
+        ["sentinel.lab.session-refresh"] = () => new SessionRefreshCheck(),
         ["sentinel.http.cookie-security"] = () => new CookieSecurityCheck(),
         ["sentinel.http.transport-security"] = () => new TransportSecurityCheck(),
         ["sentinel.http.waf-fingerprint"] = () => new WafFingerprintCheck(),

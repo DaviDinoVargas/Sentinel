@@ -15,6 +15,10 @@ internal sealed class SessionReferenceTarget : IDisposable
     private readonly HttpListener _listener = new();
     private readonly byte[] _key = RandomNumberGenerator.GetBytes(32);
     private readonly ConcurrentDictionary<string, bool> _sessions = new();
+    private sealed class RefreshGrant(string grant, int generation = 0) { internal string Grant = grant; internal int Generation = generation; internal bool Used; }
+    private readonly Dictionary<string, RefreshGrant> _refresh = [];
+    private readonly HashSet<string> _revokedGrants = [];
+    private bool _refreshReplayObserved;
     private readonly Task _loop;
     private int _logins;
     private int _logouts;
@@ -58,18 +62,58 @@ internal sealed class SessionReferenceTarget : IDisposable
             if (input.RootElement.GetProperty("email").GetString() != "fixture@example.invalid" || input.RootElement.GetProperty("password").GetString() != "private-fixture-password")
             { context.Response.StatusCode = 401; return; }
             if (_scenario == "outage" && Logouts > 0) { context.Response.StatusCode = 503; return; }
+            if (_scenario == "refresh-outage" && _refreshReplayObserved) { context.Response.StatusCode = 503; return; }
             Interlocked.Increment(ref _logins);
             if (_scenario == "same-token" && LastToken is { } cached)
             {
                 await Write(JsonSerializer.Serialize(new { data = new { token = cached } }));
                 return;
             }
-            var id = Guid.NewGuid().ToString("N");
-            _sessions[id] = true;
-            var jwt = new JwtSecurityToken("session-reference", "session-resource", [new Claim("sub", Identity), new Claim("jti", id)],
-                DateTime.UtcNow.AddMinutes(-1), DateTime.UtcNow.AddMinutes(5), new SigningCredentials(new SymmetricSecurityKey(_key), SecurityAlgorithms.HmacSha256));
-            LastToken = new JwtSecurityTokenHandler().WriteToken(jwt);
-            await Write(JsonSerializer.Serialize(new { data = new { token = LastToken } }));
+            LastToken = AccessToken();
+            if (_scenario.StartsWith("refresh-", StringComparison.Ordinal))
+            {
+                var refresh = "private-refresh-" + Guid.NewGuid().ToString("N");
+                _refresh[refresh] = new(Guid.NewGuid().ToString("N"));
+                await Write(JsonSerializer.Serialize(new { data = new { token = LastToken, refreshToken = _scenario == "refresh-missing" ? null : refresh } }));
+            }
+            else await Write(JsonSerializer.Serialize(new { data = new { token = LastToken } }));
+            return;
+        }
+        if (context.Request.Url.AbsolutePath.EndsWith("/refresh") && context.Request.HttpMethod == "POST")
+        {
+            if (context.Request.Headers["Authorization"] is not null) { context.Response.StatusCode = 400; await Write("{\"error\":\"unexpected_bearer\"}"); return; }
+            Dictionary<string, string> fields;
+            if (context.Request.ContentType?.StartsWith("application/x-www-form-urlencoded", StringComparison.Ordinal) == true)
+            {
+                using var reader = new StreamReader(context.Request.InputStream);
+                fields = (await reader.ReadToEndAsync()).Split('&').Select(pair => pair.Split('=', 2))
+                    .ToDictionary(pair => WebUtility.UrlDecode(pair[0]), pair => WebUtility.UrlDecode(pair.ElementAtOrDefault(1) ?? ""));
+            }
+            else
+            {
+                using var input = await JsonDocument.ParseAsync(context.Request.InputStream);
+                fields = input.RootElement.EnumerateObject().ToDictionary(property => property.Name, property => property.Value.GetString()!);
+            }
+            if (fields.GetValueOrDefault("client_id") != "private-client-id" || fields.GetValueOrDefault("client_secret") != "private-client-secret" || fields.GetValueOrDefault("grant_type") != "refresh_token")
+            { context.Response.StatusCode = 401; await Write("{\"error\":\"invalid_client\"}"); return; }
+            var token = fields.GetValueOrDefault("refresh_token") ?? "";
+            if (!_refresh.TryGetValue(token, out var state) || _revokedGrants.Contains(state.Grant))
+            { context.Response.StatusCode = 400; await Write("{\"error\":\"invalid_grant\"}"); return; }
+            if (_scenario == "refresh-unusable-next" && state.Generation > 0)
+            { context.Response.StatusCode = 400; await Write("{\"error\":\"invalid_grant\"}"); return; }
+            if (state.Used && _scenario is not ("refresh-reuse" or "refresh-no-rotation"))
+            {
+                _refreshReplayObserved = true;
+                if (_scenario != "refresh-no-family") _revokedGrants.Add(state.Grant);
+                if (_scenario == "refresh-wrong-error") { context.Response.StatusCode = 401; await Write("{\"error\":\"invalid_client\"}"); return; }
+                context.Response.StatusCode = 400; await Write("{\"error\":\"invalid_grant\"}"); return;
+            }
+            state.Used = true;
+            var next = _scenario == "refresh-no-rotation" ? token : "private-refresh-" + Guid.NewGuid().ToString("N");
+            _refresh[next] = new(state.Grant, state.Generation + 1);
+            LastToken = AccessToken();
+            if (_scenario == "refresh-ambiguous") { await Write($"{{\"access_token\":\"{LastToken}\",\"access_token\":\"duplicate\",\"refresh_token\":\"{next}\"}}"); return; }
+            await Write(JsonSerializer.Serialize(new { access_token = LastToken, refresh_token = next }));
             return;
         }
         var bearer = context.Request.Headers["Authorization"];
@@ -110,5 +154,13 @@ internal sealed class SessionReferenceTarget : IDisposable
         _listener.Close();
         _loop.GetAwaiter().GetResult();
         CryptographicOperations.ZeroMemory(_key);
+    }
+    private string AccessToken()
+    {
+        var id = Guid.NewGuid().ToString("N");
+        _sessions[id] = true;
+        var token = new JwtSecurityToken("session-reference", "session-resource", [new Claim("sub", Identity), new Claim("jti", id)],
+            DateTime.UtcNow.AddMinutes(-1), DateTime.UtcNow.AddMinutes(5), new SigningCredentials(new SymmetricSecurityKey(_key), SecurityAlgorithms.HmacSha256));
+        return new JwtSecurityTokenHandler().WriteToken(token);
     }
 }

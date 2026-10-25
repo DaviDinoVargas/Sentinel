@@ -126,6 +126,7 @@ public sealed class PluginManifestGateway
     public bool TokenMetadata { get; set; }
     // Session workflows keep credentials and identity assertions inside the host.
     public bool LogoutCheck { get; set; }
+    public bool RefreshCheck { get; set; }
     public int LoginRequests { get; set; } = 1;
 }
 

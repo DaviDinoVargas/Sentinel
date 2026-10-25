@@ -96,6 +96,7 @@ public sealed partial class ScopedHttpGateway(ISentinelStore store, ScopePolicyE
         private readonly SemaphoreSlim _loginLock = new(1, 1);
         private bool _loginAttempted;
         private string? _loginToken;
+        private string? _refreshToken;
         private string _loginStatus = "NotTested";
         private HashSet<string>? _allowedRequestHeaders;
         private HashSet<string> AllowedHeaders => _allowedRequestHeaders ??= new(_manifest.Spec.Capabilities.Gateway.RequestHeaders.Intersect(RuntimeLimits.AllowedRequestHeaders, StringComparer.OrdinalIgnoreCase), StringComparer.OrdinalIgnoreCase);
@@ -141,7 +142,11 @@ public sealed partial class ScopedHttpGateway(ISentinelStore store, ScopePolicyE
             var limit = Math.Min(gateway.RequestBodyBytes, GatewayLimits.MaxRequestBodyBytes);
             if (call.BodyBase64.Length > (limit + 2) / 3 * 4) return false;
             var buffer = new byte[limit + 3];
-            return Convert.TryFromBase64String(call.BodyBase64, buffer, out var written) && written <= limit;
+            try { return Convert.TryFromBase64String(call.BodyBase64, buffer, out var written) && written <= limit; }
+            finally
+            {
+                if (gateway.LogoutCheck || gateway.RefreshCheck) System.Security.Cryptography.CryptographicOperations.ZeroMemory(buffer);
+            }
         }
 
         // V47: GET sem corpo e sem credencial para http://<mesmo host>:80<mesmo caminho+query> quando o alvo é
@@ -153,7 +158,9 @@ public sealed partial class ScopedHttpGateway(ISentinelStore store, ScopePolicyE
             && Uri.TryCreate(call.Uri, UriKind.Absolute, out var plain) && plain.Scheme == Uri.UriSchemeHttp && plain.Port == 80
             && plain.IdnHost == _target.IdnHost && plain.PathAndQuery == _target.PathAndQuery && string.IsNullOrEmpty(plain.UserInfo) && string.IsNullOrEmpty(plain.Fragment);
 
-        internal bool IsValid(HttpRelayRequest call)
+        internal bool IsValid(HttpRelayRequest call) => IsValidCore(call, false);
+
+        private bool IsValidCore(HttpRelayRequest call, bool hostRefresh)
         {
             var counterpart = IsPlainCounterpart(call);
             if (call.Kind != "http-request" || call.RequestId == Guid.Empty || !MethodAndBodyAllowed(call) || _manifest.Spec.Capabilities.Network != "scoped-egress" ||
@@ -165,7 +172,8 @@ public sealed partial class ScopedHttpGateway(ISentinelStore store, ScopePolicyE
             if (call.Persona is not ("primary" or "secondary") || call.Persona == "secondary" && (_manifest.Spec.Capabilities.Gateway.Identity != "dual" || _secondary is null || call.Anonymous)) return false;
             if (call.Anonymous && (_request.Action != "authenticated-lab" ||
                 !(_manifest.Metadata.Id == "sentinel.lab.authenticated-access" && uri == _baseline ||
-                  _manifest.Spec.Capabilities.Gateway.LogoutCheck && uri == _target && call.Method == "GET"))) return false;
+                  (_manifest.Spec.Capabilities.Gateway.LogoutCheck || _manifest.Spec.Capabilities.Gateway.RefreshCheck) && uri == _target && call.Method == "GET" ||
+                  hostRefresh && _manifest.Spec.Capabilities.Gateway.RefreshCheck && call.Method == "POST"))) return false;
             return call.Headers.All(header => AllowedHeaders.Contains(header.Key) && header.Value is { Length: > 0 and <= 2 } &&
                 header.Value.All(value => value is not null && value.Length <= Math.Min(_manifest.Spec.Capabilities.Gateway.RequestHeaderValueLength, GatewayLimits.MaxRequestHeaderValueLength) && !value.Any(char.IsControl)));
         }
@@ -174,17 +182,19 @@ public sealed partial class ScopedHttpGateway(ISentinelStore store, ScopePolicyE
             => await SendCoreAsync(call, cancellationToken);
 
         private async Task<HttpRelayResponse> SendCoreAsync(HttpRelayRequest call, CancellationToken cancellationToken,
-            Action<ReadOnlyMemory<byte>, bool, string?>? observeBody = null)
+            Action<ReadOnlyMemory<byte>, bool, string?>? observeBody = null, bool hostRefresh = false)
         {
-            if (!IsValid(call)) return Denied(call.RequestId, "Gateway recusou método, destino, capacidade ou cabeçalhos fora do contrato.");
+            if (!IsValidCore(call, hostRefresh)) return Denied(call.RequestId, "Gateway recusou método, destino, capacidade ou cabeçalhos fora do contrato.");
             var isWrite = GatewayLimits.WriteMethods.Contains(call.Method);
             var plainCounterpart = IsPlainCounterpart(call);
             var host = _target.IdnHost.Trim('[', ']');
             if (IPAddress.TryParse(host, out var literal) && IsForbiddenAddress(literal, host))
                 return Denied(call.RequestId, "Gateway recusou endereço de rede protegido.");
             await _concurrency.WaitAsync(cancellationToken);
+            byte[]? privateRequestBody = null;
             try
             {
+                if (call.BodyBase64 is { Length: > 0 }) privateRequestBody = Convert.FromBase64String(call.BodyBase64);
                 string? bearer = null;
                 var dnsValidated = false;
                 while (true)
@@ -213,14 +223,14 @@ public sealed partial class ScopedHttpGateway(ISentinelStore store, ScopePolicyE
                         catch (Exception exception) when (exception is InvalidOperationException or KeyNotFoundException or System.Security.Cryptography.CryptographicException)
                         { return Denied(call.RequestId, "Credencial indisponível, expirada, revogada ou rotacionada."); }
                     }
-                    var permit = _gateway._coordinator.Permit(_lease, requestBudget: _manifest.Spec.Capabilities.Gateway.MaxRequests, writeBudget: _manifest.Spec.Capabilities.Gateway.WriteRequests, writeTrail: isWrite ? $"{_manifest.Metadata.Id} {call.Method} {new Uri(call.Uri).AbsolutePath} body={(call.BodyBase64?.Length ?? 0) * 3 / 4}B" : null);
+                    var permit = _gateway._coordinator.Permit(_lease, requestBudget: _manifest.Spec.Capabilities.Gateway.MaxRequests, writeBudget: _manifest.Spec.Capabilities.Gateway.WriteRequests, writeTrail: isWrite ? $"{_manifest.Metadata.Id} {call.Method} {new Uri(call.Uri).AbsolutePath} body={privateRequestBody?.Length ?? 0}B" : null);
                     if (permit.Allowed) break;
                     if (permit.RetryAfterMs == 0) return Denied(call.RequestId, "Gateway recusou posse, orçamento ou cancelamento.");
                     await Task.Delay(Math.Min(permit.RetryAfterMs, 200), cancellationToken);
                 }
                 cancellationToken.ThrowIfCancellationRequested();
                 using var message = new HttpRequestMessage(new HttpMethod(call.Method == "HEAD" ? "GET" : call.Method), call.Uri);
-                if (call.BodyBase64 is { Length: > 0 }) { var content = new ByteArrayContent(Convert.FromBase64String(call.BodyBase64)); content.Headers.ContentType = System.Net.Http.Headers.MediaTypeHeaderValue.Parse(call.ContentType!); message.Content = content; }
+                if (privateRequestBody is not null) { var content = new ByteArrayContent(privateRequestBody); content.Headers.ContentType = System.Net.Http.Headers.MediaTypeHeaderValue.Parse(call.ContentType!); message.Content = content; }
                 foreach (var header in call.Headers) message.Headers.TryAddWithoutValidation(header.Key, header.Value);
                 if (bearer is not null && !call.Anonymous) message.Headers.Authorization = new("Bearer", bearer);
                 var clock = Stopwatch.StartNew();
@@ -278,7 +288,7 @@ public sealed partial class ScopedHttpGateway(ISentinelStore store, ScopePolicyE
                     headers["X-Sentinel-Body-Truncated"] = [truncated ? "true" : "false"];
                     if (response.Content.Headers.ContentLength is { } declared) headers["X-Sentinel-Content-Length"] = [declared.ToString()];
                 }
-                if (limits.LogoutCheck)
+                if (limits.LogoutCheck || limits.RefreshCheck)
                 {
                     try
                     {
@@ -306,7 +316,12 @@ public sealed partial class ScopedHttpGateway(ISentinelStore store, ScopePolicyE
             {
                 return Denied(call.RequestId, "Gateway não completou transporte/TLS, DNS aprovado ou prazo; nenhuma aprovação inferida.");
             }
-            finally { _concurrency.Release(); }
+            finally
+            {
+                if (privateRequestBody is not null && (_manifest.Spec.Capabilities.Gateway.LogoutCheck || _manifest.Spec.Capabilities.Gateway.RefreshCheck))
+                    System.Security.Cryptography.CryptographicOperations.ZeroMemory(privateRequestBody);
+                _concurrency.Release();
+            }
         }
 
         // NET-PORTS-01: único plugin autorizado a usar este canal. Lista curta e fixa de
@@ -426,7 +441,8 @@ public sealed partial class ScopedHttpGateway(ISentinelStore store, ScopePolicyE
                             while (count < buffer.Length)
                             { var n = await stream.ReadAsync(buffer.AsMemory(count), ct); if (n == 0) break; count += n; }
                             if (count == buffer.Length) { _loginStatus = "ResponseTooLarge"; return null; }
-                            _loginToken = TargetJsonLogin.Extract(buffer[..count], login.Configuration.TokenPath);
+                            _loginToken = TargetJsonLogin.Extract(buffer.AsMemory(0, count), login.Configuration.TokenPath);
+                            _refreshToken = login.Configuration.Refresh is { } refresh ? TargetJsonLogin.Extract(buffer.AsMemory(0, count), refresh.InitialTokenPath) : null;
                             _loginStatus = _loginToken is null ? "TokenMissingOrUnsupported" : "Authenticated";
                             // A rotation/revocation during login prevents using the returned token.
                             _gateway._credentials!.Material(_request.ProjectId, _request.ScopeId, _credential!);
@@ -514,6 +530,6 @@ public sealed partial class ScopedHttpGateway(ISentinelStore store, ScopePolicyE
         // Mantém o nome do cookie e todos os atributos (Secure/HttpOnly/SameSite/Path/
         // Expires/Max-Age/Domain); troca só o valor pelo marcador, nunca o segredo.
         public static HttpRelayResponse Denied(Guid id, string reason) => new("http-response", id, 0, [], "", 0, reason);
-        public void Dispose() { _loginToken = null; _client.Dispose(); _concurrency.Dispose(); _dnsLock.Dispose(); _loginLock.Dispose(); }
+        public void Dispose() { _loginToken = null; _refreshToken = null; _client.Dispose(); _concurrency.Dispose(); _dnsLock.Dispose(); _loginLock.Dispose(); }
     }
 }

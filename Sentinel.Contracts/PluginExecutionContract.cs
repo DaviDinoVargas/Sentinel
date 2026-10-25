@@ -26,7 +26,13 @@ public sealed record PluginExecutionRequest(
     string? CurrentSourceInventoryJson = null,
     string? PriorSourceInventoryJson = null,
     string? OpenApiInventoryJson = null,
-    LogoutObservation? LogoutObservation = null);
+    LogoutObservation? LogoutObservation = null,
+    RefreshObservation? RefreshObservation = null);
+
+public sealed record SessionStepObservation(string Step, int Status, bool? IdentityMatched = null, bool? InvalidGrant = null);
+public sealed record RefreshObservation(string Code, bool BaselineVerified = false, bool InitialRefreshVerified = false,
+    bool? Rotated = null, bool? ReplayDenied = null, bool? ReplayAccepted = null, bool? FamilyDenied = null, bool? FamilyAccepted = null,
+    bool FreshControlVerified = false, bool ExpectFamilyRevocation = true, IReadOnlyList<SessionStepObservation>? Steps = null);
 
 // Only host-derived statuses and comparisons cross the plugin boundary.
 public sealed record LogoutObservation(string Code, int? AnonymousStatus = null, int? BaselineStatus = null,

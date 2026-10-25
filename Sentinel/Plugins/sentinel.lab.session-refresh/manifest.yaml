@@ -1,0 +1,34 @@
+apiVersion: sentinel.dev/v1
+kind: PluginManifest
+metadata:
+  id: sentinel.lab.session-refresh
+  version: 1.0.0
+  name: "Refresh: rotação e detecção de reutilização por família"
+spec:
+  type: security-test
+  contractVersion: "1.0"
+  mode: active
+  activation: explicit
+  controls: [AUTH-SES-01-REFRESH, AUTH-SES-02-FAMILY]
+  capabilities:
+    network: scoped-egress
+    sourceRead: false
+    artifactWrite: false
+    gateway:
+      identity: primary
+      refreshCheck: true
+      loginRequests: 2
+      arbitraryPaths: true
+      bodyBytes: 65536
+      maxRequests: 16
+      methods: [GET, POST]
+      writeRequests: 6
+      requestBodyBytes: 65536
+      requestContentTypes: [application/json, application/x-www-form-urlencoded]
+  resources:
+    timeoutSeconds: 120
+    memoryMiB: 128
+  permissions: [target.http.authenticated-lab, target.session.refresh]
+  execution:
+    isolation: container
+  riskClass: medium

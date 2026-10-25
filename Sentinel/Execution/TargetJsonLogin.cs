@@ -4,10 +4,15 @@ using Sentinel.Core;
 namespace Sentinel.Execution;
 
 public sealed record JsonLoginConfiguration(string Url, string UsernameField, string PasswordField, string TokenPath,
-    string? TenantField = null, string Method = "POST", TargetLogoutConfiguration? Logout = null);
+    string? TenantField = null, string Method = "POST", TargetLogoutConfiguration? Logout = null, TargetRefreshConfiguration? Refresh = null);
 public sealed record TargetLogoutConfiguration(string Url, string IdentityPath, string BodyFormat = "none");
+public sealed record TargetRefreshConfiguration(string Url, string InitialTokenPath, string IdentityPath,
+    string InputField = "refresh_token", string AccessTokenPath = "access_token", string RotatedTokenPath = "refresh_token",
+    string ContentType = "application/json", string ErrorPath = "error", string InvalidGrantValue = "invalid_grant",
+    string? GrantTypeField = "grant_type", string GrantTypeValue = "refresh_token", string ClientIdField = "client_id",
+    string ClientSecretField = "client_secret", bool RevokeFamilyOnReplay = true);
 public sealed record JsonLoginInput(JsonLoginConfiguration Configuration, string Username, string Password, string? Tenant = null,
-    string? ExpectedIdentity = null);
+    string? ExpectedIdentity = null, string? RefreshClientId = null, string? RefreshClientSecret = null);
 internal sealed record CredentialMaterial(string Type, string? Bearer, JsonLoginInput? Login);
 
 public static class TargetJsonLogin
@@ -27,7 +32,29 @@ public static class TargetJsonLogin
                 input.ExpectedIdentity.Length > 512 || input.ExpectedIdentity.Any(char.IsControl))
                 throw new ArgumentException("Logout exige POST no mesmo escopo, formato none/empty-json, caminho JSON e identidade esperada privada. Configure somente quando o contrato exigir revogação imediata do Bearer.");
         }
-        else if (!string.IsNullOrEmpty(input.ExpectedIdentity)) throw new ArgumentException("Identidade esperada exige contrato de logout.");
+        else if (c.Refresh is null && !string.IsNullOrEmpty(input.ExpectedIdentity)) throw new ArgumentException("Identidade esperada exige contrato de sessão.");
+        if (c.Refresh is { } refresh)
+        {
+            var paths = new[] { refresh.InitialTokenPath, refresh.IdentityPath, refresh.AccessTokenPath, refresh.RotatedTokenPath, refresh.ErrorPath };
+            var refreshFields = new[] { refresh.InputField, refresh.GrantTypeField, refresh.ClientIdField, refresh.ClientSecretField }.Where(f => f is not null).ToArray();
+            if (!Uri.TryCreate(refresh.Url, UriKind.Absolute, out var refreshUri) || refresh.Url.Length > 2048 || refreshUri.UserInfo.Length != 0 ||
+                refreshUri.Query.Length != 0 || refreshUri.Fragment.Length != 0 ||
+                !new ScopePolicyEngine().Evaluate([scope], refreshUri, "authenticated-lab", now, true, "POST").IsAllowed ||
+                refresh.ContentType is not ("application/json" or "application/x-www-form-urlencoded") ||
+                new[] { refresh.InputField, refresh.ClientIdField, refresh.ClientSecretField }.Any(string.IsNullOrEmpty) ||
+                paths.Any(path => string.IsNullOrWhiteSpace(path) || path.Length > 200 || path.Split('.').Length > 8 || path.Split('.').Any(part => !ValidField(part))) ||
+                refreshFields.Any(field => string.IsNullOrEmpty(field) || !ValidField(field!)) || refreshFields.Distinct(StringComparer.Ordinal).Count() != refreshFields.Length ||
+                string.IsNullOrWhiteSpace(refresh.InvalidGrantValue) || refresh.InvalidGrantValue.Length > 100 || refresh.InvalidGrantValue.Any(char.IsControl) ||
+                string.IsNullOrWhiteSpace(refresh.GrantTypeValue) || refresh.GrantTypeValue.Length > 100 || refresh.GrantTypeValue.Any(char.IsControl) ||
+                string.IsNullOrWhiteSpace(input.ExpectedIdentity) || input.ExpectedIdentity.Length > 512 || input.ExpectedIdentity.Any(char.IsControl) ||
+                input.RefreshClientId is { Length: > 512 } || input.RefreshClientId?.Any(char.IsControl) == true ||
+                !string.IsNullOrEmpty(input.RefreshClientId) && string.IsNullOrWhiteSpace(input.RefreshClientId) ||
+                input.RefreshClientSecret is { Length: > 2048 } || input.RefreshClientSecret?.Any(char.IsControl) == true ||
+                !string.IsNullOrEmpty(input.RefreshClientSecret) && string.IsNullOrWhiteSpace(input.RefreshClientId))
+                throw new ArgumentException("Refresh exige POST no escopo, contrato JSON/form válido, campos distintos, identidade esperada e credenciais de cliente privadas compatíveis.");
+        }
+        else if (!string.IsNullOrEmpty(input.RefreshClientId) || !string.IsNullOrEmpty(input.RefreshClientSecret))
+            throw new ArgumentException("Credenciais de cliente exigem contrato de refresh.");
         if (c.Method != "POST" || !Uri.TryCreate(c.Url, UriKind.Absolute, out var uri) || c.Url.Length > 2048 ||
             uri.Scheme is not ("http" or "https") || uri.UserInfo.Length != 0 || uri.Query.Length != 0 || uri.Fragment.Length != 0 ||
             !new ScopePolicyEngine().Evaluate([scope], uri, "authenticated-lab", now, true, "POST").IsAllowed)
@@ -49,7 +76,7 @@ public static class TargetJsonLogin
         if (input.Configuration.TenantField is { } tenant) fields[tenant] = input.Tenant!;
         return JsonSerializer.SerializeToUtf8Bytes(fields);
     }
-    internal static string? Extract(byte[] data, string path)
+    internal static string? Extract(ReadOnlyMemory<byte> data, string path)
     {
         using var doc = JsonDocument.Parse(data, new JsonDocumentOptions { MaxDepth = 16 });
         var node = doc.RootElement;

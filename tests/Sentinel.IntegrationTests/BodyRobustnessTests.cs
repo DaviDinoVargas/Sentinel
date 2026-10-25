@@ -37,6 +37,7 @@ public sealed class BodyRobustnessTests
         var trail = execution.Events.Where(item => item.Kind == "WriteTrail").Select(item => item.Detail).ToArray();
         Assert.Equal(7, trail.Length);
         Assert.All(trail, detail => Assert.StartsWith("sentinel.lab.body-robustness POST /aplicacao/json-api-seguro body=", detail));
+        Assert.Contains(trail, detail => detail.EndsWith("body=614408B", StringComparison.Ordinal));
         var results = execution.Events.Where(item => item.Kind == "WriteResult").Select(item => item.Detail).ToArray();
         Assert.Equal(7, results.Length);
         Assert.Contains(results, detail => detail.EndsWith("-> 400"));
@@ -123,6 +124,20 @@ public sealed class BodyRobustnessTests
         }
         Assert.True(audit.State == AuditState.Completed, audit.PolicyReason);
         var execution = (await client.GetFromJsonAsync<ExecutionSnapshot>($"/api/v1/audits/{audit.Id}/execution", Json))!;
+        // Snapshot.Events is a UI preview, not the complete append-only history.
+        var events = new List<ExecutionEvent>();
+        var cursors = new HashSet<string>();
+        string? before = null;
+        do
+        {
+            var page = (await client.GetFromJsonAsync<ExecutionEventsPage>($"/api/v1/audits/{audit.Id}/execution/events?pageSize=100" +
+                (before is null ? "" : "&beforeId=" + before), Json))!;
+            events.AddRange(page.Items);
+            before = page.NextBeforeId;
+            if (before is not null) Assert.True(cursors.Add(before), "Event pagination repeated its cursor.");
+        } while (before is not null);
+        Assert.Equal(events.Count, events.Select(e => e.Id).Distinct().Count());
+        execution = execution with { Events = events.OrderBy(e => e.Id).ToArray() };
         return (audit, execution);
     }
 }
