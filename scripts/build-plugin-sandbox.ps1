@@ -3,14 +3,10 @@ $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path $PSScriptRoot -Parent
 $localDirectory = Join-Path $repoRoot '.local'
 New-Item -ItemType Directory -Path $localDirectory -Force | Out-Null
-$sources = @(Get-ChildItem (Join-Path $repoRoot 'Sentinel.PluginHost'), (Join-Path $repoRoot 'Sentinel.Contracts') -Recurse -File | Where-Object { $_.FullName -notmatch '[\\/](bin|obj)[\\/]' })
-$sources += Get-Item (Join-Path $repoRoot 'infra/plugins/Dockerfile')
-$sources += Get-Item (Join-Path $repoRoot 'infra/plugins/gitleaks.toml')
-$sources += Get-Item (Join-Path $repoRoot 'infra/plugins/GITLEAKS-LICENSE')
-$sources += Get-Item (Join-Path $repoRoot 'infra/plugins/trivy.lock.json'), (Join-Path $repoRoot 'infra/plugins/trivy.yaml'), (Join-Path $repoRoot 'infra/plugins/trivyignore'), (Join-Path $repoRoot 'infra/plugins/TRIVY-LICENSE')
 $trivy = Get-Content -LiteralPath (Join-Path $repoRoot 'infra/plugins/trivy.lock.json') -Raw | ConvertFrom-Json
 if ($trivy.image -notmatch '^aquasec/trivy:[0-9.]+@sha256:[a-f0-9]{64}$' -or $trivy.database -notmatch '^ghcr.io/aquasecurity/trivy-db@sha256:[a-f0-9]{64}$') { throw 'Trivy e base exigem referências oficiais fixadas por digest.' }
-$fingerprint = ($sources | Sort-Object FullName | ForEach-Object { (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash }) -join ''
+$fingerprint = & (Join-Path $PSScriptRoot 'plugin-sandbox-fingerprint.ps1') -RepositoryRoot $repoRoot
+if ($fingerprint -notmatch '\A[a-f0-9]{64}\z') { throw 'Invalid sandbox source fingerprint.' }
 $recordPath = Join-Path $localDirectory 'plugin-runtime.json'
 $record = if (Test-Path -LiteralPath $recordPath) { Get-Content -LiteralPath $recordPath -Raw | ConvertFrom-Json } else { $null }
 if (-not $Force -and $record) {
