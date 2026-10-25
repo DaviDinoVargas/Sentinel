@@ -33,6 +33,13 @@ public sealed class PluginRuntime(IOptions<PluginRuntimeOptions> options, IHostE
         try { return Process.Start(start) ?? throw Failure("client-unavailable", operation); }
         catch (System.ComponentModel.Win32Exception) { throw Failure("client-unavailable", operation); }
     }
+    public sealed record SandboxAllocation(int MemoryMiB, double Cpus, int Pids, int TmpfsMiB);
+    public static SandboxAllocation AppliedResources(PluginManifestResources resources) => new(
+        Math.Clamp(resources.MemoryMiB, 64, RuntimeLimits.MaxMemoryMiB),
+        // Match the canonical CPU value already passed to Docker by this runtime.
+        double.Parse(Math.Clamp(resources.Cpus, 0.1, RuntimeLimits.MaxCpus).ToString("0.##", CultureInfo.InvariantCulture), CultureInfo.InvariantCulture),
+        Math.Clamp(resources.Pids, 16, RuntimeLimits.MaxPids),
+        Math.Clamp(resources.TmpfsMiB, 1, RuntimeLimits.MaxTmpfsMiB));
 
     public object Describe() => new
     {
@@ -43,6 +50,9 @@ public sealed class PluginRuntime(IOptions<PluginRuntimeOptions> options, IHostE
         cpuLimit = Container ? 0.5 : (double?)null, pidsLimit = Container ? 64 : (int?)null,
         tmpfsMiB = Container ? 16 : (int?)null,
         configuration = "PluginRuntime:Mode/Image na inicialização; memória e timeout dos manifestos aprovados",
+        resourceAllocation = "per-approved-manifest",
+        resourceDefaults = Container ? AppliedResources(new PluginManifestResources()) : null,
+        resourceCeilings = Container ? new SandboxAllocation(RuntimeLimits.MaxMemoryMiB, RuntimeLimits.MaxCpus, RuntimeLimits.MaxPids, RuntimeLimits.MaxTmpfsMiB) : null,
         limitations = new[] {
             "Manifestos válidos locais ainda são aprovados automaticamente; plugins de terceiros não são admitidos.",
             "Gateway atual: GET na URL do cenário e referência protegida autorizada, sem corpo, até 8 KiB de resposta; consultas variáveis somente no laboratório ativo. Respostas autenticadas expõem apenas status/tempo ao plugin.",
@@ -62,11 +72,11 @@ public sealed class PluginRuntime(IOptions<PluginRuntimeOptions> options, IHostE
             return start;
         }
         if (!Regex.IsMatch(Options.Image, "^sha256:[a-f0-9]{64}$")) throw new InvalidOperationException("Sandbox exige uma imagem local fixada por digest SHA-256.");
-        var resources = manifest.Spec.Resources;
-        var memory = Math.Clamp(resources.MemoryMiB, 64, RuntimeLimits.MaxMemoryMiB).ToString(CultureInfo.InvariantCulture) + "m";
-        var cpus = Math.Clamp(resources.Cpus, 0.1, RuntimeLimits.MaxCpus).ToString("0.##", CultureInfo.InvariantCulture);
-        var pids = Math.Clamp(resources.Pids, 16, RuntimeLimits.MaxPids).ToString(CultureInfo.InvariantCulture);
-        var tmpfs = "/tmp:rw,noexec,nosuid,size=" + Math.Clamp(resources.TmpfsMiB, 1, RuntimeLimits.MaxTmpfsMiB).ToString(CultureInfo.InvariantCulture) + "m";
+        var resources = AppliedResources(manifest.Spec.Resources);
+        var memory = resources.MemoryMiB.ToString(CultureInfo.InvariantCulture) + "m";
+        var cpus = resources.Cpus.ToString("0.##", CultureInfo.InvariantCulture);
+        var pids = resources.Pids.ToString(CultureInfo.InvariantCulture);
+        var tmpfs = "/tmp:rw,noexec,nosuid,size=" + resources.TmpfsMiB.ToString(CultureInfo.InvariantCulture) + "m";
         var arguments = new List<string> { "run", "--rm", "-i", "--name", name, "--label", "sentinel.sandbox=true",
             "--label", "sentinel.deadline=" + deadline.ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture),
             "--network", "none", "--read-only", "--user", "65532:65532", "--cap-drop", "ALL",

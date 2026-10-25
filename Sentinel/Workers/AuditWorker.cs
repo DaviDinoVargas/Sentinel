@@ -84,8 +84,9 @@ public sealed class AuditWorker(
                 var loginPreparationSeconds = authenticated && payload.Credential?.CredentialType == "JsonLogin" ? 10 : 0;
                 var timeout = now.AddSeconds(manifest.Spec.Resources.TimeoutSeconds + loginPreparationSeconds);
                 var deadline = timeout < decision.Scope!.ExpiresAtUtc ? timeout : decision.Scope.ExpiresAtUtc;
+                var allocation = PluginRuntime.AppliedResources(manifest.Spec.Resources);
                 var runtimeDetail = runtime.Container
-                    ? $"container {runtime.Options.Image}; {Math.Clamp(manifest.Spec.Resources.MemoryMiB, 64, 512)} MiB; CPU 0.5; PIDs 64; rede none; {(source ? "snapshot somente leitura; sem gateway" : "HTTP via gateway")}"
+                    ? $"container {runtime.Options.Image}; {allocation.MemoryMiB} MiB; CPU {allocation.Cpus.ToString(System.Globalization.CultureInfo.InvariantCulture)}; PIDs {allocation.Pids}; tmpfs {allocation.TmpfsMiB} MiB; rede none; {(source ? "snapshot somente leitura; sem gateway" : "HTTP via gateway")}"
                     : "processo de desenvolvimento; HTTP via gateway; sem sandbox de filesystem";
                 if (loginPreparationSeconds != 0) runtimeDetail += "; preparação de login JSON até 10s antes do plugin; prazo do plugin inalterado";
                 var replaySafety = source && runtime.Container && manifest.Spec.Capabilities.SourceRead && manifest.Spec.Capabilities.Network == "false"

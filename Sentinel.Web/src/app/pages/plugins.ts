@@ -52,13 +52,25 @@ import { Icon } from '../design-system/icon';
             <dd>
               {{ runtime.readOnlyRoot ? 'Somente leitura' : 'Sem isolamento' }} · {{ runtime.user }}
             </dd>
-            <dt>CPU / processos</dt>
+            <dt>CPU / processos padrão</dt>
             <dd>
               {{ runtime.cpuLimit ?? 'Não aplicado' }} CPU ·
               {{ runtime.pidsLimit ?? 'Não aplicado' }} PIDs
             </dd>
-            <dt>Temporários</dt>
+            <dt>Temporários padrão</dt>
             <dd>{{ runtime.tmpfsMiB ?? 'Não aplicado' }} MiB · tmpfs sem execução</dd>
+            @if (runtime.resourceCeilings; as ceilings) {
+              <dt>Tetos da política por sandbox</dt>
+              <dd>
+                {{ ceilings.memoryMiB }} MiB · {{ ceilings.cpus }} CPU · {{ ceilings.pids }} PIDs ·
+                {{ ceilings.tmpfsMiB }} MiB de tmpfs
+              </dd>
+              <dt>Alocação efetiva</dt>
+              <dd>
+                Definida pelo manifesto aprovado de cada plugin; consulte os valores aplicados nos
+                cartões abaixo.
+              </dd>
+            }
             <dt>Containers observados</dt>
             <dd>
               {{ runtime.monitor.activeContainers }} ativos ·
@@ -151,6 +163,12 @@ import { Icon } from '../design-system/icon';
                   </dd>
                   <dt>Rede declarada</dt>
                   <dd>{{ plugin.capabilities.network }}</dd>
+                  @if (plugin.appliedResources; as allocation) {
+                    <dt>CPU / processos aplicados</dt>
+                    <dd>{{ allocation.cpus }} CPU · {{ allocation.pids }} PIDs</dd>
+                    <dt>Temporários aplicados</dt>
+                    <dd>{{ allocation.tmpfsMiB }} MiB · tmpfs sem execução</dd>
+                  }
                   <dt>Leitura de código</dt>
                   <dd>{{ plugin.capabilities.sourceRead ? 'Solicitada' : 'Não solicitada' }}</dd>
                   <dt>Escrita de artefatos</dt>

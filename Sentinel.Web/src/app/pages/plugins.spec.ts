@@ -43,7 +43,9 @@ describe('Isolamento no catálogo', () => {
                   authenticatedResponseHeaders: false,
                 },
               },
-              resources: { timeoutSeconds: 15, memoryMiB: 128 },
+              resources: { timeoutSeconds: 15, memoryMiB: 1024 },
+              appliedMemoryMiB: 1024,
+              appliedResources: { memoryMiB: 1024, cpus: 1.25, pids: 128, tmpfsMiB: 64 },
               permissions: ['target.http.read'],
               isolation: mode,
               riskClass: 'low',
@@ -109,5 +111,12 @@ describe('Isolamento no catálogo', () => {
     expect(text).toContain('16000 bytes UTF-8');
     expect(text).toContain('valores sempre redigidos');
     expect(text).toContain('Omissões são sinalizadas');
+  });
+  it('mostra alocação efetiva por plugin acima dos antigos valores fixos de exibição', () => {
+    const text = render('container', false, true);
+    expect(text).toContain('1024 MiB');
+    expect(text).toContain('1.25 CPU');
+    expect(text).toContain('128 PIDs');
+    expect(text).toContain('64 MiB · tmpfs');
   });
 });

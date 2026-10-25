@@ -312,10 +312,18 @@ export interface Plugin {
       authenticatedResponseHeaders: boolean;
     };
   };
-  resources: { timeoutSeconds: number; memoryMiB: number };
+  resources: {
+    timeoutSeconds: number;
+    memoryMiB: number;
+    cpus?: number;
+    pids?: number;
+    tmpfsMiB?: number;
+    resultBytes?: number;
+  };
   permissions: string[];
   isolation: string;
   appliedMemoryMiB?: number | null;
+  appliedResources?: { memoryMiB: number; cpus: number; pids: number; tmpfsMiB: number } | null;
   riskClass: string;
   isFixture: boolean;
 }
@@ -339,6 +347,9 @@ export interface PluginCatalog {
     cpuLimit: number | null;
     pidsLimit: number | null;
     tmpfsMiB: number | null;
+    resourceAllocation?: string;
+    resourceDefaults?: { memoryMiB: number; cpus: number; pids: number; tmpfsMiB: number } | null;
+    resourceCeilings?: { memoryMiB: number; cpus: number; pids: number; tmpfsMiB: number } | null;
     configuration: string;
     limitations: string[];
   };
