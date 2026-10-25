@@ -1,5 +1,19 @@
 # Sentinel
 
+## Autenticacao e injecao — V50
+
+Quatro plugins ampliam o laboratorio autorizado, mantendo escopo, lease, cancelamento e orcamento global por alvo. `AUTH-JWT-01` compara uma linha de base anonima recusada com nove tokens sinteticos; aprova somente se todas as nove sondagens tiverem recusa explicita. Falha de transporte, resposta inesperada ou avaliacao parcial nao aprovam. A verificacao cobre as tecnicas enviadas e a URL avaliada, sem prometer resistencia universal a ataques JWT.
+
+`AUTH-JWT-02` recebe somente metadados estruturais do token que o gateway utilizou, por capacidade declarada `gateway.tokenMetadata`. O token, valores de claims, nomes customizados, `kid` e valores arbitrarios de `alg`/`typ` nao sao exportados. A presenca do campo de assinatura nao comprova sua validade criptografica. Sem `iat` ou com JSON ambiguo, a vida util nao pode ser aprovada. O gateway reserva o prefixo `X-Sentinel-*` e descarta valores desse prefixo fornecidos pelo alvo.
+
+`AUTH-BRUTE-01` exige ativacao explicita (`additionalPlugins: ["sentinel.lab.auth-brute"]`) e POST autorizado no escopo do endpoint de login; nao e enviado automaticamente a qualquer URL do perfil ativo. HTTP 423/429 ou Retry-After registram defesa observada e encerram a sonda. Ausencia de bloqueio em dez tentativas com usuario sintetico, mensagem isolada ou resposta inesperada sao inconclusivas: nao demonstram ausencia de protecao de contas existentes. Ainda nao cobre enumeracao, MFA, reset nem contas existentes de teste configuradas pelo operador.
+
+`WEB-INJ-01/02` usam operacoes GET e parametros do inventario OpenAPI, percorrendo-os ate o orcamento declarado no manifesto. Erros de banco associados a novas entradas geram indicios; correlacao booleana repetivel e inferida. Reflexao nao escapada em resposta HTML e candidata a XSS, com confianca Inferred; reflexao em JSON nao e classificada como XSS. Execucao no navegador, CSP, SQLi temporal, entradas POST, XSS armazenado/DOM e variantes de codificacao ainda exigem ampliacao. Ausencia de sinal, cortes de corpo, recusas ou operacoes restantes nao sao aprovacao. A evidencia informa o recorte e as limitacoes.
+
+As telas gerais consultam controles/evidencias persistidos. Configuracao e visualizacao especializadas destas capacidades acompanham a etapa de UI/UX do roadmap; esta entrega nao declara essa etapa concluida. O roteiro empresarial inclui aprofundamento dos controles, ferramentas externas, revalidacao de conformidade, UI/UX, escala e operacao.
+
+O resultado completo validado pelo schema encerra o protocolo do plugin. O runner cancela o relay e encerra o processo; requisicoes emitidas depois desse resultado nao sao despachadas. A devolucao ainda depende da limpeza da sandbox, e os limites de prazo, tamanho de saida e cancelamento continuam aplicados. Testes locais do protocolo usam uma fixture separada, sem acessar software avaliado, banco ou broker.
+
 ## Acessos por login JSON — V21
 
 **Acessos do alvo** aceita Bearer ou usuário/senha com empresa opcional. Cadastre a URL de login, os nomes dos campos JSON e o caminho do token retornado (por exemplo, `data.accessToken`). A primeira versão aceita somente POST com objeto JSON de primeiro nível e token Bearer na resposta JSON; não aceita redirecionamentos, cookies, CSRF, MFA ou renovação automática. Não cria contas ou empresas no alvo. Cadastrar não dispara tráfego: use **Testar autenticação e acesso**, informe um recurso protegido e confirme a execução.

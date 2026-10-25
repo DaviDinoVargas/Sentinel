@@ -1,4 +1,4 @@
-param([string]$Filter = '', [ValidateSet('Debug','Release')][string]$Configuration = 'Debug', [switch]$NoBuild)
+param([string]$Filter = '', [ValidateSet('Debug','Release')][string]$Configuration = 'Debug', [switch]$NoBuild, [ValidateSet('minimal','normal','detailed')][string]$Verbosity = 'minimal')
 $ErrorActionPreference = 'Stop'
 $repoRoot = [IO.Path]::GetFullPath((Split-Path $PSScriptRoot -Parent))
 $testRoot = Join-Path $repoRoot 'tests\Sentinel.IntegrationTests\bin\'
@@ -60,6 +60,7 @@ COMMIT;
         $env:SENTINEL_TEST_S3_SECRET = $storageTestAccount.GetNetworkCredential().Password
     }
     $arguments = @('test','tests\Sentinel.IntegrationTests','-c',$Configuration,'--no-restore')
+    $arguments += @('--logger', "console;verbosity=$Verbosity")
     if ($NoBuild) { $arguments += '--no-build' }
     if ($Filter) { $arguments += @('--filter',$Filter) }
     Push-Location $repoRoot

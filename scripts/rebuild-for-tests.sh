@@ -6,9 +6,10 @@
 # Depois rode os testes com, por exemplo:
 #   powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-local.ps1 -Configuration Release -NoBuild -Filter "FullyQualifiedName~NomeDoTeste"
 # A suíte completa leva ~80-90 min: rode em background e só por branch.
-set -e
+set -euo pipefail
 cd "$(dirname "$0")/.."
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/stop-api.ps1
-dotnet build tests/Sentinel.IntegrationTests -c Release --nologo -v q 2>&1 | grep -E "error|Erro\(s\)" | head -8
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-plugin-sandbox.ps1 > /tmp/sandbox.log 2>&1
-tail -1 /tmp/sandbox.log | cut -c1-120
+dotnet build tests/Sentinel.IntegrationTests -c Release --nologo -v minimal -m:1 -nodeReuse:false -p:UseSharedCompilation=false
+mkdir -p .local
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-plugin-sandbox.ps1 > .local/sandbox-build.log 2>&1
+tail -1 .local/sandbox-build.log | cut -c1-120
