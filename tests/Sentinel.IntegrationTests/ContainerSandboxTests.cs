@@ -103,7 +103,13 @@ public sealed class ContainerSandboxTests
                 await Task.Delay(100);
             }
             await runtime.ReapAsync(CancellationToken.None);
-            Assert.Equal("healthy", runtime.State.Status); Assert.True(runtime.State.RemovedContainers >= 1);
+            // The running application and other workers may reap this same expired
+            // container first. The safety contract is confirmed absence, not which
+            // instance won or incremented its local removal counter.
+            Assert.Equal("healthy", runtime.State.Status);
+            var remaining = await Docker("ps", "-a", "--filter", "name=^/" + name + "$", "--format", "{{.Names}}");
+            Assert.Equal(0, remaining.Code);
+            Assert.True(string.IsNullOrWhiteSpace(remaining.Output), "Expired sandbox survived the reaper pass.");
             Assert.NotEqual(0, (await Docker("inspect", name)).Code);
         }
         finally { await runtime.RemoveAsync(name); await running.WaitForExitAsync(); }
