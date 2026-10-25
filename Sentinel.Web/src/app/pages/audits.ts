@@ -16,6 +16,7 @@ import { Icon } from '../design-system/icon';
 import { AuthSessionService } from '../core/auth-session.service';
 import { AuditHistory } from './audit-history';
 import { EvidenceViewer } from '../design-system/evidence-viewer';
+import { ExecutionEvents } from './execution-events';
 
 @Component({
   imports: [CommonModule, ReactiveFormsModule, RouterLink, EmptyState, Icon, AuditHistory],
@@ -234,7 +235,15 @@ export class AuditsPage {
 }
 
 @Component({
-  imports: [CommonModule, ReactiveFormsModule, RouterLink, Badge, Icon, EvidenceViewer],
+  imports: [
+    CommonModule,
+    ReactiveFormsModule,
+    RouterLink,
+    Badge,
+    Icon,
+    EvidenceViewer,
+    ExecutionEvents,
+  ],
   template: `
     <div class="page-heading">
       <div>
@@ -409,16 +418,7 @@ export class AuditsPage {
               <li>{{ limitation }}</li>
             }
           </ul>
-          <h3 class="section-gap">Eventos recentes</h3>
-          <ul class="list-reset mini-list">
-            @for (event of run.events; track event.id) {
-              <li>
-                <span class="mono">{{ event.atUtc | date: 'HH:mm:ss.SSS' }}</span> ·
-                {{ eventLabel(event.kind) }}
-                <p class="help">{{ event.detail }}</p>
-              </li>
-            }
-          </ul>
+          <sentinel-execution-events [auditId]="item.id" [recent]="run.events" />
         } @else {
           <p class="help">
             {{

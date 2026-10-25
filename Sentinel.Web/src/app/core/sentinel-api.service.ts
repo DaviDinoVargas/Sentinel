@@ -170,6 +170,16 @@ export interface TargetBudget {
   requestsPerSecond: number;
   concurrentAudits: number;
 }
+export interface ExecutionEvent {
+  id: number;
+  atUtc: string;
+  kind: string;
+  detail: string;
+}
+export interface ExecutionEventsPage {
+  items: ExecutionEvent[];
+  nextBeforeId: string | null;
+}
 export interface ExecutionSnapshot {
   source?: {
     id: string;
@@ -192,7 +202,7 @@ export interface ExecutionSnapshot {
   completedPlugins: string[];
   grantedRequests: number;
   budget: TargetBudget;
-  events: { id: number; atUtc: string; kind: string; detail: string }[];
+  events: ExecutionEvent[];
   limitations: string[];
   authentication?: {
     credential: {
@@ -502,6 +512,16 @@ export class SentinelApiService {
   }
   execution(auditId: string) {
     return this.http.get<ExecutionSnapshot>(`${this.baseUrl}/audits/${auditId}/execution`);
+  }
+  executionEvents(auditId: string, beforeId: string | null = null, kind = '', pluginId = '') {
+    const params: Record<string, string> = { pageSize: '100' };
+    if (beforeId) params['beforeId'] = beforeId;
+    if (kind.trim()) params['kind'] = kind.trim();
+    if (pluginId.trim()) params['pluginId'] = pluginId.trim();
+    return this.http.get<ExecutionEventsPage>(
+      `${this.baseUrl}/audits/${auditId}/execution/events`,
+      { params },
+    );
   }
   cancelAudit(auditId: string) {
     return this.http.post<Audit>(`${this.baseUrl}/audits/${auditId}/cancel`, {});

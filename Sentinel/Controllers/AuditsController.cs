@@ -23,6 +23,14 @@ public sealed class AuditsController : ControllerBase
     public ActionResult<ExecutionSnapshot> GetExecution(Guid auditId)
         => _coordinator.Snapshot(auditId) is { } snapshot ? Ok(snapshot) : NotFound();
 
+    [HttpGet("{auditId:guid}/execution/events")]
+    public ActionResult<ExecutionEventsPage> GetExecutionEvents(Guid auditId, [FromQuery] long? beforeId = null,
+        [FromQuery] int pageSize = 100, [FromQuery] string? kind = null, [FromQuery] string? pluginId = null)
+    {
+        try { return _coordinator.EventsPage(auditId, beforeId, pageSize, kind, pluginId) is { } page ? Ok(page) : NotFound(); }
+        catch (ArgumentException exception) { return Problem(statusCode: 400, detail: exception.Message); }
+    }
+
     [HttpPost("{auditId:guid}/cancel")]
     [Authorize(Policy = Permissions.Execute)]
     public ActionResult<Audit> Cancel(Guid auditId)

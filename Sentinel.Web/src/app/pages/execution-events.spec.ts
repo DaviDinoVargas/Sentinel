@@ -1,0 +1,107 @@
+import { TestBed } from '@angular/core/testing';
+import { provideHttpClient } from '@angular/common/http';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
+import { ExecutionEvents } from './execution-events';
+
+describe('Histórico completo de eventos', () => {
+  beforeEach(() =>
+    TestBed.configureTestingModule({
+      imports: [ExecutionEvents],
+      providers: [provideHttpClient(), provideHttpClientTesting()],
+    }),
+  );
+  function render() {
+    const fixture = TestBed.createComponent(ExecutionEvents);
+    fixture.componentRef.setInput('auditId', 'audit');
+    fixture.componentRef.setInput('recent', [
+      {
+        id: 300,
+        atUtc: '2026-10-25T08:00:00Z',
+        kind: 'PluginCompleted',
+        detail: 'sentinel.example',
+      },
+    ]);
+    fixture.detectChanges();
+    return {
+      fixture,
+      page: fixture.componentInstance,
+      http: TestBed.inject(HttpTestingController),
+    };
+  }
+  it('preserva a prévia e percorre páginas anteriores sem carregar tudo na memória', () => {
+    const { fixture, page, http } = render();
+    expect(fixture.nativeElement.textContent).toContain('Checkpoint salvo');
+    http.expectNone((request) => request.url.endsWith('/execution/events'));
+    page.refresh();
+    http
+      .expectOne('/api/v1/audits/audit/execution/events?pageSize=100')
+      .flush({
+        items: [{ id: 201, atUtc: '', kind: 'WriteGranted', detail: 'sentinel.a' }],
+        nextBeforeId: '201',
+      });
+    page.older();
+    http
+      .expectOne('/api/v1/audits/audit/execution/events?pageSize=100&beforeId=201')
+      .flush({
+        items: [{ id: 101, atUtc: '', kind: 'WriteGranted', detail: 'sentinel.a' }],
+        nextBeforeId: '101',
+      });
+    expect(page.events().map((event) => event.id)).toEqual([101]);
+    expect(page.history()).toEqual([null]);
+    page.newer();
+    http
+      .expectOne('/api/v1/audits/audit/execution/events?pageSize=100')
+      .flush({ items: [], nextBeforeId: '201' });
+    expect(page.history()).toEqual([]);
+    fixture.destroy();
+    http.verify();
+  });
+  it('aplica filtros no servidor e cancela consulta anterior', () => {
+    const { fixture, page, http } = render();
+    page.refresh();
+    const old = http.expectOne('/api/v1/audits/audit/execution/events?pageSize=100');
+    page.filters.setValue({ kind: 'WriteTrail', pluginId: 'sentinel.lab.contract-fuzz' });
+    page.refresh();
+    expect(old.cancelled).toBe(true);
+    const filtered = http.expectOne(
+      (request) =>
+        request.url.endsWith('/execution/events') && request.params.get('kind') === 'WriteTrail',
+    );
+    expect(filtered.request.params.get('pluginId')).toBe('sentinel.lab.contract-fuzz');
+    filtered.flush({ items: [], nextBeforeId: null });
+    expect(page.events()).toEqual([]);
+    fixture.destroy();
+    http.verify();
+  });
+  it('troca de auditoria cancela resposta pendente e limpa filtros e dados', () => {
+    const { fixture, page, http } = render();
+    page.refresh();
+    const old = http.expectOne('/api/v1/audits/audit/execution/events?pageSize=100');
+    fixture.componentRef.setInput('auditId', 'other');
+    fixture.detectChanges();
+    expect(old.cancelled).toBe(true);
+    expect(page.expanded()).toBe(false);
+    expect(page.events()).toEqual([]);
+    page.refresh();
+    http
+      .expectOne('/api/v1/audits/other/execution/events?pageSize=100')
+      .flush({ items: [], nextBeforeId: null });
+    fixture.destroy();
+    http.verify();
+  });
+  it('rejeita filtros inválidos e não apresenta resultado antigo após falha na nova consulta', () => {
+    const { fixture, page, http } = render();
+    page.filters.controls.pluginId.setValue('invalid/value');
+    page.refresh();
+    http.expectNone((request) => request.url.endsWith('/execution/events'));
+    page.clearFilters();
+    http
+      .expectOne('/api/v1/audits/audit/execution/events?pageSize=100')
+      .flush({}, { status: 503, statusText: 'Unavailable' });
+    expect(page.error()).toContain('Não foi possível');
+    expect(page.events()).toEqual([]);
+    expect(page.loading()).toBe(false);
+    fixture.destroy();
+    http.verify();
+  });
+});

@@ -147,6 +147,15 @@ public sealed class ContractFuzzTests
         response.EnsureSuccessStatusCode();
         var audit = await WaitAsync(client, (await response.Content.ReadFromJsonAsync<Audit>(Json))!);
         var execution = (await client.GetFromJsonAsync<ExecutionSnapshot>($"/api/v1/audits/{audit.Id}/execution", Json))!;
+        var allEvents = new List<ExecutionEvent>();
+        string? before = null;
+        do
+        {
+            var page = (await client.GetFromJsonAsync<ExecutionEventsPage>($"/api/v1/audits/{audit.Id}/execution/events?pageSize=100" + (before is null ? "" : "&beforeId=" + before), Json))!;
+            allEvents.AddRange(page.Items);
+            before = page.NextBeforeId;
+        } while (before is not null);
+        execution = execution with { Events = allEvents.OrderBy(item => item.Id).ToArray() };
         return (audit, execution);
     }
 

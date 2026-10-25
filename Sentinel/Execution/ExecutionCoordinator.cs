@@ -11,6 +11,7 @@ public sealed record ExecutionLease(Guid AuditId, Guid Token, string WorkerId);
 public sealed record RequestPermit(bool Allowed, int RetryAfterMs = 0);
 public sealed record TargetBudget(string TargetKey, int RequestsPerSecond, int ConcurrentAudits = 1);
 public sealed record ExecutionEvent(long Id, DateTimeOffset AtUtc, string Kind, string Detail);
+public sealed record ExecutionEventsPage(IReadOnlyList<ExecutionEvent> Items, string? NextBeforeId);
 public sealed record ExecutionSnapshot(Guid AuditId, string TargetKey, string? WorkerId, int Attempts,
     DateTimeOffset? HeartbeatAtUtc, DateTimeOffset? LeaseUntilUtc, DateTimeOffset? SafetyUntilUtc,
     DateTimeOffset? CancelRequestedAtUtc, DateTimeOffset? FinishedAtUtc, string? CurrentPluginId,
@@ -263,12 +264,33 @@ public sealed class ExecutionCoordinator(IDbContextFactory<SentinelDbContext> fa
                 .Select(item => new ExecutionEvent(item.Id, item.AtUtc, item.Kind, item.Detail)).ToArray().Reverse().ToArray(),
             payload?.Source is not null ? new[] { "Uma análise de fonte por projeto; snapshots em escopos exatos, com validade/hash revalidados antes de cada plugin.",
                 "Sem requisições HTTP nem execução de código do alvo; container sem rede com snapshot transitório somente leitura.",
-                "Cancelamento encerra o container; falha durante plugin preserva checkpoints e interrompe sem presumir conclusão. Eventos: últimos 100.",
+                "Cancelamento encerra o container; falha durante plugin preserva checkpoints e interrompe sem presumir conclusão. Prévia: últimos 100 eventos; histórico completo disponível por páginas e filtros.",
                 "Conteúdo original cifrado retido por uma hora; evidências seguem política do projeto. .gitleaksignore não é materializado." } : new[] { "Uma auditoria por origem (host/porta), compartilhada entre projetos e perfis; localhost e IPs de loopback usam a mesma chave.",
                 "Aliases DNS externos que apontam ao mesmo serviço ainda exigem agrupamento explícito futuro.",
                 "Queda durante plugin produz Interrupted e preserva checkpoints; efeitos externos incertos não são repetidos automaticamente.",
-                "Permissões controlam início de requisições dos plugins internos; não substituem sandbox de plugins de terceiros. Eventos exibidos: últimos 100." },
+                "Permissões controlam início de requisições dos plugins internos; não substituem sandbox de plugins de terceiros. Prévia: últimos 100 eventos; histórico completo disponível por páginas e filtros." },
             payload?.Credential is { } credential ? new(credential, payload.ExpectedAccess ?? "", payload.IncludeAuthenticatedLoad) : null, payload?.Source);
+    }
+
+    public ExecutionEventsPage? EventsPage(Guid auditId, long? beforeId = null, int pageSize = 100, string? kind = null, string? pluginId = null)
+    {
+        if (beforeId is <= 0 || pageSize is < 1 or > 500) throw new ArgumentException("Cursor deve ser positivo e página deve conter de 1 a 500 eventos.");
+        kind = string.IsNullOrWhiteSpace(kind) ? null : kind.Trim();
+        pluginId = string.IsNullOrWhiteSpace(pluginId) ? null : pluginId.Trim();
+        if (kind is not null && !System.Text.RegularExpressions.Regex.IsMatch(kind, "^[A-Za-z][A-Za-z0-9-]{0,99}$")) throw new ArgumentException("Tipo de evento inválido.");
+        if (pluginId is not null && !System.Text.RegularExpressions.Regex.IsMatch(pluginId, "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")) throw new ArgumentException("Identificador de plugin inválido.");
+        using var db = factory.CreateDbContext();
+        // The tenant query filter applies before either existence or event queries.
+        if (!db.AuditExecutions.AsNoTracking().Any(row => row.AuditId == auditId)) return null;
+        var query = db.ExecutionEvents.AsNoTracking().Where(row => row.AuditId == auditId);
+        if (beforeId is not null) query = query.Where(row => row.Id < beforeId);
+        if (kind is not null) query = query.Where(row => row.Kind == kind);
+        if (pluginId is not null) query = query.Where(row => row.Detail == pluginId || row.Detail.StartsWith(pluginId + " "));
+        var rows = query.OrderByDescending(row => row.Id).Take(pageSize + 1)
+            .Select(row => new ExecutionEvent(row.Id, row.AtUtc, row.Kind, row.Detail)).ToArray();
+        var items = rows.Take(pageSize).Reverse().ToArray();
+        var next = rows.Length > pageSize ? items[0].Id.ToString(System.Globalization.CultureInfo.InvariantCulture) : null;
+        return new(items, next);
     }
 
     public TargetBudget ConfigureBudget(Guid auditId, int requestsPerSecond)
