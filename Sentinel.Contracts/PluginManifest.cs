@@ -41,6 +41,8 @@ public sealed class PluginManifestCapabilities
     public string Network { get; set; } = "false";
     public bool SourceRead { get; set; }
     public bool ArtifactWrite { get; set; }
+    // Same-project, same-origin verified contract; no source archive or credential access.
+    public bool OpenApiRead { get; set; }
     public PluginManifestGateway Gateway { get; set; } = new();
 }
 

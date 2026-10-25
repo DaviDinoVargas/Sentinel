@@ -13,12 +13,13 @@ spec:
     network: scoped-egress
     sourceRead: false
     artifactWrite: false
+    openApiRead: true
     gateway:
       arbitraryPaths: true
   resources:
     timeoutSeconds: 18
     memoryMiB: 128
-  permissions: [target.http.lab-active]
+  permissions: [project.openapi.read, target.http.lab-active]
   execution:
     isolation: container
   riskClass: medium

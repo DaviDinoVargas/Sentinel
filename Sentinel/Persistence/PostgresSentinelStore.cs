@@ -286,6 +286,21 @@ public sealed class PostgresSentinelStore : ISentinelStore
             .ToArray();
     }
 
+    public async Task<IReadOnlyList<EvidenceAuditCandidate>> FindEvidenceAuditsAsync(Guid projectId, string dataOrigin, string producerPluginId,
+        EvidenceAuditCandidate? before, int pageSize, CancellationToken cancellationToken)
+    {
+        if (!DataOrigins.Valid(dataOrigin) || string.IsNullOrWhiteSpace(producerPluginId) || pageSize is < 1 or > 100)
+            throw new ArgumentException("Origem, produtor e tamanho de página válidos são obrigatórios.");
+        await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+        var producer = System.Text.Json.JsonSerializer.Serialize(new { SourcePluginId = producerPluginId });
+        var query = db.Audits.AsNoTracking().Where(audit => audit.ProjectId == projectId && audit.DataOrigin == dataOrigin && audit.State == "Completed" &&
+            audit.Evidence.Any(evidence => evidence.ArtifactMetadataJson != null && EF.Functions.JsonContains(evidence.ArtifactMetadataJson, producer)));
+        if (before is not null)
+            query = query.Where(audit => audit.CreatedAtUtc < before.CreatedAtUtc || audit.CreatedAtUtc == before.CreatedAtUtc && audit.Id.CompareTo(before.Id) < 0);
+        return await query.OrderByDescending(audit => audit.CreatedAtUtc).ThenByDescending(audit => audit.Id)
+            .Select(audit => new EvidenceAuditCandidate(audit.Id, audit.CreatedAtUtc)).Take(pageSize).ToArrayAsync(cancellationToken);
+    }
+
     public async Task<AuditHistoryPage> GetAuditHistoryAsync(Guid projectId, int limit, int offset, CancellationToken cancellationToken, string? dataOrigin = null, string? state = null, string? target = null)
     {
         await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);

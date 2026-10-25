@@ -175,6 +175,8 @@ import { Icon } from '../design-system/icon';
                   <dd>{{ plugin.capabilities.sourceRead ? 'Solicitada' : 'Não solicitada' }}</dd>
                   <dt>Escrita de artefatos</dt>
                   <dd>{{ plugin.capabilities.artifactWrite ? 'Solicitada' : 'Não solicitada' }}</dd>
+                  <dt>Leitura de contrato OpenAPI</dt>
+                  <dd>{{ plugin.capabilities.openApiRead ? 'Mesmo projeto e origem · integridade e completude verificadas' : 'Não solicitada' }}</dd>
                   <dt>Permissões</dt>
                   <dd>{{ plugin.permissions.join(', ') || 'Nenhuma' }}</dd>
                   <dt>Contrato / manifesto</dt>

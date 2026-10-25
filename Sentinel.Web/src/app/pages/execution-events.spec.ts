@@ -100,6 +100,20 @@ describe('Histórico completo de eventos', () => {
     fixture.destroy();
     http.verify();
   });
+  it('expõe a origem histórica do contrato selecionado e candidatos recusados', () => {
+    const { fixture, page, http } = render();
+    page.filters.controls.kind.setValue('InventorySelected');
+    page.refresh();
+    http.expectOne('/api/v1/audits/audit/execution/events?pageSize=100&kind=InventorySelected').flush({
+      items: [{ id: 401, atUtc: '', kind: 'InventorySelected', detail: 'sentinel.lab.injection-probe · Candidatos mais recentes recusados: 2. Contrato histórico, não comprova implantação idêntica.' }],
+      nextBeforeId: null,
+    });
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('Contrato OpenAPI selecionado');
+    expect(fixture.nativeElement.textContent).toContain('Candidatos mais recentes recusados: 2');
+    fixture.destroy();
+    http.verify();
+  });
   it('consulta diagnóstico do host com indício não confirmado separado de achado do alvo', () => {
     const { fixture, page, http } = render();
     page.filters.controls.kind.setValue('PluginDiagnostic');

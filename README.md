@@ -293,3 +293,9 @@ Laboratório Windows/PowerShell 7: `scripts/start-object-storage.ps1` compila Mi
 Este provisionamento é de laboratório: disponibilidade/backup do storage, KMS/certificados, credenciais temporárias por execução, URLs assinadas para exportação direta, buckets próprios para relatórios/snapshots e retenção por outras classificações exigem implantação adicional. Snapshots de fontes continuam em seu volume privado. O suporte S3 não habilita testes contra produção.
 
 Referências: [SDK S3 .NET](https://docs.aws.amazon.com/sdkfornet/v4/apidocs/items/S3/TPutObjectRequest.html), [fonte MinIO fixada](https://github.com/minio/minio/tree/RELEASE.2025-10-15T17-29-55Z), [fonte mc fixada](https://github.com/minio/mc/tree/RELEASE.2025-08-13T08-35-41Z). Licenças AGPL-3.0 dos dois utilitários acompanham a imagem em `/licenses`.
+
+### Leitura governada de contratos OpenAPI
+
+O plugin consumidor declara `capabilities.openApiRead: true` e a permissão `project.openapi.read` juntas. O host consulta somente auditorias concluídas do mesmo projeto e da mesma origem dos resultados. A seleção usa páginas por data/ID no PostgreSQL; o tamanho do lote não limita quantas auditorias podem ser consultadas. Não há lista fixa de IDs de plugins consumidores nem carregamento de todo o histórico em memória nesse caminho.
+
+Cada contrato ainda precisa passar pela validação de integridade, proveniência e completude dos artefatos. `InventoryUnavailable` informa a lacuna; `InventorySelected` registra qual auditoria histórica forneceu o contrato, sua data/origem e quantos candidatos mais recentes foram recusados. Um contrato histórico íntegro não comprova que a implantação atual permaneceu igual. O catálogo de plugins mostra a capacidade e a tela de eventos permite acompanhar a seleção. A aprovação automática de manifestos locais continua sendo uma limitação de governança; não equivale à admissão empresarial de plugins de terceiros.

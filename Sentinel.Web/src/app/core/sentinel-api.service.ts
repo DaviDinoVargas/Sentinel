@@ -300,6 +300,7 @@ export interface Plugin {
     network: string;
     sourceRead: boolean;
     artifactWrite: boolean;
+    openApiRead?: boolean;
     gateway?: {
       headerCount: number;
       headerValueLength: number;

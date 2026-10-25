@@ -34,6 +34,7 @@
             "network": { "enum": ["false", "scoped-egress"] },
             "sourceRead": { "type": "boolean" },
             "artifactWrite": { "type": "boolean" },
+            "openApiRead": { "type": "boolean" },
             "gateway": {
               "type": "object",
               "additionalProperties": false,

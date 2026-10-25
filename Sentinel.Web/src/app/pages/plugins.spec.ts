@@ -31,6 +31,7 @@ describe('Isolamento no catálogo', () => {
                 network: 'scoped-egress',
                 sourceRead: false,
                 artifactWrite: false,
+                openApiRead: true,
                 gateway: {
                   headerCount: 64,
                   headerValueLength: 2048,
@@ -109,6 +110,8 @@ describe('Isolamento no catálogo', () => {
   it('exibe orçamento do manifesto e explica omissões sem anunciar cobertura completa', () => {
     const text = render('container', false, true);
     expect(text).toContain('Cobertura HTTP e orçamento aprovado');
+    expect(text).toContain('Leitura de contrato OpenAPI');
+    expect(text).toContain('Mesmo projeto e origem · integridade e completude verificadas');
     expect(text).toContain('64 campos');
     expect(text).toContain('2048 caracteres por valor');
     expect(text).toContain('16000 bytes UTF-8');

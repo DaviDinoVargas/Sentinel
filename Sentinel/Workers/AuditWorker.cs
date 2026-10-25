@@ -104,16 +104,31 @@ public sealed class AuditWorker(
                     stage = "sandbox";
                 }
                 string? openApiJson = null;
-                if (manifest.Metadata.Id is "sentinel.lab.api-anonymous-access" or "sentinel.lab.object-level-authz" or "sentinel.lab.function-level-authz" or "sentinel.lab.mass-assignment" or "sentinel.lab.contract-fuzz" or "sentinel.lab.fuzz-surface" or "sentinel.lab.injection-probe")
+                if (manifest.Spec.Capabilities.OpenApiRead)
                 {
                     stage = "openapi-historico";
                     var unavailable = "no-matching-inventory";
-                    foreach (var candidate in store.GetAudits(payload.ProjectId).Where(item => item.State == AuditState.Completed && item.DataOrigin == existing.DataOrigin &&
-                        item.Evidence.Any(evidence => evidence.Artifact?.SourcePluginId == OpenApiInventoryReader.PluginId)).OrderByDescending(item => item.CreatedAtUtc))
+                    var rejectedCandidates = 0;
+                    EvidenceAuditCandidate? cursor = null;
+                    while (openApiJson is null)
                     {
-                        var inventory = await FindOpenApiInventoryAsync(payload.ProjectId, candidate.Id, existing.DataOrigin, executionCts.Token);
-                        if (inventory.Complete) { openApiJson = inventory.Json; break; }
-                        unavailable = string.Join(",", inventory.Issues);
+                        executionCts.Token.ThrowIfCancellationRequested();
+                        var candidates = await store.FindEvidenceAuditsAsync(payload.ProjectId, existing.DataOrigin,
+                            OpenApiInventoryReader.PluginId, cursor, 32, executionCts.Token);
+                        if (candidates.Count == 0) break;
+                        foreach (var candidate in candidates)
+                        {
+                            var inventory = await FindOpenApiInventoryAsync(payload.ProjectId, candidate.Id, existing.DataOrigin, executionCts.Token);
+                            if (inventory.Complete)
+                            {
+                                openApiJson = inventory.Json;
+                                coordinator.Trail(lease, "InventorySelected", $"{manifest.Metadata.Id} · Contrato OpenAPI da auditoria {candidate.Id}, criada em {candidate.CreatedAtUtc:O}; origem {existing.DataOrigin}; integridade e completude verificadas. Candidatos mais recentes recusados: {rejectedCandidates}. Contrato histórico, não comprova que a implantação atual permaneceu idêntica.");
+                                break;
+                            }
+                            rejectedCandidates++;
+                            unavailable = string.Join(",", inventory.Issues);
+                        }
+                        cursor = candidates[^1];
                     }
                     if (openApiJson is null) coordinator.Trail(lease, "InventoryUnavailable",
                         $"{manifest.Metadata.Id} · OpenAPI completo da mesma origem indisponível ({unavailable}); catálogo parcial não foi fornecido ao plugin. Consulte a evidência de SRC-API-01.");

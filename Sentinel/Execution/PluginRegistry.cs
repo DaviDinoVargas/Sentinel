@@ -83,6 +83,8 @@ public sealed class PluginRegistry
     // assume risco, precisa de orçamento próprio de escrita e só pode rodar em modo ativo.
     public static string? WriteCoherenceError(PluginManifest manifest)
     {
+        if (manifest.Spec.Capabilities.OpenApiRead != manifest.Spec.Permissions.Contains("project.openapi.read", StringComparer.Ordinal))
+            return "openApiRead e a permissão project.openapi.read devem ser declarados juntos.";
         var gateway = manifest.Spec.Capabilities.Gateway;
         var writes = gateway.Methods.Where(method => GatewayLimits.WriteMethods.Contains(method)).ToArray();
         if (writes.Length > 0)

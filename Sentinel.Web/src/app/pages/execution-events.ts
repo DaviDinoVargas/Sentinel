@@ -42,6 +42,7 @@ import { ExecutionEvent, SentinelApiService } from '../core/sentinel-api.service
             <option value="InventoryUnavailable">
               Inventário OpenAPI indisponível ou incompleto
             </option>
+            <option value="InventorySelected">Contrato OpenAPI selecionado</option>
             <option value="CancelRequested">Cancelamento solicitado</option>
           </datalist>
           <label for="execution-event-plugin"
@@ -245,6 +246,7 @@ export class ExecutionEvents {
           CancelRequested: 'Cancelamento solicitado',
           Interrupted: 'Interrompida',
           InventoryUnavailable: 'Inventário OpenAPI indisponível ou incompleto',
+          InventorySelected: 'Contrato OpenAPI selecionado',
           Completed: 'Concluída',
           Acquired: 'Posse obtida',
           WaitingForBudget: 'Aguardando orçamento',
