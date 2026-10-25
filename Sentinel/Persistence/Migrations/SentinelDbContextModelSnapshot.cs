@@ -457,6 +457,13 @@ namespace Sentinel.Persistence.Migrations
                     b.Property<DateTimeOffset?>("PluginDeadlineUtc")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("ReplaySafety")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasDefaultValue("Uncertain");
+
                     b.Property<DateTimeOffset?>("SafetyUntilUtc")
                         .HasColumnType("timestamp with time zone");
 

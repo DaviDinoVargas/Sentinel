@@ -199,6 +199,7 @@ export interface ExecutionSnapshot {
   cancelRequestedAtUtc: string | null;
   finishedAtUtc: string | null;
   currentPluginId: string | null;
+  replaySafety?: string;
   completedPlugins: string[];
   grantedRequests: number;
   budget: TargetBudget;

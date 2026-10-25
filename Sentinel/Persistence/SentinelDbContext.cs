@@ -80,6 +80,7 @@ public sealed class SentinelDbContext : DbContext
             entity.Property(row => row.WorkerId).HasMaxLength(200);
             entity.Property(row => row.CurrentPluginId).HasMaxLength(200);
             entity.Property(row => row.CompletedPluginsJson).HasColumnType("jsonb");
+            entity.Property(row => row.ReplaySafety).HasMaxLength(40).HasDefaultValue(Execution.PluginReplaySafety.Uncertain);
             entity.HasIndex(row => new { row.TargetKey, row.SafetyUntilUtc });
             entity.HasOne(row => row.Audit).WithOne().HasForeignKey<AuditExecutionRow>(row => row.AuditId).OnDelete(DeleteBehavior.Cascade);
             entity.HasQueryFilter(row => IsSystem || row.Audit.Project.OrganizationId == CurrentOrganizationId);
@@ -231,6 +232,7 @@ public sealed class TargetCredentialRow
 
 public sealed class AuditExecutionRow
 {
+    public string ReplaySafety { get; set; } = Execution.PluginReplaySafety.Uncertain;
     public AuditRow Audit { get; set; } = null!;
     public Guid AuditId { get; set; }
     public string TargetKey { get; set; } = "";

@@ -100,6 +100,17 @@ describe('Controle distribuído na interface', () => {
     fixture.destroy();
     http.verify();
   });
+  it('distingue recuperação segura de fonte e efeitos externos incertos', async () => {
+    const { fixture, page, http } = await render();
+    page.execution.set({ ...execution, replaySafety: 'ReadOnlySourceSandbox' });
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('pode retomar pelos checkpoints');
+    page.execution.set({ ...execution, replaySafety: 'Uncertain' });
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('não será repetido automaticamente');
+    fixture.destroy();
+    http.verify();
+  });
   it('oferece nomes acessíveis para cancelamento e orçamento nos dois temas', async () => {
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
     const { fixture, http } = await render();

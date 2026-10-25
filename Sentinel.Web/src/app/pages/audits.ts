@@ -335,6 +335,17 @@ export class AuditsPage {
             <dd>{{ (run.safetyUntilUtc | date: 'dd/MM HH:mm:ss') || '—' }}</dd>
             <dt>Plugin atual</dt>
             <dd class="mono">{{ run.currentPluginId || 'Nenhum' }}</dd>
+            <dt>Recuperação do plugin</dt>
+            <dd>
+              @if (!run.currentPluginId) {
+                Sem plugin em execução.
+              } @else if (run.replaySafety === 'ReadOnlySourceSandbox') {
+                Fonte isolada, sem rede e somente leitura: pode retomar pelos checkpoints após
+                revalidar o snapshot e encerrar a reserva da tentativa anterior.
+              } @else {
+                Efeitos externos incertos: não será repetido automaticamente após perda de posse.
+              }
+            </dd>
             <dt>Checkpoints concluídos</dt>
             <dd>{{ run.completedPlugins.length }}</dd>
             <dt>Permissões HTTP concedidas</dt>

@@ -16,7 +16,8 @@ public sealed record ExecutionSnapshot(Guid AuditId, string TargetKey, string? W
     DateTimeOffset? HeartbeatAtUtc, DateTimeOffset? LeaseUntilUtc, DateTimeOffset? SafetyUntilUtc,
     DateTimeOffset? CancelRequestedAtUtc, DateTimeOffset? FinishedAtUtc, string? CurrentPluginId,
     IReadOnlyList<string> CompletedPlugins, int GrantedRequests, TargetBudget Budget,
-    IReadOnlyList<ExecutionEvent> Events, IReadOnlyList<string> Limitations, AuthenticatedExecutionContext? Authentication = null, Source.SourceSnapshotBinding? Source = null);
+    IReadOnlyList<ExecutionEvent> Events, IReadOnlyList<string> Limitations, AuthenticatedExecutionContext? Authentication = null, Source.SourceSnapshotBinding? Source = null,
+    string ReplaySafety = "Uncertain");
 public sealed record AuthenticatedExecutionContext(CredentialBinding Credential, string ExpectedAccess, bool IncludeLoad);
 
 // All mutations for an origin use one PostgreSQL transaction/advisory lock. The key
@@ -25,6 +26,7 @@ public sealed record AuthenticatedExecutionContext(CredentialBinding Credential,
 public sealed class ExecutionCoordinator(IDbContextFactory<SentinelDbContext> factory)
 {
     public const int LeaseSeconds = 12;
+    public const int MaxRecoveryAttempts = 3;
     public OutboxMessagePayload? Payload(Guid auditId)
     {
         using var db = factory.CreateDbContext();
@@ -100,16 +102,19 @@ public sealed class ExecutionCoordinator(IDbContextFactory<SentinelDbContext> fa
         return true;
     });
 
-    public bool BeginPlugin(ExecutionLease lease, string pluginId, DateTimeOffset deadline, string? runtimeDetail = null) => Locked(lease.AuditId, (db, execution, audit, now) =>
+    public bool BeginPlugin(ExecutionLease lease, string pluginId, DateTimeOffset deadline, string? runtimeDetail = null, string replaySafety = PluginReplaySafety.Uncertain) => Locked(lease.AuditId, (db, execution, audit, now) =>
     {
         if (!Owns(execution, lease, now) || execution.CancelRequestedAtUtc is not null || deadline <= now) return false;
         if (StopForRevokedScope(db, execution, audit, now)) return false;
+        if (replaySafety is not PluginReplaySafety.Uncertain and not PluginReplaySafety.ReadOnlySourceSandbox) return false;
+        if (replaySafety == PluginReplaySafety.ReadOnlySourceSandbox && !CanResumeSource(db, audit, now)) return false;
         var completed = JsonSerializer.Deserialize<string[]>(execution.CompletedPluginsJson)!;
         if (completed.Contains(pluginId)) return false;
         execution.CurrentPluginId = pluginId;
+        execution.ReplaySafety = replaySafety;
         execution.PluginDeadlineUtc = deadline;
         execution.SafetyUntilUtc = Later(execution.LeaseUntilUtc, deadline.AddSeconds(2));
-        Event(db, execution, now, "PluginStarted", runtimeDetail is null ? pluginId : $"{pluginId} · {runtimeDetail}");
+        Event(db, execution, now, "PluginStarted", runtimeDetail is null ? pluginId : $"{pluginId} · {runtimeDetail}; recovery={replaySafety}");
         return true;
     });
 
@@ -117,7 +122,8 @@ public sealed class ExecutionCoordinator(IDbContextFactory<SentinelDbContext> fa
     // slots are reserved; cancellation, lease loss or a dead parent denies new sends.
     public RequestPermit Permit(ExecutionLease lease, bool login = false, int requestBudget = 8, bool loginAllowed = false, int writeBudget = 0, string? writeTrail = null) => Locked(lease.AuditId, (db, execution, audit, now) =>
     {
-        if (!Owns(execution, lease, now) || execution.CancelRequestedAtUtc is not null || execution.CurrentPluginId is null || execution.PluginDeadlineUtc <= now)
+        if (!Owns(execution, lease, now) || execution.CancelRequestedAtUtc is not null || execution.CurrentPluginId is null || execution.PluginDeadlineUtc <= now ||
+            execution.ReplaySafety == PluginReplaySafety.ReadOnlySourceSandbox)
             return new RequestPermit(false);
         if (StopForRevokedScope(db, execution, audit, now)) return new RequestPermit(false);
         var budget = db.TargetBudgets.Single(row => row.TargetKey == execution.TargetKey);
@@ -191,6 +197,7 @@ public sealed class ExecutionCoordinator(IDbContextFactory<SentinelDbContext> fa
         completed.Add(pluginId);
         execution.CompletedPluginsJson = JsonSerializer.Serialize(completed);
         execution.CurrentPluginId = null;
+        execution.ReplaySafety = PluginReplaySafety.Uncertain;
         execution.PluginDeadlineUtc = null;
         execution.SafetyUntilUtc = execution.LeaseUntilUtc;
         Event(db, execution, now, "PluginCompleted", pluginId);
@@ -216,6 +223,7 @@ public sealed class ExecutionCoordinator(IDbContextFactory<SentinelDbContext> fa
         execution.FinishedAtUtc = now;
         execution.LeaseUntilUtc = null;
         execution.CurrentPluginId = null;
+        execution.ReplaySafety = PluginReplaySafety.Uncertain;
         execution.PluginDeadlineUtc = null;
         // SafetyUntil is retained until the caller confirms the child has stopped,
         // or until an orphan's original deadline has passed during reconciliation.
@@ -228,6 +236,18 @@ public sealed class ExecutionCoordinator(IDbContextFactory<SentinelDbContext> fa
         if (execution.LeaseToken == lease.Token) execution.SafetyUntilUtc = now;
         return true;
     });
+
+    private static bool CanResumeSource(SentinelDbContext db, AuditRow audit, DateTimeOffset now)
+    {
+        var json = db.AuditOutbox.AsNoTracking().Where(row => row.Id == audit.Id).Select(row => row.PayloadJson).SingleOrDefault();
+        OutboxMessagePayload? payload;
+        try { payload = json is null ? null : JsonSerializer.Deserialize<OutboxMessagePayload>(json, new JsonSerializerOptions(JsonSerializerDefaults.Web)); }
+        catch (JsonException) { return false; }
+        if (payload?.Source is not { } binding) return false;
+        var snapshot = db.Set<Source.SourceSnapshotRow>().AsNoTracking().SingleOrDefault(row => row.Id == binding.Id);
+        return PluginReplaySafety.MatchesOriginalSnapshot(payload, audit, snapshot, now) &&
+            db.Scopes.AsNoTracking().Any(row => row.Id == audit.ScopeId && row.ProjectId == audit.ProjectId && row.RevokedAtUtc == null && row.ExpiresAtUtc > now);
+    }
 
     public AuditState Cancel(Guid auditId) => Locked(auditId, (db, execution, audit, now) =>
     {
@@ -264,12 +284,12 @@ public sealed class ExecutionCoordinator(IDbContextFactory<SentinelDbContext> fa
                 .Select(item => new ExecutionEvent(item.Id, item.AtUtc, item.Kind, item.Detail)).ToArray().Reverse().ToArray(),
             payload?.Source is not null ? new[] { "Uma análise de fonte por projeto; snapshots em escopos exatos, com validade/hash revalidados antes de cada plugin.",
                 "Sem requisições HTTP nem execução de código do alvo; container sem rede com snapshot transitório somente leitura.",
-                "Cancelamento encerra o container; falha durante plugin preserva checkpoints e interrompe sem presumir conclusão. Prévia: últimos 100 eventos; histórico completo disponível por páginas e filtros.",
+                "Plugin marcado pelo worker como sandbox de fonte sem rede/somente leitura pode retomar pelos checkpoints após confirmar reserva e snapshot, até 3 tentativas. Legado/efeitos incertos não são repetidos. Prévia: últimos 100 eventos; histórico completo disponível por páginas e filtros.",
                 "Conteúdo original cifrado retido por uma hora; evidências seguem política do projeto. .gitleaksignore não é materializado." } : new[] { "Uma auditoria por origem (host/porta), compartilhada entre projetos e perfis; localhost e IPs de loopback usam a mesma chave.",
                 "Aliases DNS externos que apontam ao mesmo serviço ainda exigem agrupamento explícito futuro.",
                 "Queda durante plugin produz Interrupted e preserva checkpoints; efeitos externos incertos não são repetidos automaticamente.",
                 "Permissões controlam início de requisições dos plugins internos; não substituem sandbox de plugins de terceiros. Prévia: últimos 100 eventos; histórico completo disponível por páginas e filtros." },
-            payload?.Credential is { } credential ? new(credential, payload.ExpectedAccess ?? "", payload.IncludeAuthenticatedLoad) : null, payload?.Source);
+            payload?.Credential is { } credential ? new(credential, payload.ExpectedAccess ?? "", payload.IncludeAuthenticatedLoad) : null, payload?.Source, row.ReplaySafety);
     }
 
     public ExecutionEventsPage? EventsPage(Guid auditId, long? beforeId = null, int pageSize = 100, string? kind = null, string? pluginId = null)
@@ -346,16 +366,27 @@ public sealed class ExecutionCoordinator(IDbContextFactory<SentinelDbContext> fa
             if (execution.LeaseToken is not null)
             {
                 if (execution.SafetyUntilUtc > now) return false;
-                if (execution.CancelRequestedAtUtc is not null || execution.CurrentPluginId is not null || execution.Attempts >= 3)
+                var safeSource = execution.CancelRequestedAtUtc is null && execution.Attempts < MaxRecoveryAttempts &&
+                    execution.CurrentPluginId is not null && execution.ReplaySafety == PluginReplaySafety.ReadOnlySourceSandbox && CanResumeSource(db, audit, now);
+                if (execution.CancelRequestedAtUtc is not null || execution.CurrentPluginId is not null && !safeSource || execution.Attempts >= MaxRecoveryAttempts)
                 {
-                    FinishRow(db, execution, audit, now, execution.CancelRequestedAtUtc is not null ? AuditState.Cancelled : AuditState.Interrupted,
-                        "Posse expirou após perda do worker. Checkpoints preservados; plugin com efeitos incertos não será repetido automaticamente.");
+                    var reason = execution.CancelRequestedAtUtc is not null ? "Cancelamento preservado após perda do worker; nenhum plugin será retomado."
+                        : execution.Attempts >= MaxRecoveryAttempts ? $"Limite de {MaxRecoveryAttempts} tentativas de recuperação atingido; checkpoints preservados, sem repetir indefinidamente."
+                        : execution.ReplaySafety == PluginReplaySafety.ReadOnlySourceSandbox ? "Não foi possível confirmar snapshot original íntegro e válido para retomada; checkpoints preservados, nenhuma conclusão presumida."
+                        : "Posse expirou após perda do worker. Checkpoints preservados; plugin com efeitos incertos não será repetido automaticamente.";
+                    FinishRow(db, execution, audit, now, execution.CancelRequestedAtUtc is not null ? AuditState.Cancelled : AuditState.Interrupted, reason);
                     return true;
                 }
                 execution.LeaseToken = null;
                 execution.LeaseUntilUtc = null;
+                var pendingPlugin = execution.CurrentPluginId;
+                execution.CurrentPluginId = null;
+                execution.PluginDeadlineUtc = null;
+                execution.ReplaySafety = PluginReplaySafety.Uncertain;
                 audit.State = nameof(AuditState.Queued);
-                Event(db, execution, now, "Recovered", "Worker perdido entre plugins; retomada a partir dos checkpoints persistidos.");
+                Event(db, execution, now, "Recovered", safeSource
+                    ? $"Retomada segura de fonte sem rede/somente leitura; plugin pendente {pendingPlugin}. Vínculo original do snapshot revalidado; arquivo e hash serão verificados antes da execução. Checkpoints preservados; fencing impede resultados duplicados."
+                    : "Worker perdido entre plugins; retomada a partir dos checkpoints persistidos.");
             }
             if (execution.CancelRequestedAtUtc is not null)
             {

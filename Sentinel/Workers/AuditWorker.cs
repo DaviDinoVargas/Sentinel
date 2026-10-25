@@ -88,7 +88,9 @@ public sealed class AuditWorker(
                     ? $"container {runtime.Options.Image}; {Math.Clamp(manifest.Spec.Resources.MemoryMiB, 64, 512)} MiB; CPU 0.5; PIDs 64; rede none; {(source ? "snapshot somente leitura; sem gateway" : "HTTP via gateway")}"
                     : "processo de desenvolvimento; HTTP via gateway; sem sandbox de filesystem";
                 if (loginPreparationSeconds != 0) runtimeDetail += "; preparação de login JSON até 10s antes do plugin; prazo do plugin inalterado";
-                if (!coordinator.BeginPlugin(lease, manifest.Metadata.Id, deadline, runtimeDetail)) return;
+                var replaySafety = source && runtime.Container && manifest.Spec.Capabilities.SourceRead && manifest.Spec.Capabilities.Network == "false"
+                    ? PluginReplaySafety.ReadOnlySourceSandbox : PluginReplaySafety.Uncertain;
+                if (!coordinator.BeginPlugin(lease, manifest.Metadata.Id, deadline, runtimeDetail, replaySafety)) return;
                 string? currentInventoryJson = null, priorInventoryJson = null;
                 if (manifest.Metadata.Id == "sentinel.source.sbom-diff")
                 {

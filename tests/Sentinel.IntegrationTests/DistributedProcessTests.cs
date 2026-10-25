@@ -15,6 +15,42 @@ public sealed class DistributedProcessTests
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { Converters = { new JsonStringEnumConverter() } };
 
     [Fact]
+    public async Task Fonte_sem_rede_retoma_em_outro_processo_apos_queda_sem_repetir_checkpoint_concluido()
+    {
+        using var identity = new TestIdentityProvider();
+        var topology = "source-process-" + Guid.NewGuid().ToString("N");
+        var sourceRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../.local/source-tests", topology));
+        using var first = await ApiProcess.Start(topology, identity, "container", sourceRoot);
+        using var second = await ApiProcess.Start(topology, identity, "container", sourceRoot);
+        var projectResponse = await first.Client.PostAsJsonAsync("/api/v1/projects", new CreateProjectRequest("Distributed source recovery " + Guid.NewGuid().ToString("N"), "Synthetic read-only snapshot"));
+        projectResponse.EnsureSuccessStatusCode(); var project = (await projectResponse.Content.ReadFromJsonAsync<SentinelProject>(Json))!;
+        using var zip = new ByteArrayContent(SourceSnapshotTests.Zip(("README.md", "Synthetic fixture for source recovery; no target software.")));
+        zip.Headers.ContentType = new("application/zip");
+        var uploaded = await first.Client.PostAsync($"/api/v1/projects/{project.Id}/source-snapshots?sourceKey=distributed-recovery&revision=r1", zip);
+        uploaded.EnsureSuccessStatusCode();
+        using var snapshot = JsonDocument.Parse(await uploaded.Content.ReadAsStringAsync());
+        var queued = await first.Client.PostAsJsonAsync($"/api/v1/projects/{project.Id}/source-snapshots/{snapshot.RootElement.GetProperty("id").GetGuid()}/audits", new { });
+        queued.EnsureSuccessStatusCode(); var audit = (await queued.Content.ReadFromJsonAsync<Audit>(Json))!;
+        var running = await WaitExecution(second.Client, audit.Id, run => run.CompletedPlugins.Contains("sentinel.source.inventory") &&
+            run.CurrentPluginId == "sentinel.source.api-auth-declared" && run.ReplaySafety == PluginReplaySafety.ReadOnlySourceSandbox, seconds: 60);
+        var crashed = running.WorkerId!.Contains($":{first.ProcessId}:", StringComparison.Ordinal) ? first : second;
+        var survivor = ReferenceEquals(crashed, first) ? second : first;
+        var checkpoint = await Read<Audit>(survivor.Client, $"/api/v1/audits/{audit.Id}");
+        var inventoryCount = checkpoint.Controls.Count(row => row.PluginId == "sentinel.source.inventory");
+        Assert.True(inventoryCount > 0);
+        crashed.KillParentOnly();
+        var completed = await WaitAudit(survivor.Client, audit.Id, item => item.State == AuditState.Completed, seconds: 240);
+        var final = await Read<ExecutionSnapshot>(survivor.Client, $"/api/v1/audits/{audit.Id}/execution");
+        Assert.InRange(final.Attempts, 2, ExecutionCoordinator.MaxRecoveryAttempts);
+        Assert.Equal(final.Attempts - 1, final.Events.Count(row => row.Kind == "Recovered"));
+        Assert.Contains($":{survivor.ProcessId}:", final.WorkerId);
+        Assert.Equal(inventoryCount, completed.Controls.Count(row => row.PluginId == "sentinel.source.inventory"));
+        Assert.Equal(0, final.GrantedRequests);
+        Assert.Contains(final.Events, row => row.Kind == "Recovered" && row.AtUtc >= running.SafetyUntilUtc);
+        Assert.Contains("sentinel.source.api-auth-declared", final.CompletedPlugins);
+    }
+
+    [Fact]
     public async Task Revogar_escopo_por_outro_processo_cancela_worker_e_fila_sem_novas_requisicoes()
     {
         using var target = new LabTargetServer(); using var identity = new TestIdentityProvider();
@@ -130,9 +166,9 @@ public sealed class DistributedProcessTests
         }
         throw new TimeoutException("Estado distribuído não observado a tempo.");
     }
-    private static async Task<ExecutionSnapshot> WaitExecution(HttpClient client, Guid id, Func<ExecutionSnapshot, bool> predicate)
+    private static async Task<ExecutionSnapshot> WaitExecution(HttpClient client, Guid id, Func<ExecutionSnapshot, bool> predicate, int seconds = 20)
     {
-        var deadline = DateTime.UtcNow.AddSeconds(20);
+        var deadline = DateTime.UtcNow.AddSeconds(seconds);
         while (DateTime.UtcNow < deadline)
         {
             var run = await Read<ExecutionSnapshot>(client, $"/api/v1/audits/{id}/execution");
@@ -146,7 +182,7 @@ public sealed class DistributedProcessTests
     {
         public HttpClient Client { get; } = client;
         public int ProcessId => process.Id;
-        public static async Task<ApiProcess> Start(string topology, TestIdentityProvider identity, string pluginMode)
+        public static async Task<ApiProcess> Start(string topology, TestIdentityProvider identity, string pluginMode, string? sourceRoot = null)
         {
             using var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start();
             var port = ((IPEndPoint)listener.LocalEndpoint).Port; listener.Stop();
@@ -162,6 +198,7 @@ public sealed class DistributedProcessTests
             start.Environment["RabbitMq__TopologySuffix"] = topology;
             start.Environment["Identity__Authority"] = identity.Issuer;
             start.Environment["PluginRuntime__Mode"] = pluginMode;
+            if (sourceRoot is not null) start.Environment["SourceSnapshots__RootDirectory"] = sourceRoot;
             start.Environment["Evidence__RootDirectory"] = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../.local/evidence-tests"));
             start.Environment["PluginRuntime__Image"] = Environment.GetEnvironmentVariable("SENTINEL_TEST_PLUGIN_IMAGE") ?? "";
             start.Environment["Logging__LogLevel__Default"] = "Warning";
