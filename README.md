@@ -2,7 +2,7 @@
 
 ## Autenticacao e injecao — V50
 
-**Estado em 25/10/2026: desenvolvimento em validacao, sem homologacao empresarial.** As baterias locais de componentes (46 casos), eventos com PostgreSQL (8) e interface (10) passaram. A suite integrada completa continua em execucao; foi observada uma interrupcao por expiracao de lease em analise de lockfile, ainda sob investigacao. Publicar a branch preserva o progresso revisado e nao declara essa pendencia resolvida. Os alvos e resultados destas baterias sao sinteticos, sem atribuicao ao software de clientes.
+**Estado em 25/10/2026: desenvolvimento em validacao, sem homologacao empresarial.** As baterias locais de componentes (46 casos), eventos com PostgreSQL (8) e interface (10) passaram. A suite integrada completa continua em execucao com falhas abertas: perda de lease, preparacao da sandbox, carga incompleta e timeouts em testes com processos distintos. Os recortes aprovados nao substituem essa validacao nem demonstram que todas as falhas tenham a mesma causa. Publicar a branch preserva o progresso revisado e nao declara essas pendencias resolvidas. Os alvos e resultados destas baterias sao sinteticos, sem atribuicao ao software de clientes.
 
 Quatro plugins ampliam o laboratorio autorizado, mantendo escopo, lease, cancelamento e orcamento global por alvo. `AUTH-JWT-01` compara uma linha de base anonima recusada com nove tokens sinteticos; aprova somente se todas as nove sondagens tiverem recusa explicita. Falha de transporte, resposta inesperada ou avaliacao parcial nao aprovam. A verificacao cobre as tecnicas enviadas e a URL avaliada, sem prometer resistencia universal a ataques JWT.
 
