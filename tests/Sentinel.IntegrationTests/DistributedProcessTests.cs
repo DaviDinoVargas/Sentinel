@@ -154,28 +154,54 @@ public sealed class DistributedProcessTests
         return (await response.Content.ReadFromJsonAsync<Audit>(Json))!;
     }
     private static async Task<T> Read<T>(HttpClient client, string path) => (await client.GetFromJsonAsync<T>(path, Json))!;
+    private static bool TransientRead(Exception error) => error is TaskCanceledException or HttpRequestException { StatusCode: null };
     private static async Task<Audit> WaitAudit(HttpClient client, Guid id, Func<Audit, bool> predicate, int seconds = 45)
     {
         var deadline = DateTime.UtcNow.AddSeconds(seconds);
+        Audit? last = null; string? readFailure = null;
         while (DateTime.UtcNow < deadline)
         {
-            var audit = await Read<Audit>(client, $"/api/v1/audits/{id}");
-            if (predicate(audit)) return audit;
-            if (AuditStates.IsTerminal(audit.State)) throw new InvalidOperationException($"Estado inesperado {audit.State}: {audit.PolicyReason}");
+            try
+            {
+                last = await Read<Audit>(client, $"/api/v1/audits/{id}");
+                if (predicate(last)) return last;
+                if (AuditStates.IsTerminal(last.State)) throw new InvalidOperationException($"Estado inesperado {last.State}: {last.PolicyReason}");
+            }
+            catch (Exception error) when (TransientRead(error)) { readFailure = error.GetType().Name; }
             await Task.Delay(100);
         }
-        throw new TimeoutException("Estado distribuído não observado a tempo.");
+        throw new TimeoutException($"Estado distribuído não observado a tempo: audit={id}; último estado={last?.State}; última falha de leitura={readFailure ?? "nenhuma"}.");
     }
     private static async Task<ExecutionSnapshot> WaitExecution(HttpClient client, Guid id, Func<ExecutionSnapshot, bool> predicate, int seconds = 20)
     {
-        var deadline = DateTime.UtcNow.AddSeconds(seconds);
-        while (DateTime.UtcNow < deadline)
+        var quietDeadline = DateTime.UtcNow.AddSeconds(seconds);
+        var totalDeadline = DateTime.UtcNow.AddSeconds(seconds * 3);
+        var checkpoints = 0;
+        ExecutionSnapshot? last = null; string? readFailure = null;
+        while (DateTime.UtcNow < quietDeadline && DateTime.UtcNow < totalDeadline)
         {
-            var run = await Read<ExecutionSnapshot>(client, $"/api/v1/audits/{id}/execution");
-            if (predicate(run)) return run;
+            try
+            {
+                last = await Read<ExecutionSnapshot>(client, $"/api/v1/audits/{id}/execution");
+                if (predicate(last)) return last;
+                if (last.FinishedAtUtc is not null)
+                {
+                    var terminal = await Read<Audit>(client, $"/api/v1/audits/{id}");
+                    throw new InvalidOperationException($"Execução terminou antes da condição esperada: {terminal.State}: {terminal.PolicyReason}");
+                }
+                // The full profile may checkpoint contract-only plugins before the
+                // first network probe. Preserve the idle timeout and a total bound;
+                // only observed checkpoint progress refreshes this observer window.
+                if (last.CompletedPlugins.Count > checkpoints)
+                {
+                    checkpoints = last.CompletedPlugins.Count;
+                    quietDeadline = DateTime.UtcNow.AddSeconds(seconds);
+                }
+            }
+            catch (Exception error) when (TransientRead(error)) { readFailure = error.GetType().Name; }
             await Task.Delay(75);
         }
-        throw new TimeoutException("Worker não iniciou o plugin esperado.");
+        throw new TimeoutException($"Worker não atingiu a condição esperada: audit={id}; plugin={last?.CurrentPluginId}; permissões={last?.GrantedRequests}; checkpoints={checkpoints}; última falha de leitura={readFailure ?? "nenhuma"}.");
     }
 
     private sealed class ApiProcess(Process process, HttpClient client) : IDisposable
@@ -209,13 +235,17 @@ public sealed class DistributedProcessTests
             var host = new ApiProcess(process, new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}"), Timeout = TimeSpan.FromSeconds(3) });
             host.Client.DefaultRequestHeaders.Authorization = new("Bearer", identity.Token());
             var deadline = DateTime.UtcNow.AddSeconds(20);
-            while (DateTime.UtcNow < deadline && !process.HasExited)
+            try
             {
-                try { if ((await host.Client.GetAsync("/api/v1/health")).IsSuccessStatusCode) return host; }
-                catch (HttpRequestException) { }
-                await Task.Delay(100);
+                while (DateTime.UtcNow < deadline && !process.HasExited)
+                {
+                    try { if ((await host.Client.GetAsync("/api/v1/health")).IsSuccessStatusCode) return host; }
+                    catch (Exception error) when (TransientRead(error)) { }
+                    await Task.Delay(100);
+                }
+                throw new InvalidOperationException("Processo de teste da API não iniciou.");
             }
-            host.Dispose(); throw new InvalidOperationException("Processo de teste da API não iniciou.");
+            catch { host.Dispose(); throw; }
         }
         public void KillParentOnly() { if (!process.HasExited) { process.Kill(entireProcessTree: false); process.WaitForExit(); } }
         public void Dispose()
