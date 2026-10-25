@@ -138,7 +138,7 @@ public sealed class PluginRuntime(IOptions<PluginRuntimeOptions> options, IHostE
             if (!Regex.IsMatch(Options.Image, "^sha256:[a-f0-9]{64}$")) throw new InvalidOperationException("Imagem ausente.");
             await command(cancellationToken, ["image", "inspect", Options.Image, "--format", "{{.Id}}"]);
             var names = (await command(cancellationToken, ["ps", "-a", "--filter", "label=sentinel.sandbox=true", "--format", "{{.Names}}"]))
-                .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Take(100).ToArray();
+                .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
             var removed = State.RemovedContainers; var active = 0;
             foreach (var name in names.Where(name => Regex.IsMatch(name, "^sentinel-plugin-[a-f0-9]{32}$")))
             {

@@ -66,4 +66,28 @@ public sealed class SandboxMonitorFailureTests
         await runtime.ReapAsync((_, _) => throw new OperationCanceledException(cancelled.Token), cancelled.Token);
         Assert.Equal("pending", runtime.State.Status); Assert.Null(runtime.State.LastFailure);
     }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Monitor_nao_omite_containers_nem_falhas_apos_o_centesimo(bool lateFailure)
+    {
+        var runtime = Runtime();
+        var names = Enumerable.Range(0, 137).Select(index => "sentinel-plugin-" + index.ToString("x32", CultureInfo.InvariantCulture)).ToArray();
+        var inspected = new List<string>();
+        await runtime.ReapAsync((token, command) =>
+        {
+            if (command[0] == "ps") return Task.FromResult(string.Join('\n', names));
+            if (command[0] == "inspect")
+            {
+                inspected.Add(command[1]);
+                if (lateFailure && command[1] == names[^1]) throw new SandboxControlException("daemon-unavailable", "inspect");
+            }
+            return Healthy(token, command);
+        }, CancellationToken.None);
+        Assert.Equal(names, inspected);
+        Assert.Equal(lateFailure ? "unavailable" : "healthy", runtime.State.Status);
+        if (lateFailure) Assert.Equal("daemon-unavailable", runtime.State.LastFailure?.Code);
+        else Assert.Equal(137, runtime.State.ActiveContainers);
+    }
 }
