@@ -52,6 +52,13 @@ COMMIT;
     $env:SENTINEL_POSTGRES_PASSWORD = (($pg.Config.Env | Where-Object { $_.StartsWith('POSTGRES_PASSWORD=') }) -split '=',2)[1]
     $env:SENTINEL_RABBITMQ_PASSWORD = (($mq.Config.Env | Where-Object { $_.StartsWith('RABBITMQ_DEFAULT_PASS=') }) -split '=',2)[1]
     $env:SENTINEL_TEST_PLUGIN_IMAGE = (Get-Content -LiteralPath (Join-Path $repoRoot '.local\plugin-runtime.json') -Raw | ConvertFrom-Json).image
+    # Use only the dedicated test account; never fall back to root or application credentials.
+    $storageTestCredential = Join-Path $repoRoot '.local\storage\test.credential.xml'
+    if ((Test-Path -LiteralPath $storageTestCredential) -and -not $env:SENTINEL_TEST_S3_ACCESS -and -not $env:SENTINEL_TEST_S3_SECRET) {
+        $storageTestAccount = Import-Clixml -LiteralPath $storageTestCredential
+        $env:SENTINEL_TEST_S3_ACCESS = $storageTestAccount.UserName
+        $env:SENTINEL_TEST_S3_SECRET = $storageTestAccount.GetNetworkCredential().Password
+    }
     $arguments = @('test','tests\Sentinel.IntegrationTests','-c',$Configuration,'--no-restore')
     if ($NoBuild) { $arguments += '--no-build' }
     if ($Filter) { $arguments += @('--filter',$Filter) }

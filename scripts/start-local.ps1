@@ -86,7 +86,7 @@ do {
     try {
         $health = Invoke-RestMethod 'http://localhost:5161/api/v1/health' -TimeoutSec 2
         $identity = Invoke-RestMethod 'http://localhost:5161/api/v1/identity/configuration' -TimeoutSec 2
-        $page = Invoke-WebRequest 'http://localhost:4200' -TimeoutSec 2
+        $page = Invoke-WebRequest 'http://localhost:4200' -UseBasicParsing -TimeoutSec 2
         if ($health.status -eq 'healthy' -and $identity.authority -and $page.StatusCode -eq 200) {
             Write-Output 'Sentinel disponível: http://localhost:4200 | API: http://localhost:5161 | Logs: .local/'
             exit 0
