@@ -12,7 +12,8 @@ namespace Sentinel.PluginHost.Checks;
 // usuário sintético. Nunca usa nem adivinha uma senha real, nunca atinge uma conta de produção fora do
 // escopo autorizado, e para assim que observa defesa. Procura só três sinais de defesa, nesta ordem:
 //   HTTP 423/429, cabeçalho Retry-After, ou palavra de bloqueio no prefixo do corpo (en/pt, lista fixa).
-// Passed exige HTTP 423/429 ou Retry-After. Mensagem isolada, resposta inesperada ou ausência de bloqueio
+// Passed exige HTTP 423/429. Retry-After sempre interrompe a sonda para respeitar o recuo,
+// mas, sozinho, nao demonstra que o alvo efetivamente bloqueou tentativas. Mensagem isolada, resposta inesperada ou ausência de bloqueio
 // nesta amostra são Inconclusive: um usuário inexistente não prova proteção de contas existentes.
 // Não testa enumeração de usuário (precisaria de uma identidade sintética conhecida, que o plugin nunca
 // recebe) nem MFA/reset — ver AUTH-ENUM-01/AUTH-MFA-01/AUTH-RESET-01 como próximos itens.
@@ -49,19 +50,26 @@ public sealed class AuthBruteForceCheck : IIsolatedCheck
         catch (HttpRequestException) { return Inconclusive(request, "Transporte ou escopo indisponível durante a sondagem de força bruta."); }
 
         var last = attempts[^1];
-        var lockedOut = LockoutStatus.Contains(last.Status) || last.RetryAfter;
+        var lockedOut = LockoutStatus.Contains(last.Status);
         var evidence = JsonSerializer.Serialize(new
         {
             kind = "auth-brute-v1", attempts = attempts.Count, statuses = attempts.Select(a => a.Status),
             lockedOut, lockoutAttempt = lockedOut ? attempts.Count : (int?)null,
+            retryAfterObserved = attempts.Any(a => a.RetryAfter), lockoutWordingObserved = attempts.Any(a => a.LockoutWord),
             limitation = "Até 10 tentativas com um único nome de usuário sintético (o plugin nunca recebe um nome de usuário real); não prova ausência de limite acima de 10 tentativas, não testa enumeração de usuário nem MFA/reset de senha.",
         });
         if (lockedOut)
         {
-            var summary = $"A {attempts.Count}ª tentativa de login com senha sintética errada produziu {(LockoutStatus.Contains(last.Status) ? $"HTTP {last.Status}" : last.RetryAfter ? "cabeçalho Retry-After" : "uma mensagem de bloqueio")}: defesa contra força bruta observada.";
+            var summary = $"A {attempts.Count}ª tentativa de login com senha sintética errada produziu HTTP {last.Status}: recusa de bloqueio observada nesta sonda. Não comprova proteção de contas existentes nem cobertura de outras políticas.";
             return new(request.ContractVersion, PluginExecutionOutcome.Succeeded, [new PluginCheckResult(ControlId, "Passed", summary, "Reproduced", "Info")], [new PluginEvidenceRef(summary, evidence)], []);
         }
-        var failSummary = $"{attempts.Count} tentativas consecutivas de login com senha sintética errada para o mesmo usuário não produziram HTTP 423/429, Retry-After nem mensagem de bloqueio; nenhum limite de tentativas observado nesta amostra.";
+        var failSummary = last.RetryAfter
+            ? $"Sondagem interrompida após {attempts.Count} tentativa(s) por Retry-After em HTTP {last.Status}; o pedido de recuo foi respeitado, mas esse cabeçalho sozinho não confirma bloqueio de tentativas."
+            : last.LockoutWord
+                ? $"Sondagem interrompida após {attempts.Count} tentativa(s) por mensagem de bloqueio em HTTP {last.Status}; mensagem isolada não confirma defesa."
+                : !CleanRejection.Contains(last.Status)
+                    ? $"Sondagem interrompida após {attempts.Count} tentativa(s) por resposta inesperada HTTP {last.Status}; avaliação incompleta."
+                    : $"{attempts.Count} tentativas consecutivas de login com senha sintética errada para o mesmo usuário não produziram HTTP 423/429; nenhum bloqueio de tentativas observado nesta amostra.";
         return new(request.ContractVersion, PluginExecutionOutcome.Inconclusive, [new PluginCheckResult(ControlId, "Inconclusive", failSummary + " Amostra com usuário sintético não comprova ausência de proteção de contas existentes; mensagem de bloqueio isolada não confirma defesa.", "NotAssessed", "Info")], [new PluginEvidenceRef(failSummary, evidence)], []);
     }
 
