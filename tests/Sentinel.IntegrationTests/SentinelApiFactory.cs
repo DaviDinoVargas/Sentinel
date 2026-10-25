@@ -42,6 +42,9 @@ public sealed class SentinelApiFactory : WebApplicationFactory<Program>
                 // filas da aplicação local. Um worker de sentinel_dev nunca deve
                 // consumir e descartar mensagens destinadas a sentinel_test.
                 ["RabbitMq:TopologySuffix"] = "integration-tests",
+                // Keep failures and diagnostics, without writing every successful SQL
+                // statement from the worker polling loops into multi-million-line logs.
+                ["Logging:LogLevel:Microsoft.EntityFrameworkCore.Database.Command"] = "Warning",
                 ["Identity:Authority"] = Identity.Issuer,
                 ["PluginRuntime:Mode"] = PluginMode,
                 ["PluginRuntime:Image"] = PluginImage,
