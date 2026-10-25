@@ -2,7 +2,7 @@ apiVersion: sentinel.dev/v1
 kind: PluginManifest
 metadata:
   id: sentinel.lab.body-robustness
-  version: 1.0.0
+  version: 1.0.1
   name: Robustez da validação de corpo no servidor (WEB-INJ-03)
 spec:
   type: security-test

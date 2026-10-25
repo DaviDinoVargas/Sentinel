@@ -8,9 +8,8 @@ namespace Sentinel.PluginHost.Checks;
 // 5xx (e nunca stack trace). É o primeiro consumidor do gateway de escrita governada: só roda em
 // lab-active, o escopo precisa liberar POST, e cada POST concedido entra na trilha da execução.
 //
-// Honestidade (Finding-Model.md): endpoint que não aceita POST (404/405) ou exige autenticação
-// (401/403) NÃO é aprovação; vira Inconclusive com o motivo. Passed exige que quase todas as
-// sondas tenham sido avaliadas e que o servidor tenha recusado ao menos entradas inválidas.
+// Passed applies only to every declared probe, not a sample or the absence of a 5xx.
+// Backoff, incomplete responses and unsupported operations never count as assessed.
 public sealed class BodyRobustnessCheck : IIsolatedCheck
 {
     private const string ControlId = "WEB-INJ-03";
@@ -18,6 +17,11 @@ public sealed class BodyRobustnessCheck : IIsolatedCheck
     private static readonly int[] ControlledRejections = [400, 411, 413, 414, 415, 422, 431];
 
     private sealed record Probe(string Name, byte[] Body, string ContentType, bool MustReject, string Severity);
+    private sealed record Observation(Probe Probe, int Status, bool Leaked, bool Truncated, bool HeadersIncomplete, bool Backoff)
+    {
+        internal bool Assessed => !Truncated && !HeadersIncomplete && !Backoff &&
+            (Leaked || Status is >= 200 and < 300 || ControlledRejections.Contains(Status));
+    }
 
     private static IReadOnlyList<Probe> Probes() =>
     [
@@ -37,9 +41,11 @@ public sealed class BodyRobustnessCheck : IIsolatedCheck
             return PluginExecutionResult.Failed(request.ContractVersion, "Perfil de laboratório com gateway é obrigatório para enviar POST.");
 
         using var client = ScopedHttp.CreateLabClient(target);
-        var results = new List<(Probe Probe, int Status, bool Leaked)>();
+        var planned = Probes();
+        var results = new List<Observation>();
         var denied = 0;
-        foreach (var probe in Probes())
+        string? stopReason = null;
+        foreach (var probe in planned)
         {
             ct.ThrowIfCancellationRequested();
             try
@@ -49,42 +55,56 @@ public sealed class BodyRobustnessCheck : IIsolatedCheck
                 using var response = await client.SendAsync(message, HttpCompletionOption.ResponseHeadersRead, ct);
                 var status = (int)response.StatusCode;
                 var body = status >= 500 ? await ScopedHttp.ReadPrefixAsync(response, ct) : "";
-                results.Add((probe, status, StackMarkers.Any(marker => body.Contains(marker, StringComparison.Ordinal))));
+                var backoff = status == 429 || response.Headers.Contains("Retry-After");
+                var headersIncomplete = ScopedHttp.HeadersIncomplete(response);
+                results.Add(new(probe, status, StackMarkers.Any(marker => body.Contains(marker, StringComparison.Ordinal)),
+                    ScopedHttp.BodyTruncated(response), headersIncomplete, backoff));
+                if (backoff) { stopReason = "rate-limit-or-retry-after"; break; }
+                if (headersIncomplete) { stopReason = "headers-incomplete"; break; }
+                if (status is not (>= 200 and < 300) && !ControlledRejections.Contains(status) && status < 500)
+                { stopReason = "unsupported-response"; break; }
             }
-            catch (HttpRequestException) { denied++; }
+            catch (HttpRequestException) { denied++; stopReason = "gateway-or-transport"; break; }
+            catch (TaskCanceledException) when (!ct.IsCancellationRequested) { denied++; stopReason = "request-timeout"; break; }
         }
 
         var checks = new List<PluginCheckResult>();
-        foreach (var (probe, status, leaked) in results)
+        foreach (var item in results)
         {
-            if (status >= 500)
-                checks.Add(new(ControlId, "Failed", $"Corpo '{probe.Name}' produziu HTTP {status}{(leaked ? " com marcadores de stack trace" : "")}: o servidor deveria recusar com 4xx controlado.",
-                    "Reproduced", leaked ? "High" : "Medium", target.AbsolutePath, "body-" + probe.Name));
-            else if (probe.MustReject && status is >= 200 and < 300)
-                checks.Add(new(ControlId, "Failed", $"Corpo inválido '{probe.Name}' foi ACEITO (HTTP {status}): a validação do corpo não acontece no servidor.",
-                    "Reproduced", probe.Severity, target.AbsolutePath, "body-" + probe.Name));
+            var (probe, status, leaked, _, _, backoff) = item;
+            if (status >= 500 && leaked)
+                checks.Add(new(ControlId, "Failed", $"Resposta HTTP {status} ao corpo '{probe.Name}' contém marcadores de stack trace. Detalhes internos observados no recorte; não prova execução de código ou injeção.",
+                    "Reproduced", "High", target.AbsolutePath, "body-" + probe.Name));
+            else if (!backoff && probe.MustReject && status is >= 200 and < 300)
+                checks.Add(new(ControlId, "Failed", $"Entrada JSON intrinsecamente inválida '{probe.Name}' recebeu HTTP {status}. Candidato a revisar com o contrato do alvo e eventual processamento assíncrono; status não prova ausência universal de validação.",
+                    "Inferred", probe.Severity, target.AbsolutePath, "body-" + probe.Name));
         }
 
-        var answered = results.Where(item => item.Status is not (0 or 401 or 403 or 404 or 405)).ToArray();
-        var controlled = answered.Count(item => ControlledRejections.Contains(item.Status));
+        var assessed = results.Count(item => item.Assessed);
+        var unassessed = planned.Count - assessed;
+        var controlled = results.Count(item => ControlledRejections.Contains(item.Status));
+        var passed = denied == 0 && results.Count == planned.Count && unassessed == 0 &&
+            results.Where(item => item.Probe.MustReject).All(item => ControlledRejections.Contains(item.Status));
+        var reason = $"{assessed}/{planned.Count} sondas avaliadas; {unassessed} sem avaliação conclusiva. " +
+            (denied > 0 ? "Sondas recusadas pelo gateway ou transporte indisponível. " : "") +
+            $"Interrupção: {stopReason ?? "nenhuma"}. Respostas 5xx genéricas sem referência válida, corpos/cabeçalhos incompletos, autenticação, redirecionamento e backoff não aprovam; nenhuma aprovação inferida.";
         var evidence = System.Text.Json.JsonSerializer.Serialize(new
         {
-            kind = "body-robustness-v1", probes = results.Select(item => new { probe = item.Probe.Name, status = item.Status, stackTrace = item.Leaked }),
-            deniedByGateway = denied, answered = answered.Length, controlledRejections = controlled,
-            limitation = "Sete corpos fixos enviados por POST à URL autorizada; não descobre outros endpoints, não cobre PUT/PATCH, corpo multipart, GraphQL ou protocolos binários. Os corpos não são persistidos.",
+            kind = "body-robustness-v2", plannedProbes = planned.Count, attempted = results.Count + denied,
+            unattempted = planned.Count - results.Count - denied, assessed, unassessed, stopReason,
+            probes = results.Select(item => new { probe = item.Probe.Name, status = item.Status, stackTrace = item.Leaked,
+                bodyTruncated = item.Truncated, headersIncomplete = item.HeadersIncomplete, backoff = item.Backoff, assessed = item.Assessed }),
+            deniedByGateway = denied, controlledRejections = controlled,
+            limitation = "Sete corpos fixos por POST à URL autorizada; Passed descreve apenas estas sondas, sem comprovar regras de negócio ou toda a validação. Não descobre endpoints nem cobre PUT/PATCH, multipart, GraphQL, protocolos binários ou execução de SQL/XSS. Os corpos e respostas não são persistidos.",
         });
         if (checks.Count == 0)
         {
-            var passed = denied == 0 && answered.Length >= 6 && controlled >= 2;
-            var reason = denied > 0
-                ? $"{denied} de {Probes().Count} sonda(s) foram recusadas pelo gateway (o escopo precisa liberar POST em modo laboratório); nenhuma aprovação inferida."
-                : answered.Length < results.Count
-                    ? $"O endpoint não aceitou POST ou exige autenticação (404/405/401/403 em {results.Count - answered.Length} de {results.Count} sondas); nenhuma aprovação inferida."
-                    : $"Só {controlled} recusa(s) 4xx controlada(s) em {answered.Length} sondas respondidas; sem prova suficiente de validação de corpo.";
             checks.Add(passed
-                ? new(ControlId, "Passed", $"{answered.Length} corpos malformados ou extremos receberam resposta sem 5xx; {controlled} foram recusados com 4xx controlado (400/413/415/422).", "Reproduced", "Info")
+                ? new(ControlId, "Passed", $"Todas as {planned.Count} sondas foram avaliadas, com recusa controlada das entradas JSON intrinsecamente inválidas. Resultado restrito à URL e aos corpos declarados, sem aprovação geral do software.", "Reproduced", "Info")
                 : new(ControlId, "Inconclusive", reason, "NotAssessed", "Info"));
         }
-        return new(request.ContractVersion, PluginExecutionOutcome.Succeeded, checks, [new PluginEvidenceRef(checks[0].Summary, evidence)], []);
+        else if (unassessed > 0) checks.Add(new(ControlId, "Inconclusive", reason, "NotAssessed", "Info", target.AbsolutePath, "body-coverage"));
+        return new(request.ContractVersion, passed || checks.Any(check => check.State == "Failed") ? PluginExecutionOutcome.Succeeded : PluginExecutionOutcome.Inconclusive,
+            checks, [new PluginEvidenceRef(checks[0].Summary, evidence)], []);
     }
 }
