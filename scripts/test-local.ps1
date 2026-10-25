@@ -23,24 +23,22 @@ try {
     $hasSchema = (docker exec sentinel-postgres psql -U sentinel_app -d sentinel_test -At -c "select to_regclass('public.audits') is not null;").Trim()
     if ($LASTEXITCODE -ne 0) { throw 'Banco sentinel_test indisponível.' }
     if ($hasSchema -eq 't') {
-        # Identificadores entre aspas duplas usam \" em vez de " porque o PowerShell 5.1
-        # descarta aspas duplas incorporadas ao montar a linha de comando de um executável
-        # nativo (docker.exe); escapar com barra invertida preserva o caractere no argv.
+        # Stream SQL over stdin: native argument quoting differs between Windows PowerShell and pwsh.
         $cleanupSql = @'
 BEGIN;
 DO $$ BEGIN
     IF current_database() <> 'sentinel_test' THEN RAISE EXCEPTION 'Only sentinel_test is permitted'; END IF;
-    IF EXISTS (SELECT 1 FROM audit_executions WHERE \"LeaseUntilUtc\" > clock_timestamp()) THEN RAISE EXCEPTION 'Live test lease exists'; END IF;
+    IF EXISTS (SELECT 1 FROM audit_executions WHERE "LeaseUntilUtc" > clock_timestamp()) THEN RAISE EXCEPTION 'Live test lease exists'; END IF;
 END $$;
-CREATE TEMP TABLE retired_test_audits ON COMMIT DROP AS SELECT \"Id\" FROM audits WHERE \"State\" IN ('Queued','Running','WaitingForBudget','Cancelling');
-UPDATE audits SET \"State\"='Cancelled', \"PolicyReason\"='Fixture anterior encerrada pelo preflight de testes.' WHERE \"Id\" IN (SELECT \"Id\" FROM retired_test_audits);
-UPDATE audit_executions SET \"CancelRequestedAtUtc\"=COALESCE(\"CancelRequestedAtUtc\",clock_timestamp()), \"FinishedAtUtc\"=clock_timestamp(), \"LeaseUntilUtc\"=NULL, \"SafetyUntilUtc\"=clock_timestamp(), \"CurrentPluginId\"=NULL, \"PluginDeadlineUtc\"=NULL WHERE \"AuditId\" IN (SELECT \"Id\" FROM retired_test_audits);
-UPDATE audit_outbox SET status='TestFixtureRetired' WHERE status='Pending' AND \"Id\" IN (SELECT \"Id\" FROM retired_test_audits);
-UPDATE audit_outbox SET status='TestFixtureRetired' WHERE status='Pending' AND \"Id\" IN (SELECT \"Id\" FROM audits WHERE \"State\" IN ('Completed','Cancelled','Blocked','Failed','Interrupted'));
+CREATE TEMP TABLE retired_test_audits ON COMMIT DROP AS SELECT "Id" FROM audits WHERE "State" IN ('Queued','Running','WaitingForBudget','Cancelling');
+UPDATE audits SET "State"='Cancelled', "PolicyReason"='Fixture anterior encerrada pelo preflight de testes.' WHERE "Id" IN (SELECT "Id" FROM retired_test_audits);
+UPDATE audit_executions SET "CancelRequestedAtUtc"=COALESCE("CancelRequestedAtUtc",clock_timestamp()), "FinishedAtUtc"=clock_timestamp(), "LeaseUntilUtc"=NULL, "SafetyUntilUtc"=clock_timestamp(), "CurrentPluginId"=NULL, "PluginDeadlineUtc"=NULL WHERE "AuditId" IN (SELECT "Id" FROM retired_test_audits);
+UPDATE audit_outbox SET status='TestFixtureRetired' WHERE status='Pending' AND "Id" IN (SELECT "Id" FROM retired_test_audits);
+UPDATE audit_outbox SET status='TestFixtureRetired' WHERE status='Pending' AND "Id" IN (SELECT "Id" FROM audits WHERE "State" IN ('Completed','Cancelled','Blocked','Failed','Interrupted'));
 SELECT 'Fixtures anteriores encerradas: ' || count(*) FROM retired_test_audits;
 COMMIT;
 '@
-        docker exec sentinel-postgres psql -U sentinel_app -d sentinel_test -v ON_ERROR_STOP=1 -At -c $cleanupSql
+        $cleanupSql | docker exec -i sentinel-postgres psql -U sentinel_app -d sentinel_test -v ON_ERROR_STOP=1 -At
         if ($LASTEXITCODE -ne 0) { throw 'Preflight de testes recusado; não executar a suíte.' }
     }
     if ($queueKnown) {
