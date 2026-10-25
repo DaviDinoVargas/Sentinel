@@ -10,6 +10,15 @@ public sealed class PluginRuntimeOptions
 {
     public string Mode { get; set; } = "container";
     public string Image { get; set; } = "";
+    private string? _dockerApiVersion;
+    // Explicit operator compatibility override. Null preserves Docker negotiation.
+    // Applied to owned Docker children only, never to machine/user environment.
+    public string? DockerApiVersion
+    {
+        get => _dockerApiVersion;
+        set => _dockerApiVersion = string.IsNullOrEmpty(value) ? null : Regex.IsMatch(value, @"\A[0-9]{1,3}\.[0-9]{1,3}\z")
+            ? value : throw new ArgumentException("DockerApiVersion exige formato major.minor numérico.");
+    }
 }
 
 public sealed class PluginRuntime(IOptions<PluginRuntimeOptions> options, IHostEnvironment environment)
@@ -33,6 +42,12 @@ public sealed class PluginRuntime(IOptions<PluginRuntimeOptions> options, IHostE
         try { return Process.Start(start) ?? throw Failure("client-unavailable", operation); }
         catch (System.ComponentModel.Win32Exception) { throw Failure("client-unavailable", operation); }
     }
+    internal ProcessStartInfo DockerStart()
+    {
+        var start = new ProcessStartInfo("docker") { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true };
+        if (Options.DockerApiVersion is { } apiVersion) start.Environment["DOCKER_API_VERSION"] = apiVersion;
+        return start;
+    }
     public sealed record SandboxAllocation(int MemoryMiB, double Cpus, int Pids, int TmpfsMiB);
     public static SandboxAllocation AppliedResources(PluginManifestResources resources) => new(
         Math.Clamp(resources.MemoryMiB, 64, RuntimeLimits.MaxMemoryMiB),
@@ -44,12 +59,13 @@ public sealed class PluginRuntime(IOptions<PluginRuntimeOptions> options, IHostE
     public object Describe() => new
     {
         mode = Options.Mode, image = Container ? Options.Image : null,
+        dockerApiVersion = Container ? Options.DockerApiVersion : null,
         monitor = State,
         network = Container ? "none; HTTP somente pelo gateway do worker" : "processo de desenvolvimento; HTTP pelo gateway",
         readOnlyRoot = Container, user = Container ? "65532:65532" : "usuário do worker",
         cpuLimit = Container ? 0.5 : (double?)null, pidsLimit = Container ? 64 : (int?)null,
         tmpfsMiB = Container ? 16 : (int?)null,
-        configuration = "PluginRuntime:Mode/Image na inicialização; memória e timeout dos manifestos aprovados",
+        configuration = "PluginRuntime:Mode/Image/DockerApiVersion na inicialização; memória e timeout dos manifestos aprovados",
         resourceAllocation = "per-approved-manifest",
         resourceDefaults = Container ? AppliedResources(new PluginManifestResources()) : null,
         resourceCeilings = Container ? new SandboxAllocation(RuntimeLimits.MaxMemoryMiB, RuntimeLimits.MaxCpus, RuntimeLimits.MaxPids, RuntimeLimits.MaxTmpfsMiB) : null,
@@ -63,7 +79,7 @@ public sealed class PluginRuntime(IOptions<PluginRuntimeOptions> options, IHostE
 
     public ProcessStartInfo Start(string dll, PluginManifest manifest, string name, DateTimeOffset deadline, string? sourceDirectory = null)
     {
-        var start = new ProcessStartInfo(Container ? "docker" : "dotnet");
+        var start = Container ? DockerStart() : new ProcessStartInfo("dotnet");
         if (!Container)
         {
             if (sourceDirectory is not null || manifest.Spec.Capabilities.SourceRead) throw new InvalidOperationException("Análise de fontes exige sandbox Docker.");
@@ -97,7 +113,7 @@ public sealed class PluginRuntime(IOptions<PluginRuntimeOptions> options, IHostE
     {
         if (!Container) return;
         if (!Regex.IsMatch(name, "^sentinel-plugin-[a-f0-9]{32}$")) throw new InvalidOperationException("Nome de sandbox inválido.");
-        var start = new ProcessStartInfo("docker") { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true };
+        var start = DockerStart();
         start.ArgumentList.Add("rm"); start.ArgumentList.Add("--force"); start.ArgumentList.Add(name);
         using var process = StartControl(start, "rm");
         var output = process.StandardOutput.ReadToEndAsync(); var errors = process.StandardError.ReadToEndAsync();
@@ -167,7 +183,7 @@ public sealed class PluginRuntime(IOptions<PluginRuntimeOptions> options, IHostE
 
     private async Task<string> DockerAsync(CancellationToken cancellationToken, params string[] arguments)
     {
-        var start = new ProcessStartInfo("docker") { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true };
+        var start = DockerStart();
         foreach (var argument in arguments) start.ArgumentList.Add(argument);
         using var process = StartControl(start, arguments[0]);
         var output = process.StandardOutput.ReadToEndAsync(cancellationToken); var error = process.StandardError.ReadToEndAsync(cancellationToken);

@@ -227,6 +227,8 @@ public sealed class DistributedProcessTests
             if (sourceRoot is not null) start.Environment["SourceSnapshots__RootDirectory"] = sourceRoot;
             start.Environment["Evidence__RootDirectory"] = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../.local/evidence-tests"));
             start.Environment["PluginRuntime__Image"] = Environment.GetEnvironmentVariable("SENTINEL_TEST_PLUGIN_IMAGE") ?? "";
+            if (Environment.GetEnvironmentVariable("SENTINEL_TEST_DOCKER_API_VERSION") is { Length: > 0 } apiVersion)
+                start.Environment["PluginRuntime__DockerApiVersion"] = apiVersion;
             start.Environment["Logging__LogLevel__Default"] = "Warning";
             start.Environment["Logging__LogLevel__Microsoft.EntityFrameworkCore"] = "Warning";
             var process = Process.Start(start)!;

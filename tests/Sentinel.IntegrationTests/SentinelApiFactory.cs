@@ -56,6 +56,7 @@ public sealed class SentinelApiFactory : WebApplicationFactory<Program>
                 ["Identity:Authority"] = Identity.Issuer,
                 ["PluginRuntime:Mode"] = PluginMode,
                 ["PluginRuntime:Image"] = PluginImage,
+                ["PluginRuntime:DockerApiVersion"] = Environment.GetEnvironmentVariable("SENTINEL_TEST_DOCKER_API_VERSION"),
                 ["Evidence:RootDirectory"] = EvidenceDirectory ?? Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../.local/evidence-tests")),
                 ["SourceSnapshots:RootDirectory"] = SourceDirectory ?? Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../.local/source-tests")),
             });

@@ -334,6 +334,7 @@ export interface PluginCatalog {
   runtime?: {
     mode: string;
     image: string | null;
+    dockerApiVersion?: string | null;
     monitor: {
       sampledAtUtc: string | null;
       status: string;

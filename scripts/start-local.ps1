@@ -9,6 +9,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Sandbox indisponível.' }
 $sandbox = Get-Content -LiteralPath (Join-Path $logDirectory 'plugin-runtime.json') -Raw | ConvertFrom-Json
 $env:PluginRuntime__Mode = 'container'
 $env:PluginRuntime__Image = $sandbox.image
+if (-not $env:PluginRuntime__DockerApiVersion -and $sandbox.dockerApiVersion) { $env:PluginRuntime__DockerApiVersion = $sandbox.dockerApiVersion }
 foreach ($name in @('sentinel-postgres', 'sentinel-rabbitmq')) {
     $container = docker inspect $name | ConvertFrom-Json
     if ($LASTEXITCODE -ne 0) { throw "Container local ausente: $name" }

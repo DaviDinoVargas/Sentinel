@@ -56,6 +56,7 @@ describe('Isolamento no catálogo', () => {
       runtime: {
         mode,
         image: mode === 'container' ? 'sha256:immutable' : null,
+        dockerApiVersion: mode === 'container' ? '1.54' : null,
         monitor: {
           sampledAtUtc: null,
           status: mode === 'container' ? 'healthy' : 'development-process',
@@ -82,6 +83,8 @@ describe('Isolamento no catálogo', () => {
   it('mostra recursos aplicados, limpeza e limitações da sandbox', () => {
     const text = render('container');
     expect(text).toContain('Sandbox disponível');
+    expect(text).toContain('API Docker do worker');
+    expect(text).toContain('1.54');
     expect(text).toContain('Somente leitura');
     expect(text).toContain('65532:65532');
     expect(text).toContain('64 PIDs');

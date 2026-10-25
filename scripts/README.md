@@ -4,7 +4,15 @@
 
 `build-plugin-sandbox.ps1` publica o PluginHost numa imagem Linux construída com SDK/runtime Microsoft fixados por digest. O script compara hashes das fontes e reutiliza o build quando possível. O ID imutável da imagem fica em `.local/plugin-runtime.json`; `start-local.ps1` carrega esse ID em `PluginRuntime__Image` e usa modo `container`. Use `-Force` no build para reconstruir. A ausência de Docker/imagem interrompe a execução, sem fallback automático.
 
-A sandbox não recebe mounts do host, rede própria, privilégios ou credenciais da API. Aplica rootfs somente leitura, UID/GID 65532, 0,5 CPU, memória por manifesto (64–512 MiB), 64 PIDs e tmpfs sem execução de 16 MiB. GETs passam por RPC stdin/stdout ao gateway no worker, que controla destino, DNS, escopo, prazo, TLS e orçamento. O catálogo mostra modo, imagem, limites e monitor de limpeza; eventos da auditoria registram o runtime efetivo. Containers próprios vencidos são removidos após prazo + dois segundos, com verificação a cada cinco segundos.
+A sandbox não recebe rede própria, privilégios ou credenciais da API. Análise de fontes recebe somente o snapshot autorizado em montagem de leitura. Aplica rootfs somente leitura e UID/GID 65532. A alocação vem do manifesto aprovado: padrões de 0,5 CPU, 64 PIDs e tmpfs sem execução de 16 MiB; tetos atuais de 2048 MiB de memória, 2 CPUs, 512 PIDs e 512 MiB de tmpfs. GETs passam por RPC stdin/stdout ao gateway no worker, que controla destino, DNS, escopo, prazo, TLS e orçamento. O catálogo mostra os valores efetivamente aplicados por plugin e o monitor de limpeza; eventos da auditoria registram o runtime efetivo. Containers próprios vencidos são removidos após prazo + dois segundos, com verificação a cada cinco segundos.
+
+### Compatibilidade da API Docker
+
+Por padrão o cliente negocia a versão com o daemon. `PluginRuntime:DockerApiVersion` permite um override explícito por worker quando houver incompatibilidade diagnosticada. O valor é aplicado somente ao ambiente dos processos Docker iniciados pelo Sentinel (execução, inspeção e remoção); não altera ambiente global, daemon, rede, permissões ou TLS. Configuração ausente preserva a negociação; valores fora do formato numérico `major.minor` são recusados.
+
+O campo opcional `dockerApiVersion` do registro existente `.local/plugin-runtime.json` deve corresponder a uma versão suportada pelo daemon do ambiente. Preserve os campos de imagem e fingerprint. O rebuild preserva esse override; `start-local.ps1` o carrega quando não houver `PluginRuntime__DockerApiVersion` explícito. Os testes carregam `SENTINEL_TEST_DOCKER_API_VERSION`, também propagado aos workers em processos separados. A tela de plugins mostra a configuração e o monitor informa disponibilidade. Não copie uma versão fixa entre ambientes nem assuma que o ajuste resolve quedas de conexão, timeout Hyper-V ou perda de lease.
+
+Referência: [variáveis do cliente Docker](https://docs.docker.com/reference/cli/docker/#environment-variables).
 
 Modo `PluginRuntime__Mode=process` existe apenas em Development para testes e não aplica sandbox de filesystem/rede. Para os testes reais de containers, defina `SENTINEL_TEST_PLUGIN_IMAGE` com o campo `image` do registro local antes de `dotnet test`. Os testes usam banco/filas separados da aplicação. Plugins de terceiros e aprovação humana permanecem pendentes.
 

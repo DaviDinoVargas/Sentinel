@@ -46,6 +46,8 @@ import { Icon } from '../design-system/icon';
             <dd class="mono url">{{ runtime.image || 'Sem container' }}</dd>
             <dt>Rede</dt>
             <dd>{{ runtime.network }}</dd>
+            <dt>API Docker do worker</dt>
+            <dd>{{ runtime.mode === 'container' ? (runtime.dockerApiVersion ?? 'Negociação automática do cliente') : 'Não aplicada em modo processo' }} · disponibilidade no monitor</dd>
             <dt>TLS / HTTP</dt>
             <dd>Certificado e SNI do alvo autorizado, inclusive nos probes de Host · HTTP/1.1</dd>
             <dt>Filesystem / usuário</dt>
