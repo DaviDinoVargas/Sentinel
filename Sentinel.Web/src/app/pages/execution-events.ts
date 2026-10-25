@@ -49,6 +49,23 @@ import { ExecutionEvent, SentinelApiService } from '../core/sentinel-api.service
               maxlength="128"
             />
           </label>
+          <label for="execution-event-page-size"
+            >Eventos por página
+            <input
+              id="execution-event-page-size"
+              type="number"
+              min="1"
+              max="500"
+              step="1"
+              formControlName="pageSize"
+            />
+          </label>
+          @if (filters.invalid && (filters.dirty || filters.touched)) {
+            <p class="help" role="alert">
+              Informe de 1 a 500 eventos por página. O tipo e o identificador do plugin devem usar
+              letras, números e os separadores permitidos, sem espaços.
+            </p>
+          }
           <div class="button-row">
             <button
               class="button small"
@@ -63,8 +80,8 @@ import { ExecutionEvent, SentinelApiService } from '../core/sentinel-api.service
           </div>
         </form>
         <p class="help">
-          Páginas de até 100 eventos, em ordem cronológica dentro da página. Atualize para consultar
-          novas ocorrências. Os filtros são aplicados no servidor.
+          Páginas configuráveis de 1 a 500 eventos, em ordem cronológica dentro da página. Atualize
+          para consultar novas ocorrências. Os filtros são aplicados no servidor.
         </p>
       }
       @if (error()) {
@@ -122,6 +139,10 @@ export class ExecutionEvents {
   readonly nextBefore = signal<string | null>(null);
   readonly history = signal<(string | null)[]>([]);
   readonly filters = inject(FormBuilder).nonNullable.group({
+    pageSize: [
+      100,
+      [Validators.required, Validators.min(1), Validators.max(500), Validators.pattern(/^\d+$/)],
+    ],
     kind: ['', [Validators.maxLength(100), Validators.pattern(/^$|^[A-Za-z][A-Za-z0-9-]{0,99}$/)]],
     pluginId: [
       '',
@@ -131,7 +152,7 @@ export class ExecutionEvents {
   private readonly api = inject(SentinelApiService);
   private pending?: Subscription;
   private currentBefore: string | null = null;
-  private activeFilters = { kind: '', pluginId: '' };
+  private activeFilters = { kind: '', pluginId: '', pageSize: 100 };
 
   constructor() {
     effect(() => {
@@ -145,8 +166,8 @@ export class ExecutionEvents {
         this.nextBefore.set(null);
         this.history.set([]);
         this.currentBefore = null;
-        this.filters.reset({ kind: '', pluginId: '' });
-        this.activeFilters = { kind: '', pluginId: '' };
+        this.filters.reset({ kind: '', pluginId: '', pageSize: 100 });
+        this.activeFilters = { kind: '', pluginId: '', pageSize: 100 };
       });
     });
     inject(DestroyRef).onDestroy(() => this.pending?.unsubscribe());
@@ -164,7 +185,7 @@ export class ExecutionEvents {
     this.load(null, []);
   }
   clearFilters(): void {
-    this.filters.reset({ kind: '', pluginId: '' });
+    this.filters.reset({ kind: '', pluginId: '', pageSize: 100 });
     this.refresh();
   }
   older(): void {
@@ -183,7 +204,13 @@ export class ExecutionEvents {
     this.loading.set(true);
     this.error.set('');
     this.pending = this.api
-      .executionEvents(audit, before, this.activeFilters.kind, this.activeFilters.pluginId)
+      .executionEvents(
+        audit,
+        before,
+        this.activeFilters.kind,
+        this.activeFilters.pluginId,
+        this.activeFilters.pageSize,
+      )
       .subscribe({
         next: (page) => {
           if (this.auditId() !== audit) return;

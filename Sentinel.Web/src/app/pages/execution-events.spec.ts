@@ -2,6 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ExecutionEvents } from './execution-events';
+import axe from 'axe-core';
 
 describe('Histórico completo de eventos', () => {
   beforeEach(() =>
@@ -33,19 +34,15 @@ describe('Histórico completo de eventos', () => {
     expect(fixture.nativeElement.textContent).toContain('Checkpoint salvo');
     http.expectNone((request) => request.url.endsWith('/execution/events'));
     page.refresh();
-    http
-      .expectOne('/api/v1/audits/audit/execution/events?pageSize=100')
-      .flush({
-        items: [{ id: 201, atUtc: '', kind: 'WriteGranted', detail: 'sentinel.a' }],
-        nextBeforeId: '201',
-      });
+    http.expectOne('/api/v1/audits/audit/execution/events?pageSize=100').flush({
+      items: [{ id: 201, atUtc: '', kind: 'WriteGranted', detail: 'sentinel.a' }],
+      nextBeforeId: '201',
+    });
     page.older();
-    http
-      .expectOne('/api/v1/audits/audit/execution/events?pageSize=100&beforeId=201')
-      .flush({
-        items: [{ id: 101, atUtc: '', kind: 'WriteGranted', detail: 'sentinel.a' }],
-        nextBeforeId: '101',
-      });
+    http.expectOne('/api/v1/audits/audit/execution/events?pageSize=100&beforeId=201').flush({
+      items: [{ id: 101, atUtc: '', kind: 'WriteGranted', detail: 'sentinel.a' }],
+      nextBeforeId: '101',
+    });
     expect(page.events().map((event) => event.id)).toEqual([101]);
     expect(page.history()).toEqual([null]);
     page.newer();
@@ -60,7 +57,11 @@ describe('Histórico completo de eventos', () => {
     const { fixture, page, http } = render();
     page.refresh();
     const old = http.expectOne('/api/v1/audits/audit/execution/events?pageSize=100');
-    page.filters.setValue({ kind: 'WriteTrail', pluginId: 'sentinel.lab.contract-fuzz' });
+    page.filters.setValue({
+      kind: 'WriteTrail',
+      pluginId: 'sentinel.lab.contract-fuzz',
+      pageSize: 100,
+    });
     page.refresh();
     expect(old.cancelled).toBe(true);
     const filtered = http.expectOne(
@@ -103,5 +104,44 @@ describe('Histórico completo de eventos', () => {
     expect(page.loading()).toBe(false);
     fixture.destroy();
     http.verify();
+  });
+  it('permite configurar o tamanho e rejeita quantidade fora do contrato', () => {
+    const { fixture, page, http } = render();
+    page.filters.controls.pageSize.setValue(501);
+    page.refresh();
+    http.expectNone((request) => request.url.endsWith('/execution/events'));
+    page.filters.controls.pageSize.setValue(25);
+    page.refresh();
+    http
+      .expectOne('/api/v1/audits/audit/execution/events?pageSize=25')
+      .flush({ items: [], nextBeforeId: null });
+    fixture.destroy();
+    http.verify();
+  });
+  it('mantém filtros e paginação acessíveis nos dois temas', async () => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+    const { fixture, page, http } = render();
+    page.refresh();
+    http
+      .expectOne('/api/v1/audits/audit/execution/events?pageSize=100')
+      .flush({ items: [], nextBeforeId: null });
+    fixture.detectChanges();
+    document.body.appendChild(fixture.nativeElement);
+    try {
+      for (const theme of ['light', 'dark']) {
+        document.documentElement.dataset['theme'] = theme;
+        const result = await axe.run(fixture.nativeElement, {
+          runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa'] },
+          rules: { 'color-contrast': { enabled: false }, region: { enabled: false } },
+        });
+        expect(result.violations.map((item) => item.id)).toEqual([]);
+      }
+    } finally {
+      fixture.nativeElement.remove();
+      fixture.destroy();
+      http.verify();
+      document.documentElement.removeAttribute('data-theme');
+      vi.restoreAllMocks();
+    }
   });
 });

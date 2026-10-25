@@ -513,8 +513,14 @@ export class SentinelApiService {
   execution(auditId: string) {
     return this.http.get<ExecutionSnapshot>(`${this.baseUrl}/audits/${auditId}/execution`);
   }
-  executionEvents(auditId: string, beforeId: string | null = null, kind = '', pluginId = '') {
-    const params: Record<string, string> = { pageSize: '100' };
+  executionEvents(
+    auditId: string,
+    beforeId: string | null = null,
+    kind = '',
+    pluginId = '',
+    pageSize = 100,
+  ) {
+    const params: Record<string, string> = { pageSize: String(pageSize) };
     if (beforeId) params['beforeId'] = beforeId;
     if (kind.trim()) params['kind'] = kind.trim();
     if (pluginId.trim()) params['pluginId'] = pluginId.trim();
