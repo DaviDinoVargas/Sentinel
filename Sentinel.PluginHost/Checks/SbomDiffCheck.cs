@@ -14,13 +14,15 @@ namespace Sentinel.PluginHost.Checks;
 public sealed class SbomDiffCheck : IIsolatedCheck
 {
     private const string ControlId = "SUP-06";
-    private sealed record Dependency(string Ecosystem, string Name, string DeclaredVersion, string File);
+    private sealed record Dependency(string Ecosystem, string Name, string DeclaredVersion, string File, string Kind);
+    private static (string Ecosystem, string Name, string File, string Kind) Key(Dependency item) =>
+        (item.Ecosystem.ToUpperInvariant(), item.Ecosystem.Equals("NuGet", StringComparison.OrdinalIgnoreCase) ? item.Name.ToUpperInvariant() : item.Name, item.File, item.Kind);
 
     public Task<PluginExecutionResult> RunAsync(PluginExecutionRequest request, CancellationToken cancellationToken)
     {
         if (request.PriorSourceInventoryJson is null)
         {
-            var summary = "Sem revisão anterior completada para o mesmo identificador de fonte (sourceKey); nada para comparar nesta primeira execução.";
+            var summary = "Sem inventário anterior verificado da mesma origem e identificador de fonte (sourceKey); comparação indisponível, não significa ausência de mudanças.";
             return Task.FromResult(new PluginExecutionResult(request.ContractVersion, PluginExecutionOutcome.Inconclusive,
                 [new PluginCheckResult(ControlId, "Inconclusive", summary, "NotAssessed", "Info")], [new PluginEvidenceRef(summary, "no-prior-revision")], []));
         }
@@ -31,54 +33,73 @@ public sealed class SbomDiffCheck : IIsolatedCheck
                 [new PluginCheckResult(ControlId, "Inconclusive", summary, "NotAssessed", "Info")], [new PluginEvidenceRef(summary, "no-current-inventory")], []));
         }
 
-        var current = Parse(request.CurrentSourceInventoryJson, out var currentTruncated);
-        var prior = Parse(request.PriorSourceInventoryJson, out var priorTruncated);
-        var currentByKey = current.ToDictionary(item => (item.Ecosystem, item.Name, item.File));
-        var priorByKey = prior.ToDictionary(item => (item.Ecosystem, item.Name, item.File));
+        if (!TryParse(request.CurrentSourceInventoryJson, out var current, out var currentIssue))
+            return Unavailable(request, "Inventário atual: " + currentIssue);
+        if (!TryParse(request.PriorSourceInventoryJson, out var prior, out var priorIssue))
+            return Unavailable(request, "Inventário anterior: " + priorIssue);
+        var currentByKey = current.ToDictionary(Key);
+        var priorByKey = prior.ToDictionary(Key);
 
-        var added = current.Where(item => !priorByKey.ContainsKey((item.Ecosystem, item.Name, item.File))).ToArray();
-        var removed = prior.Where(item => !currentByKey.ContainsKey((item.Ecosystem, item.Name, item.File))).ToArray();
-        var changed = current.Where(item => priorByKey.TryGetValue((item.Ecosystem, item.Name, item.File), out var previous) && previous.DeclaredVersion != item.DeclaredVersion)
-            .Select(item => new { ecosystem = item.Ecosystem, name = item.Name, file = item.File, from = priorByKey[(item.Ecosystem, item.Name, item.File)].DeclaredVersion, to = item.DeclaredVersion }).ToArray();
+        var added = current.Where(item => !priorByKey.ContainsKey(Key(item))).ToArray();
+        var removed = prior.Where(item => !currentByKey.ContainsKey(Key(item))).ToArray();
+        var changed = current.Where(item => priorByKey.TryGetValue(Key(item), out var previous) && previous.DeclaredVersion != item.DeclaredVersion)
+            .Select(item => new { ecosystem = item.Ecosystem, name = item.Name, file = item.File, kind = item.Kind, from = priorByKey[Key(item)].DeclaredVersion, to = item.DeclaredVersion }).ToArray();
 
-        var truncatedNote = currentTruncated || priorTruncated ? " Um dos inventários foi truncado (limite de 100 declarações exportadas); a comparação é sobre o recorte exportado, não necessariamente o conjunto completo." : "";
         var summaryText = added.Length == 0 && removed.Length == 0 && changed.Length == 0
-            ? $"Nenhuma diferença de dependências declaradas entre esta revisão e a anterior.{truncatedNote}"
-            : $"{added.Length} adicionada(s), {removed.Length} removida(s), {changed.Length} com versão declarada alterada em relação à revisão anterior.{truncatedNote}";
+            ? "Nenhuma diferença nas declarações npm/NuGet completas destas revisões. Não comprova igualdade de versões resolvidas ou dependências transitivas."
+            : $"{added.Length} adicionada(s), {removed.Length} removida(s), {changed.Length} com versão declarada alterada em relação à revisão anterior. Comparação das declarações npm/NuGet, não das versões resolvidas/transitivas.";
         var evidence = JsonSerializer.Serialize(new
         {
             kind = "sbom-diff-v1",
-            added = added.Select(item => new { ecosystem = item.Ecosystem, name = item.Name, declaredVersion = item.DeclaredVersion, file = item.File }),
-            removed = removed.Select(item => new { ecosystem = item.Ecosystem, name = item.Name, declaredVersion = item.DeclaredVersion, file = item.File }),
+            added = added.Select(item => new { ecosystem = item.Ecosystem, name = item.Name, declaredVersion = item.DeclaredVersion, file = item.File, kind = item.Kind }),
+            removed = removed.Select(item => new { ecosystem = item.Ecosystem, name = item.Name, declaredVersion = item.DeclaredVersion, file = item.File, kind = item.Kind }),
             changed,
-            currentTruncated,
-            priorTruncated,
+            comparisonComplete = true,
+            currentTruncated = false,
+            priorTruncated = false,
             limitation = "Compara declarações (package.json/csproj), não versões resolvidas/instaladas nem transitivas; herda os limites do SRC-INV-01 (até 100 declarações exportadas por execução).",
         });
         var control = new PluginCheckResult(ControlId, "Informational", summaryText, "Reproduced", "Info");
         return Task.FromResult(new PluginExecutionResult(request.ContractVersion, PluginExecutionOutcome.Succeeded, [control], [new PluginEvidenceRef(evidence, evidence)], []));
     }
 
-    private static List<Dependency> Parse(string json, out bool truncated)
+    private static Task<PluginExecutionResult> Unavailable(PluginExecutionRequest request, string reason) => Task.FromResult(
+        new PluginExecutionResult(request.ContractVersion, PluginExecutionOutcome.Inconclusive,
+            [new PluginCheckResult(ControlId, "Inconclusive", reason + " Não foi calculada ausência, adição ou remoção de dependências.", "NotAssessed", "Info")],
+            [new PluginEvidenceRef("Comparação indisponível", JsonSerializer.Serialize(new { kind = "sbom-diff-v1", comparisonComplete = false, reason }))], []));
+
+    private static bool TryParse(string json, out List<Dependency> list, out string issue)
     {
-        var list = new List<Dependency>();
-        truncated = false;
+        list = [];
+        issue = "formato ou cobertura insuficiente para uma comparação completa das declarações.";
         try
         {
             using var document = JsonDocument.Parse(json, new JsonDocumentOptions { MaxDepth = 16 });
             var root = document.RootElement;
-            if (root.TryGetProperty("truncated", out var truncatedValue) && truncatedValue.ValueKind is JsonValueKind.True) truncated = true;
-            if (!root.TryGetProperty("dependencies", out var dependencies) || dependencies.ValueKind != JsonValueKind.Array) return list;
+            if (root.ValueKind != JsonValueKind.Object || root.EnumerateObject().GroupBy(item => item.Name).Any(group => group.Count() != 1) ||
+                Text(root, "kind") != "source-inventory-v1" ||
+                !root.TryGetProperty("truncated", out var truncatedValue) || truncatedValue.ValueKind != JsonValueKind.False ||
+                !root.TryGetProperty("dependencyCount", out var count) || !count.TryGetInt32(out var declared) || declared < 0 ||
+                !root.TryGetProperty("exportedDependencies", out var exported) || !exported.TryGetInt32(out var exportedCount) || exportedCount != declared ||
+                !root.TryGetProperty("unparsedCount", out var unparsed) || !unparsed.TryGetInt32(out var unparsedCount) || unparsedCount != 0 ||
+                !root.TryGetProperty("parsedManifests", out var parsed) || !parsed.TryGetInt32(out var parsedCount) || parsedCount < 1 ||
+                !root.TryGetProperty("dependencies", out var dependencies) || dependencies.ValueKind != JsonValueKind.Array || dependencies.GetArrayLength() != declared)
+                return false;
             foreach (var item in dependencies.EnumerateArray())
             {
-                if (item.ValueKind != JsonValueKind.Object) continue;
+                if (item.ValueKind != JsonValueKind.Object || item.EnumerateObject().GroupBy(property => property.Name).Any(group => group.Count() != 1)) return false;
                 var ecosystem = Text(item, "ecosystem"); var name = Text(item, "name"); var version = Text(item, "declaredVersion"); var file = Text(item, "file");
-                if (ecosystem.Length == 0 || name.Length == 0) continue;
-                list.Add(new Dependency(ecosystem, name, version, file));
+                var kind = Text(item, "kind");
+                if (ecosystem is not ("npm" or "NuGet") || name.Length == 0 || version.Length == 0 || file.Length == 0 ||
+                    new[] { ecosystem, name, version, file, kind }.Any(value => value.Contains("[REDACTED", StringComparison.OrdinalIgnoreCase)) ||
+                    version is "referência não exportada" or "não resolvida" ||
+                    (ecosystem == "npm" ? kind is not ("dependencies" or "devDependencies" or "peerDependencies" or "optionalDependencies") : kind != "PackageReference")) return false;
+                list.Add(new Dependency(ecosystem, name, version, file, kind));
             }
+            if (list.Select(Key).Distinct().Count() != list.Count) { issue = "declarações ambíguas com a mesma chave de pacote/arquivo/seção."; return false; }
+            return true;
         }
-        catch (JsonException) { /* entrada inesperada do host; lista vazia, nunca derruba a execução */ }
-        return list;
+        catch (Exception error) when (error is JsonException or InvalidOperationException) { return false; }
     }
 
     private static string Text(JsonElement element, string property) =>

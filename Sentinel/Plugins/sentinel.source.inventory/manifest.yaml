@@ -2,7 +2,7 @@ apiVersion: sentinel.dev/v1
 kind: PluginManifest
 metadata:
   id: sentinel.source.inventory
-  version: 1.0.0
+  version: 1.0.1
   name: Inventário de snapshot e dependências declaradas (SRC-INV-01)
 spec:
   type: source-analyzer

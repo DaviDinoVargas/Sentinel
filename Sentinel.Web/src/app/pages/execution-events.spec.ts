@@ -139,6 +139,22 @@ describe('Histórico completo de eventos', () => {
     fixture.destroy();
     http.verify();
   });
+  it('permite consultar inventário de dependências histórico e sua indisponibilidade', () => {
+    const { fixture, page, http } = render();
+    for (const kind of ['SourceInventorySelected', 'SourceInventoryUnavailable']) {
+      page.filters.controls.kind.setValue(kind);
+      page.refresh();
+      http.expectOne(`/api/v1/audits/audit/execution/events?pageSize=100&kind=${kind}`).flush({
+        items: [{ id: 402, atUtc: '', kind, detail: 'sentinel.source.sbom-diff · mesma origem e fonte; referência histórica verificada.' }],
+        nextBeforeId: null,
+      });
+      fixture.detectChanges();
+      expect(fixture.nativeElement.textContent).toContain('Inventário de dependências');
+      expect(fixture.nativeElement.textContent).toContain('mesma origem e fonte');
+    }
+    fixture.destroy();
+    http.verify();
+  });
   it('troca de auditoria cancela resposta pendente e limpa filtros e dados', () => {
     const { fixture, page, http } = render();
     page.refresh();

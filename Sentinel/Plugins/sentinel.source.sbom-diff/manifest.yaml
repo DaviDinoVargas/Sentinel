@@ -2,7 +2,7 @@ apiVersion: sentinel.dev/v1
 kind: PluginManifest
 metadata:
   id: sentinel.source.sbom-diff
-  version: 1.0.0
+  version: 1.0.1
   name: Diferença de dependências entre revisões (SUP-06)
 spec:
   type: dependency-analyzer

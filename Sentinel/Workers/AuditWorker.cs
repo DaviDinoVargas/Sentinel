@@ -97,10 +97,14 @@ public sealed class AuditWorker(
                 {
                     stage = "sbom-diff-historico";
                     currentInventoryJson = await FindInventoryEvidenceAsync(payload.ProjectId, payload.AuditId, executionCts.Token);
-                    var priorAudit = store.GetAudits(payload.ProjectId)
-                        .Where(candidate => candidate.TargetUri == target && candidate.State == AuditState.Completed && candidate.Id != payload.AuditId)
-                        .OrderByDescending(candidate => candidate.CreatedAtUtc).FirstOrDefault();
-                    if (priorAudit is not null) priorInventoryJson = await FindInventoryEvidenceAsync(payload.ProjectId, priorAudit.Id, executionCts.Token);
+                    var prior = await store.FindEvidenceAuditsAsync(payload.ProjectId, existing.DataOrigin, "sentinel.source.inventory",
+                        null, 1, executionCts.Token, targetUrl: target.AbsoluteUri, createdBeforeUtc: existing.CreatedAtUtc);
+                    if (prior.Count > 0)
+                    {
+                        priorInventoryJson = await FindInventoryEvidenceAsync(payload.ProjectId, prior[0].Id, executionCts.Token);
+                        coordinator.Trail(lease, priorInventoryJson is null ? "SourceInventoryUnavailable" : "SourceInventorySelected",
+                            $"{manifest.Metadata.Id} · Inventário da revisão histórica {prior[0].Id}, criada em {prior[0].CreatedAtUtc:O}, mesma origem {existing.DataOrigin} e fonte. Leitura de evidência: {(priorInventoryJson is null ? "indisponível ou não verificada" : "integridade e vínculo de fonte verificados; completude avaliada pelo consumidor")}. Nenhum histórico de outra origem foi fornecido.");
+                    }
                     stage = "sandbox";
                 }
                 string? openApiJson = null;
@@ -204,14 +208,25 @@ public sealed class AuditWorker(
     private async Task<string?> FindInventoryEvidenceAsync(Guid projectId, Guid auditId, CancellationToken ct, string pluginId = "sentinel.source.inventory")
     {
         var audit = store.FindAudit(auditId);
-        var evidence = audit?.Evidence.SingleOrDefault(item => item.Artifact?.SourcePluginId == pluginId);
-        if (evidence is null) return null;
+        if (audit?.ProjectId != projectId) return null;
+        var matches = audit.Evidence.Where(item => item.Artifact?.SourcePluginId == pluginId).ToArray();
+        if (matches.Length != 1) return null;
+        var evidence = matches[0];
         try
         {
             var verified = await artifacts.ReadAsync(projectId, auditId, evidence, ct);
-            if (!verified.IntegrityVerified) return null;
+            if (!verified.IntegrityVerified || verified.Metadata.Truncated || verified.Metadata.SourcePluginId != pluginId) return null;
             using var wrapper = JsonDocument.Parse(verified.Content);
-            return wrapper.RootElement.TryGetProperty("details", out var details) && details.ValueKind == JsonValueKind.String ? details.GetString() : null;
+            if (!wrapper.RootElement.TryGetProperty("truncated", out var wrapperTruncated) || wrapperTruncated.ValueKind != JsonValueKind.False) return null;
+            if (!wrapper.RootElement.TryGetProperty("details", out var details) || details.ValueKind != JsonValueKind.String) return null;
+            var json = details.GetString();
+            using var inventory = JsonDocument.Parse(json!);
+            var binding = coordinator.Payload(auditId);
+            if (binding is not { Action: "source-analysis", Source: { } source } || binding.ProjectId != projectId || binding.AuditId != auditId || binding.ScopeId != audit.ScopeId ||
+                !Uri.TryCreate(binding.TargetUrl, UriKind.Absolute, out var boundTarget) || boundTarget != audit.TargetUri ||
+                inventory.RootElement.ValueKind != JsonValueKind.Object || !inventory.RootElement.TryGetProperty("sourceSha256", out var hash) ||
+                hash.ValueKind != JsonValueKind.String || hash.GetString() != source.Sha256) return null;
+            return json;
         }
         catch (Exception exception) when (exception is InvalidOperationException or System.Security.Cryptography.CryptographicException or IOException or JsonException
             or Sentinel.Evidence.EvidenceExpiredException or Sentinel.Evidence.EvidenceStorageUnavailableException)

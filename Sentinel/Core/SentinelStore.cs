@@ -15,7 +15,7 @@ public interface ISentinelStore
     Audit? FindAudit(Guid auditId);
     IReadOnlyList<Audit> GetAudits(Guid projectId);
     Task<IReadOnlyList<EvidenceAuditCandidate>> FindEvidenceAuditsAsync(Guid projectId, string dataOrigin, string producerPluginId,
-        EvidenceAuditCandidate? before, int pageSize, CancellationToken cancellationToken);
+        EvidenceAuditCandidate? before, int pageSize, CancellationToken cancellationToken, string? targetUrl = null, DateTimeOffset? createdBeforeUtc = null);
     Task<AuditHistoryPage> GetAuditHistoryAsync(Guid projectId, int limit, int offset, CancellationToken cancellationToken, string? dataOrigin = null, string? state = null, string? target = null);
 
     // Fila de execução real (ADR-0004): a auditoria e a mensagem do outbox são gravadas

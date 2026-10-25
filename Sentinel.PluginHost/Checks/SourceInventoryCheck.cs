@@ -15,6 +15,8 @@ public sealed class SourceInventoryCheck : IIsolatedCheck
         if (files.Length > SourceArchivePolicy.MaximumFiles) throw new InvalidDataException("Inventário excedeu orçamento.");
         var extensions = files.GroupBy(f => Path.GetExtension(f).ToLowerInvariant()).Select(g => new { extension = string.IsNullOrEmpty(g.Key) ? "(sem extensão)" : g.Key, count = g.Count() }).OrderByDescending(g => g.count).Take(30).ToArray();
         var dependencies = new List<object>(); var unparsed = new List<string>(); var parsed = 0; var dependencyCount = 0;
+        var unparsedKeys = new HashSet<string>(StringComparer.Ordinal);
+        void MarkUnparsed(string file) { if (unparsedKeys.Add(file)) unparsed.Add(file); }
         string Relative(string file) => Path.GetRelativePath(request.SourceRoot, file).Replace('\\', '/');
         static string SafeVersion(string value) => Regex.IsMatch(value, "^[v0-9A-Za-z.*^~<>|= +_-]{1,100}$") ? value : "referência não exportada";
         static bool Package(string name) => Regex.IsMatch(name, "^(@[A-Za-z0-9_.-]+/)?[A-Za-z0-9_.-]{1,150}$");
@@ -25,12 +27,21 @@ public sealed class SourceInventoryCheck : IIsolatedCheck
             {
                 try {
                     using var json = JsonDocument.Parse(await File.ReadAllTextAsync(file, ct), new JsonDocumentOptions { MaxDepth = 32 });
+                    if (json.RootElement.ValueKind != JsonValueKind.Object || json.RootElement.EnumerateObject().GroupBy(property => property.Name).Any(group => group.Count() != 1))
+                        throw new JsonException("Manifesto ambíguo ou inválido.");
                     foreach (var kind in new[] { "dependencies", "devDependencies", "peerDependencies", "optionalDependencies" })
-                        if (json.RootElement.TryGetProperty(kind, out var packages) && packages.ValueKind == JsonValueKind.Object)
-                            foreach (var package in packages.EnumerateObject()) if (Package(package.Name) && package.Value.ValueKind == JsonValueKind.String)
-                            { dependencyCount++; if (dependencies.Count < 100) dependencies.Add(new { ecosystem = "npm", name = package.Name, declaredVersion = SafeVersion(package.Value.GetString()!), kind, file = relative }); }
+                        if (json.RootElement.TryGetProperty(kind, out var packages))
+                        {
+                            if (packages.ValueKind != JsonValueKind.Object) { MarkUnparsed(relative); continue; }
+                            if (packages.EnumerateObject().GroupBy(property => property.Name).Any(group => group.Count() != 1)) MarkUnparsed(relative);
+                            foreach (var package in packages.EnumerateObject())
+                            {
+                                if (!Package(package.Name) || package.Value.ValueKind != JsonValueKind.String) { MarkUnparsed(relative); continue; }
+                                dependencyCount++; if (dependencies.Count < 100) dependencies.Add(new { ecosystem = "npm", name = package.Name, declaredVersion = SafeVersion(package.Value.GetString()!), kind, file = relative });
+                            }
+                        }
                     parsed++;
-                } catch (Exception ex) when (ex is JsonException or InvalidOperationException) { unparsed.Add(relative); }
+                } catch (Exception ex) when (ex is JsonException or InvalidOperationException) { MarkUnparsed(relative); }
             }
             else if (name.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase))
             {
@@ -42,11 +53,12 @@ public sealed class SourceInventoryCheck : IIsolatedCheck
                         var package = item.Attribute("Include")?.Value ?? item.Attribute("Update")?.Value;
                         var version = item.Attribute("Version")?.Value ?? item.Elements().FirstOrDefault(e => e.Name.LocalName == "Version")?.Value ?? "não resolvida";
                         if (package is not null && Package(package)) { dependencyCount++; if (dependencies.Count < 100) dependencies.Add(new { ecosystem = "NuGet", name = package, declaredVersion = SafeVersion(version), kind = "PackageReference", file = relative }); }
+                        else MarkUnparsed(relative);
                     }
                     parsed++;
-                } catch (XmlException) { unparsed.Add(relative); }
+                } catch (XmlException) { MarkUnparsed(relative); }
             }
-            else if (name is "requirements.txt" or "pyproject.toml" or "Cargo.toml" or "go.mod" or "pom.xml" or "build.gradle" or "composer.json" or "Gemfile" or "Directory.Packages.props") unparsed.Add(relative);
+            else if (name is "requirements.txt" or "pyproject.toml" or "Cargo.toml" or "go.mod" or "pom.xml" or "build.gradle" or "composer.json" or "Gemfile" or "Directory.Packages.props") MarkUnparsed(relative);
         }
         var unparsedCount = unparsed.Count;
         string Describe() => JsonSerializer.Serialize(new { kind = "source-inventory-v1", sourceSha256 = request.SourceSha256, fileCount = files.Length, extensions = extensions.Take(16), parsedManifests = parsed,

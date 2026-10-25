@@ -287,7 +287,7 @@ public sealed class PostgresSentinelStore : ISentinelStore
     }
 
     public async Task<IReadOnlyList<EvidenceAuditCandidate>> FindEvidenceAuditsAsync(Guid projectId, string dataOrigin, string producerPluginId,
-        EvidenceAuditCandidate? before, int pageSize, CancellationToken cancellationToken)
+        EvidenceAuditCandidate? before, int pageSize, CancellationToken cancellationToken, string? targetUrl = null, DateTimeOffset? createdBeforeUtc = null)
     {
         if (!DataOrigins.Valid(dataOrigin) || string.IsNullOrWhiteSpace(producerPluginId) || pageSize is < 1 or > 100)
             throw new ArgumentException("Origem, produtor e tamanho de página válidos são obrigatórios.");
@@ -295,6 +295,8 @@ public sealed class PostgresSentinelStore : ISentinelStore
         var producer = System.Text.Json.JsonSerializer.Serialize(new { SourcePluginId = producerPluginId });
         var query = db.Audits.AsNoTracking().Where(audit => audit.ProjectId == projectId && audit.DataOrigin == dataOrigin && audit.State == "Completed" &&
             audit.Evidence.Any(evidence => evidence.ArtifactMetadataJson != null && EF.Functions.JsonContains(evidence.ArtifactMetadataJson, producer)));
+        if (targetUrl is not null) query = query.Where(audit => audit.TargetUrl == targetUrl);
+        if (createdBeforeUtc is not null) query = query.Where(audit => audit.CreatedAtUtc < createdBeforeUtc);
         if (before is not null)
             query = query.Where(audit => audit.CreatedAtUtc < before.CreatedAtUtc || audit.CreatedAtUtc == before.CreatedAtUtc && audit.Id.CompareTo(before.Id) < 0);
         return await query.OrderByDescending(audit => audit.CreatedAtUtc).ThenByDescending(audit => audit.Id)

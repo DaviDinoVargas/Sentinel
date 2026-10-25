@@ -300,6 +300,7 @@ O plugin consumidor declara `capabilities.openApiRead: true` e a permissão `pro
 
 Cada contrato ainda precisa passar pela validação de integridade, proveniência e completude dos artefatos. `InventoryUnavailable` informa a lacuna; `InventorySelected` registra qual auditoria histórica forneceu o contrato, sua data/origem e quantos candidatos mais recentes foram recusados. Um contrato histórico íntegro não comprova que a implantação atual permaneceu igual. O catálogo de plugins mostra a capacidade e a tela de eventos permite acompanhar a seleção. A aprovação automática de manifestos locais continua sendo uma limitação de governança; não equivale à admissão empresarial de plugins de terceiros.
 
+
 ### Precisão das observações de segurança
 
 CORS observa a origem sintética efetivamente enviada, sem concluir que qualquer site pode ler dados autenticados. A combinação de wildcard e credenciais é recusada pelo navegador para requisições credenciadas, portanto não é tratada como prova de vazamento. Valores duplicados/combinados ficam inconclusivos; o valor de credenciais usa comparação case-sensitive conforme [Fetch](https://fetch.spec.whatwg.org/#cors-protocol-and-credentials).
@@ -307,3 +308,11 @@ CORS observa a origem sintética efetivamente enviada, sem concluir que qualquer
 A qualidade da CSP combina todas as políticas obrigatórias da resposta, respeitando fallback, diretivas de elemento/atributo, nonce/hash, strict-dynamic e sandbox. Não registra CSP/nonces brutos e não promete execução/proteção XSS com base apenas em cabeçalhos. Referência: [CSP3, trabalho em desenvolvimento no W3C](https://www.w3.org/TR/CSP3/#multiple-policies). O recorte CSP/CORS/cabeçalhos passou45/45; os cenários de CSP isolados passaram23/23, comparados a9/23 na implementação anterior.
 
 A leitura governada de contratos passou8/8 testes: quatro de coerência da capacidade, um de consulta PostgreSQL com paginação/isolamento e três de proveniência de artefatos cifrados. As telas do catálogo/histórico passaram14/14. A opção de compatibilidade Docker passou16/16 testes de configuração/monitor e5/5UI; ainda não foi ativada nem validada com override contra o daemon local. As sondagens SQL diferenciais passaram10/10 casos de processo isolado/gateway sintético. Esses recortes não substituem a nova regressão integrada ou a homologação empresarial.
+
+### Comparação de declarações de dependências
+
+O comparador SUP-06 usa a revisão concluída mais recente da mesma fonte, projeto e origem, anterior à auditoria atual. A seleção é feita no PostgreSQL, sem materializar todo o histórico. O host verifica integridade, ausência de truncamento do artefato e vínculo ao hash do snapshot; o histórico da execução expõe a referência selecionada ou sua indisponibilidade.
+
+Inventários inválidos, ambíguos, incompletos, com versões redigidas ou manifestos sem interpretação não são convertidos em listas vazias. A comparação fica inconclusiva, sem afirmar ausência de mudanças ou remoção de pacotes. As seções npm são distintas e nomes NuGet respeitam a equivalência de caixa. Metadados inválidos em package.json/csproj ficam registrados como cobertura incompleta. O recorte de banco, containers reais e formato passou25/25; a tela de eventos passou10/10.
+
+A cobertura atual permanece em declarações de package.json/csproj. O produtor v1 ainda possui orçamento/recorte de exportação e não resolve dependências transitivas, MSBuild ou outros ecossistemas; uma comparação inconclusiva é uma lacuna explícita, não homologação de SCA completa. A expansão do inventário em partes e dos adaptadores permanece no desenvolvimento.

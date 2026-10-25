@@ -67,6 +67,15 @@ public sealed class EvidenceAuditCandidateTests
         Assert.Equal(12, (await store.FindEvidenceAuditsAsync(project.Id, DataOrigins.Software, producer, null, 100, CancellationToken.None)).Count);
         Assert.Single(await store.FindEvidenceAuditsAsync(project.Id, DataOrigins.Unknown, producer, null, 100, CancellationToken.None));
 
+        var wrongTarget = Row(project.Id, DataOrigins.Synthetic, "Completed", at.AddSeconds(-1), producer);
+        wrongTarget.TargetUrl = "http://localhost:21340/other-source/";
+        db.Audits.Add(wrongTarget); await db.SaveChangesAsync();
+        var boundedTarget = await store.FindEvidenceAuditsAsync(project.Id, DataOrigins.Synthetic, producer, null, 100, CancellationToken.None,
+            targetUrl: expected[0].TargetUrl, createdBeforeUtc: at.AddSeconds(1));
+        Assert.Equal(expected.Select(item => item.Id).Order(), boundedTarget.Select(item => item.Id).Order());
+        Assert.Empty(await store.FindEvidenceAuditsAsync(project.Id, DataOrigins.Synthetic, producer, null, 100, CancellationToken.None,
+            targetUrl: expected[0].TargetUrl, createdBeforeUtc: at.AddSeconds(-1)));
+
         // A separate non-system context cannot see the same project's candidate IDs.
         var accessor = new HttpContextAccessor { HttpContext = new DefaultHttpContext() };
         accessor.HttpContext.User = new ClaimsPrincipal(new ClaimsIdentity([new Claim("organization_id", Guid.NewGuid().ToString())], "fixture"));
