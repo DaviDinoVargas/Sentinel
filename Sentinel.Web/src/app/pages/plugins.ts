@@ -47,7 +47,14 @@ import { Icon } from '../design-system/icon';
             <dt>Rede</dt>
             <dd>{{ runtime.network }}</dd>
             <dt>API Docker do worker</dt>
-            <dd>{{ runtime.mode === 'container' ? (runtime.dockerApiVersion ?? 'Negociação automática do cliente') : 'Não aplicada em modo processo' }} · disponibilidade no monitor</dd>
+            <dd>
+              {{
+                runtime.mode === 'container'
+                  ? (runtime.dockerApiVersion ?? 'Negociação automática do cliente')
+                  : 'Não aplicada em modo processo'
+              }}
+              · disponibilidade no monitor
+            </dd>
             <dt>TLS / HTTP</dt>
             <dd>Certificado e SNI do alvo autorizado, inclusive nos probes de Host · HTTP/1.1</dd>
             <dt>Filesystem / usuário</dt>
@@ -152,6 +159,16 @@ import { Icon } from '../design-system/icon';
                 <dl class="detail-list">
                   <dt>Tipo / risco declarado</dt>
                   <dd>{{ plugin.type }} / {{ plugin.riskClass }}</dd>
+                  <dt>Ativação</dt>
+                  <dd>
+                    {{
+                      plugin.activation === 'explicit'
+                        ? 'Opcional · exige seleção na auditoria'
+                        : 'Automática no perfil compatível'
+                    }}
+                  </dd>
+                  <dt>Perfis compatíveis</dt>
+                  <dd>{{ plugin.eligibleProfiles?.join(', ') || 'Não informado' }}</dd>
                   <dt>Timeout aplicado</dt>
                   <dd>{{ plugin.resources.timeoutSeconds }} segundos</dd>
                   <dt>Memória aplicada</dt>
@@ -176,7 +193,13 @@ import { Icon } from '../design-system/icon';
                   <dt>Escrita de artefatos</dt>
                   <dd>{{ plugin.capabilities.artifactWrite ? 'Solicitada' : 'Não solicitada' }}</dd>
                   <dt>Leitura de contrato OpenAPI</dt>
-                  <dd>{{ plugin.capabilities.openApiRead ? 'Mesmo projeto e origem · integridade e completude verificadas' : 'Não solicitada' }}</dd>
+                  <dd>
+                    {{
+                      plugin.capabilities.openApiRead
+                        ? 'Mesmo projeto e origem · integridade e completude verificadas'
+                        : 'Não solicitada'
+                    }}
+                  </dd>
                   <dt>Permissões</dt>
                   <dd>{{ plugin.permissions.join(', ') || 'Nenhuma' }}</dd>
                   <dt>Contrato / manifesto</dt>

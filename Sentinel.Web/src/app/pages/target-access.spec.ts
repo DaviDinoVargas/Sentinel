@@ -151,6 +151,7 @@ describe('Acessos do alvo', () => {
     http.expectOne('/api/v1/projects/project-a/target-credentials').flush([profile]);
     fixture.componentInstance.scenarioForm.setValue({
       profileId: profile.id,
+      secondaryProfileId: '',
       targetUrl: 'http://localhost:8080/recurso',
       expectedAccess: 'deny',
       includeLoad: false,
@@ -174,6 +175,7 @@ describe('Acessos do alvo', () => {
     expect(fixture.componentInstance.availabilityLabel(profile)).toBe('Escopo revogado');
     fixture.componentInstance.scenarioForm.setValue({
       profileId: profile.id,
+      secondaryProfileId: '',
       targetUrl: 'http://localhost:8080/recurso',
       expectedAccess: 'allow',
       includeLoad: false,
@@ -181,5 +183,50 @@ describe('Acessos do alvo', () => {
     });
     fixture.componentInstance.execute();
     http.expectNone('/api/v1/projects/project-a/audits');
+  });
+  it('envia segunda identidade do mesmo escopo e exclui credenciais incompatíveis', () => {
+    const second = { ...profile, id: 'credential-b', tenantLabel: 'Empresa B' };
+    http
+      .expectOne('/api/v1/projects/project-a/target-credentials')
+      .flush([
+        profile,
+        second,
+        { ...profile, id: 'other-scope', scopeId: 'scope-b' },
+        { ...profile, id: 'login', credentialType: 'JsonLogin' },
+        { ...profile, id: 'revoked', revokedAtUtc: '2026-10-19T00:00:00Z' },
+      ]);
+    const page = fixture.componentInstance;
+    page.scenarioForm.patchValue({
+      profileId: profile.id,
+      targetUrl: 'http://localhost:8080/recurso',
+      confirmed: true,
+    });
+    page.scenarioForm.controls.secondaryProfileId.setValue(second.id);
+    page.scenarioForm.controls.confirmed.setValue(true);
+    expect(page.secondaryProfiles().map((p) => p.id)).toEqual([second.id]);
+    page.execute();
+    const request = http.expectOne('/api/v1/projects/project-a/audits');
+    expect(request.request.body.secondaryCredentialProfileId).toBe(second.id);
+    expect(request.request.body.credentialProfileId).toBe(profile.id);
+    request.flush({}, { status: 400, statusText: 'Fixture stopped' });
+  });
+  it('recusa segunda identidade inválida e limpa seleção ao trocar a identidade principal', () => {
+    http.expectOne('/api/v1/projects/project-a/target-credentials').flush([profile]);
+    const page = fixture.componentInstance;
+    page.scenarioForm.patchValue({
+      profileId: profile.id,
+      targetUrl: 'http://localhost:8080/recurso',
+      confirmed: true,
+    });
+    page.scenarioForm.controls.secondaryProfileId.setValue('unknown');
+    page.scenarioForm.controls.confirmed.setValue(true);
+    page.execute();
+    expect(page.error()).toContain('Segunda identidade');
+    http.expectNone('/api/v1/projects/project-a/audits');
+    page.optionalPlugins.set(['dual']);
+    page.scenarioForm.controls.profileId.setValue('different');
+    expect(page.scenarioForm.controls.secondaryProfileId.value).toBe('');
+    expect(page.optionalPlugins()).toEqual([]);
+    expect(page.scenarioForm.controls.confirmed.value).toBe(false);
   });
 });

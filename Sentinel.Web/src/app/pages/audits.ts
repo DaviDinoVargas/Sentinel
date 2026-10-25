@@ -17,9 +17,18 @@ import { AuthSessionService } from '../core/auth-session.service';
 import { AuditHistory } from './audit-history';
 import { EvidenceViewer } from '../design-system/evidence-viewer';
 import { ExecutionEvents } from './execution-events';
+import { OptionalPluginPicker } from '../design-system/optional-plugin-picker';
 
 @Component({
-  imports: [CommonModule, ReactiveFormsModule, RouterLink, EmptyState, Icon, AuditHistory],
+  imports: [
+    CommonModule,
+    ReactiveFormsModule,
+    RouterLink,
+    EmptyState,
+    Icon,
+    AuditHistory,
+    OptionalPluginPicker,
+  ],
   template: `
     <div class="page-heading">
       <div>
@@ -65,7 +74,9 @@ import { ExecutionEvents } from './execution-events';
             >Perfil de execução<select
               [value]="profile()"
               (change)="
-                profile.set($any($event.target).value); form.controls.confirmed.setValue(false)
+                profile.set($any($event.target).value);
+                optionalPlugins.set([]);
+                form.controls.confirmed.setValue(false)
               "
             >
               <option value="simulated">Verificações HTTP de baixo risco</option>
@@ -77,11 +88,11 @@ import { ExecutionEvents } from './execution-events';
           @if (profile() === 'lab-active') {
             <div class="banner warning">
               <span
-                >Somente localhost/IP de loopback e escopo de ambiente laboratorio. Até 40 GETs de
-                carga, concorrência 2, até 10 permissões/s compartilhadas por host/porta, mais até 5
-                probes GET. Uma auditoria por alvo. A carga para em 429, 5xx, timeout,
-                redirecionamento ou latência acima de 1500 ms. A confirmação abaixo autoriza este
-                perfil ativo.</span
+                >Somente localhost/IP de loopback e escopo de ambiente laboratorio. Os plugins
+                compartilham o orçamento global do alvo e respeitam os limites declarados no
+                catálogo. Operações de escrita opcionais exigem método autorizado no escopo e no
+                manifesto. A confirmação abaixo autoriza este perfil e as verificações opcionais
+                selecionadas.</span
               >
             </div>
           }
@@ -110,6 +121,12 @@ import { ExecutionEvents } from './execution-events';
               </select></label
             >
           </div>
+          <s-optional-plugin-picker
+            [action]="profile()"
+            [selected]="optionalPlugins()"
+            [disabled]="submitting()"
+            (selectionChange)="optionalPlugins.set($event)"
+          />
           <div class="audit-submit">
             <label class="check-field"
               ><input type="checkbox" formControlName="confirmed" /><span
@@ -175,6 +192,7 @@ export class AuditsPage {
   readonly ws = inject(WorkspaceService);
   private readonly router = inject(Router);
   readonly submitting = signal(false);
+  readonly optionalPlugins = signal<string[]>([]);
   readonly form = inject(FormBuilder).nonNullable.group({
     targetUrl: [
       '',
@@ -189,8 +207,8 @@ export class AuditsPage {
         ?.plugins.filter(
           (plugin) =>
             !plugin.isFixture &&
-            plugin.id !== 'sentinel.lab.authenticated-access' &&
-            plugin.mode === (this.profile() === 'lab-active' ? 'active' : 'passive'),
+            plugin.eligibleProfiles?.includes(this.profile()) &&
+            (plugin.activation !== 'explicit' || this.optionalPlugins().includes(plugin.id)),
         ).length ?? 0,
   );
   readonly profile = signal('simulated');
@@ -219,6 +237,16 @@ export class AuditsPage {
         this.profile() === 'lab-active' && this.form.controls.confirmed.value,
         undefined,
         this.ws.dataOrigin(),
+        this.optionalPlugins().filter((id) =>
+          this.ws
+            .catalog()
+            ?.plugins.some(
+              (plugin) =>
+                plugin.id === id &&
+                plugin.activation === 'explicit' &&
+                plugin.eligibleProfiles?.includes(this.profile()),
+            ),
+        ),
       )
       .subscribe({
         next: complete,

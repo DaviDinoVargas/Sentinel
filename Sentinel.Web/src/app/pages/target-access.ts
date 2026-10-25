@@ -7,6 +7,7 @@ import { Subject, takeUntil } from 'rxjs';
 import { WorkspaceService } from '../core/workspace.service';
 import { AuthSessionService } from '../core/auth-session.service';
 import { TargetCredential } from '../core/sentinel-api.service';
+import { OptionalPluginPicker } from '../design-system/optional-plugin-picker';
 import { Badge, EmptyState } from '../design-system/ui';
 import {
   TargetLoginFields,
@@ -17,7 +18,15 @@ import {
 } from './target-login-fields';
 
 @Component({
-  imports: [CommonModule, ReactiveFormsModule, RouterLink, Badge, EmptyState, TargetLoginFields],
+  imports: [
+    CommonModule,
+    ReactiveFormsModule,
+    RouterLink,
+    Badge,
+    EmptyState,
+    TargetLoginFields,
+    OptionalPluginPicker,
+  ],
   template: `
     <div class="page-heading">
       <div>
@@ -277,6 +286,24 @@ import {
             >
           </div>
           <label
+            >Segunda identidade opcional (Bearer)
+            <select
+              formControlName="secondaryProfileId"
+              (change)="scenarioForm.controls.includeLoad.setValue(false); optionalPlugins.set([])"
+            >
+              <option value="">Sem segunda identidade</option>
+              @for (secondary of secondaryProfiles(); track secondary.id) {
+                <option [value]="secondary.id">
+                  {{ secondary.name }} · {{ secondary.persona }} · {{ secondary.tenantLabel }}
+                </option>
+              }
+            </select>
+          </label>
+          <p class="help">
+            Duas identidades exigem o mesmo escopo, acesso permitido e ausência de carga. A segunda
+            identidade aceita Bearer; login JSON secundário será ampliado.
+          </p>
+          <label
             >URL exata do recurso<input
               type="url"
               formControlName="targetUrl"
@@ -293,11 +320,19 @@ import {
               Somente para acesso permitido.</span
             ></label
           >
+          <s-optional-plugin-picker
+            action="authenticated-lab"
+            [selected]="optionalPlugins()"
+            [secondary]="!!scenarioForm.controls.secondaryProfileId.value"
+            [disabled]="busy()"
+            (selectionChange)="optionalPlugins.set($event)"
+          />
           <label class="check-field"
             ><input type="checkbox" formControlName="confirmed" /><span
-              >Confirmo o uso desta identidade sintética e os GETs no laboratório autorizado. Perfis
-              de usuário/senha também enviam um POST de login por plugin, no máximo dois quando a
-              carga está incluída, dentro do mesmo orçamento de taxa.</span
+              >Confirmo as identidades sintéticas e as operações dos plugins selecionados no
+              laboratório autorizado. Perfis de usuário/senha enviam POST de login por plugin,
+              dentro do orçamento global de taxa. Operações opcionais continuam sujeitas ao escopo e
+              ao manifesto aprovado.</span
             ></label
           >
           <button
@@ -400,19 +435,37 @@ export class TargetAccessPage {
   });
   readonly scenarioForm = this.fb.group({
     profileId: ['', Validators.required],
+    secondaryProfileId: [''],
     expectedAccess: ['allow'],
     targetUrl: ['', [Validators.required, Validators.pattern(/^https?:\/\/[^\s]+$/i)]],
     includeLoad: [false],
     confirmed: [false, Validators.requiredTrue],
   });
+  readonly optionalPlugins = signal<string[]>([]);
   constructor() {
     this.scenarioForm.controls.expectedAccess.valueChanges
       .pipe(takeUntilDestroyed(this.destroy))
       .subscribe((value) => {
         const load = this.scenarioForm.controls.includeLoad;
         load.setValue(false, { emitEvent: false });
+        this.scenarioForm.controls.secondaryProfileId.setValue('', { emitEvent: false });
+        this.optionalPlugins.set([]);
         if (value === 'allow') load.enable({ emitEvent: false });
         else load.disable({ emitEvent: false });
+      });
+    this.scenarioForm.controls.profileId.valueChanges
+      .pipe(takeUntilDestroyed(this.destroy))
+      .subscribe(() => {
+        this.scenarioForm.controls.secondaryProfileId.setValue('', { emitEvent: false });
+        this.scenarioForm.controls.confirmed.setValue(false, { emitEvent: false });
+        this.optionalPlugins.set([]);
+      });
+    this.scenarioForm.controls.secondaryProfileId.valueChanges
+      .pipe(takeUntilDestroyed(this.destroy))
+      .subscribe(() => {
+        this.scenarioForm.controls.includeLoad.setValue(false, { emitEvent: false });
+        this.scenarioForm.controls.confirmed.setValue(false, { emitEvent: false });
+        this.optionalPlugins.set([]);
       });
     let previous = '';
     effect((cleanup) => {
@@ -435,6 +488,7 @@ export class TargetAccessPage {
         resetLogin(this.rotationLogin);
         this.rotationForm.reset({ expires: this.defaultExpiry() });
         this.scenarioForm.reset();
+        this.optionalPlugins.set([]);
         this.rotating.set(null);
         this.error.set('');
         this.notice.set('');
@@ -576,9 +630,24 @@ export class TargetAccessPage {
         error: () => this.fail(),
       });
   }
+  secondaryProfiles(): TargetCredential[] {
+    const primary = this.profiles().find(
+      (profile) => profile.id === this.scenarioForm.controls.profileId.value,
+    );
+    if (!primary) return [];
+    return this.activeProfiles().filter(
+      (profile) =>
+        profile.id !== primary.id &&
+        profile.scopeId === primary.scopeId &&
+        (profile.credentialType ?? 'Bearer') === 'Bearer',
+    );
+  }
   execute(): void {
     const value = this.scenarioForm.getRawValue();
     const profile = this.profiles().find((profile) => profile.id === value.profileId);
+    const secondary = value.secondaryProfileId
+      ? this.secondaryProfiles().find((item) => item.id === value.secondaryProfileId)
+      : undefined;
     if (
       this.busy() ||
       this.scenarioForm.invalid ||
@@ -587,6 +656,15 @@ export class TargetAccessPage {
       !this.available(profile)
     )
       return;
+    if (
+      value.secondaryProfileId &&
+      (!secondary || value.expectedAccess !== 'allow' || value.includeLoad)
+    ) {
+      this.error.set(
+        'Segunda identidade exige perfil Bearer disponível no mesmo escopo, acesso permitido e ausência de carga.',
+      );
+      return;
+    }
     if (value.includeLoad && value.expectedAccess !== 'allow') {
       this.error.set('Carga exige expectativa de acesso permitido.');
       return;
@@ -613,8 +691,20 @@ export class TargetAccessPage {
           credentialProfileId: profile.id,
           expectedAccess: value.expectedAccess,
           includeAuthenticatedLoad: value.includeLoad,
+          ...(secondary ? { secondaryCredentialProfileId: secondary.id } : {}),
         },
         this.ws.dataOrigin(),
+        this.optionalPlugins().filter((id) =>
+          this.ws
+            .catalog()
+            ?.plugins.some(
+              (plugin) =>
+                plugin.id === id &&
+                plugin.activation === 'explicit' &&
+                plugin.eligibleProfiles?.includes('authenticated-lab') &&
+                (plugin.capabilities.gateway?.identity !== 'dual' || !!secondary),
+            ),
+        ),
       )
       .pipe(takeUntil(this.contextChanged), takeUntilDestroyed(this.destroy))
       .subscribe({

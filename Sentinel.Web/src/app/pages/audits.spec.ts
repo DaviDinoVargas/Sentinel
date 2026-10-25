@@ -4,6 +4,7 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { provideRouter, Router } from '@angular/router';
 import { AuditsPage } from './audits';
 import { WorkspaceService } from '../core/workspace.service';
+import { PluginCatalog } from '../core/sentinel-api.service';
 
 describe('AuditsPage', () => {
   beforeEach(() =>
@@ -69,6 +70,28 @@ describe('AuditsPage', () => {
       dataOrigin: 'SoftwareUnderTest',
     });
     request.flush({ id: 'audit', state: 'Queued' });
+    http.verify();
+  });
+  it('envia somente os opcionais selecionados compatíveis com o perfil', () => {
+    const fixture = TestBed.createComponent(AuditsPage);
+    const page = fixture.componentInstance;
+    const ws = TestBed.inject(WorkspaceService);
+    ws.projectId.set('project');
+    ws.catalog.set({
+      plugins: [
+        { id: 'chosen', activation: 'explicit', eligibleProfiles: ['lab-active'] },
+        { id: 'other-profile', activation: 'explicit', eligibleProfiles: ['authenticated-lab'] },
+        { id: 'automatic', activation: 'default', eligibleProfiles: ['lab-active'] },
+      ],
+    } as unknown as PluginCatalog);
+    page.profile.set('lab-active');
+    page.optionalPlugins.set(['chosen', 'other-profile', 'automatic', 'unknown']);
+    page.form.setValue({ targetUrl: 'http://localhost:8080/', confirmed: true });
+    page.request();
+    const http = TestBed.inject(HttpTestingController);
+    const request = http.expectOne('/api/v1/projects/project/audits');
+    expect(request.request.body.additionalPlugins).toEqual(['chosen']);
+    request.flush({}, { status: 400, statusText: 'Fixture stopped' });
     http.verify();
   });
 });

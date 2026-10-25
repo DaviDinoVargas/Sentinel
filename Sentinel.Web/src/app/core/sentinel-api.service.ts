@@ -295,6 +295,8 @@ export interface Plugin {
   contractVersion: string;
   type: string;
   mode: string;
+  activation?: string;
+  eligibleProfiles?: string[];
   controls: string[];
   capabilities: {
     network: string;
@@ -302,6 +304,7 @@ export interface Plugin {
     artifactWrite: boolean;
     openApiRead?: boolean;
     gateway?: {
+      identity?: string;
       headerCount: number;
       headerValueLength: number;
       headerBytes: number;
@@ -496,8 +499,10 @@ export class SentinelApiService {
       credentialProfileId: string;
       expectedAccess: string;
       includeAuthenticatedLoad: boolean;
+      secondaryCredentialProfileId?: string;
     },
     dataOrigin: DataOrigin = 'SoftwareUnderTest',
+    additionalPlugins: readonly string[] = [],
   ) {
     return this.http.post<Audit>(`${this.baseUrl}/projects/${projectId}/audits`, {
       targetUrl,
@@ -505,6 +510,7 @@ export class SentinelApiService {
       confirmActive,
       dataOrigin,
       ...authentication,
+      ...(additionalPlugins.length ? { additionalPlugins } : {}),
     });
   }
   getAudit(auditId: string) {
