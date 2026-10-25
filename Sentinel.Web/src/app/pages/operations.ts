@@ -1,4 +1,4 @@
-import { Component, inject } from '@angular/core';
+import { Component, computed, effect, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { WorkspaceService } from '../core/workspace.service';
 import { Badge, EmptyState } from '../design-system/ui';
@@ -25,6 +25,36 @@ import { AuthSessionService } from '../core/auth-session.service';
         />
       </section>
     } @else if (ws.operations(); as ops) {
+      <section class="panel panel-pad section-gap" aria-label="Atualização da telemetria">
+        <div class="heading-actions">
+          <label
+            >Atualização automática<select
+              [value]="ws.operationsRefreshMs()"
+              (change)="ws.operationsRefreshMs.set(+$any($event.target).value)"
+            >
+              <option value="5000">A cada 5 segundos</option>
+              <option value="15000">A cada 15 segundos</option>
+              <option value="30000">A cada 30 segundos</option>
+              <option value="60000">A cada 60 segundos</option>
+            </select></label
+          >
+          <button
+            class="button"
+            (click)="ws.operationsAutoRefresh.set(!ws.operationsAutoRefresh())"
+            [attr.aria-pressed]="!ws.operationsAutoRefresh()"
+          >
+            {{ ws.operationsAutoRefresh() ? 'Pausar atualização' : 'Retomar atualização' }}
+          </button>
+          <span class="help"
+            >{{
+              ws.operationsAutoRefresh()
+                ? 'Atualização ativa'
+                : 'Pausada — dados podem estar desatualizados'
+            }}
+            · amostra {{ ops.sampledAtUtc | date: 'HH:mm:ss' }}</span
+          >
+        </div>
+      </section>
       <div class="metric-grid">
         <article class="metric">
           <div class="metric-top">Auditorias na fila <s-icon name="clock" /></div>
@@ -79,8 +109,9 @@ import { AuthSessionService } from '../core/auth-session.service';
           </div>
           <p class="help">
             Metadados no PostgreSQL; artefatos em armazenamento privado com retenção. Notificações
-            de auditorias já encerradas são preservadas como substituídas, sem novo envio. MinIO/S3
-            ainda não está integrado.
+            de auditorias já encerradas são preservadas como substituídas, sem novo envio. O host
+            suporta armazenamento local ou compatível com S3 conforme sua configuração; esta amostra
+            não informa utilização ou capacidade de disco.
           </p>
         </section>
         <section class="panel panel-pad">
@@ -111,6 +142,123 @@ import { AuthSessionService } from '../core/auth-session.service';
           </p>
         </section>
       </div>
+      <section class="panel panel-pad section-gap">
+        <div class="panel-header" style="padding:0 0 16px">
+          <div>
+            <p class="kicker">OBSERVAÇÃO DO BROKER</p>
+            <h2>Mensagens prontas ao longo do tempo</h2>
+            <p>Até 60 amostras observadas nesta visita · soma de todas as filas consultadas</p>
+          </div>
+          <span class="tag"
+            >{{ readyMessages() ?? '—' }} PRONTAS · {{ consumers() ?? '—' }} CONSUMIDORES</span
+          >
+        </div>
+        @if (samples().length > 1) {
+          <svg
+            class="queue-chart"
+            viewBox="0 0 600 120"
+            role="img"
+            aria-label="Evolução das mensagens prontas; valores e horários disponíveis na tabela abaixo"
+            preserveAspectRatio="none"
+          >
+            <path d="M0 110H600" stroke="var(--line-strong)" />
+            <polyline
+              [attr.points]="chartPoints()"
+              fill="none"
+              stroke="var(--accent)"
+              stroke-width="2"
+              vector-effect="non-scaling-stroke"
+            />
+          </svg>
+          <div class="status-line">
+            <span>{{ samples()[0].at | date: 'HH:mm:ss' }}</span
+            ><span>{{ samples()[samples().length - 1].at | date: 'HH:mm:ss' }}</span>
+          </div>
+        } @else {
+          <p class="help" role="status">
+            Aguardando a próxima amostra válida para desenhar a série.
+          </p>
+        }
+        <p class="help">
+          Escala vertical: 0–{{ chartMax() }} mensagens. Contagem instantânea; não representa taxa
+          de publicação, processamento ou mensagens sem confirmação. Esses indicadores exigem
+          telemetria adicional. As linhas conectam amostras observadas, sem medir os intervalos
+          entre elas.
+        </p>
+        <details>
+          <summary>Consultar valores das últimas amostras</summary>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Horário da amostra</th>
+                  <th>Mensagens prontas</th>
+                  <th>Consumidores</th>
+                  <th>Outbox pendente</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (sample of recentSamples(); track sample.at) {
+                  <tr>
+                    <td>{{ sample.at | date: 'HH:mm:ss' }}</td>
+                    <td>{{ sample.ready }}</td>
+                    <td>{{ sample.consumers }}</td>
+                    <td>{{ sample.pending ?? '—' }}</td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        </details>
+      </section>
+      @if (ws.catalog()?.runtime; as runtime) {
+        <section class="panel panel-pad section-gap">
+          <div class="panel-header" style="padding:0 0 16px">
+            <div>
+              <p class="kicker">EXECUÇÃO ISOLADA</p>
+              <h2>Runtime dos plugins</h2>
+              <p>
+                Monitor do host ·
+                {{
+                  runtime.monitor.sampledAtUtc
+                    ? (runtime.monitor.sampledAtUtc | date: 'dd/MM HH:mm:ss')
+                    : 'Sem amostra'
+                }}
+              </p>
+            </div>
+            <s-badge [value]="runtime.monitor.status" />
+          </div>
+          <div class="status-line">
+            <span>Modo configurado</span><strong>{{ runtime.mode }}</strong>
+          </div>
+          <div class="status-line">
+            <span>Containers ativos na amostra</span
+            ><strong>{{ runtime.monitor.activeContainers }}</strong>
+          </div>
+          <div class="status-line">
+            <span>Containers removidos pelo monitor</span
+            ><strong>{{ runtime.monitor.removedContainers }}</strong>
+          </div>
+          <div class="status-line">
+            <span>Rede do sandbox</span><strong>{{ runtime.network }}</strong>
+          </div>
+          <p class="help section-gap">
+            Imagem configurada:
+            <span class="mono break-code">{{ runtime.image || 'Não informada' }}</span>
+          </p>
+          @if (runtime.monitor.lastFailure; as failure) {
+            <p class="banner warning">
+              Última falha: {{ failure.code }} · {{ failure.operation }} ·
+              {{ failure.atUtc | date: 'dd/MM HH:mm:ss' }}
+            </p>
+          }
+          <p class="help">
+            Amostra do monitor de containers; não equivale à contagem de auditorias em execução. O
+            catálogo continua atualizado pelo workspace, independentemente da pausa da telemetria de
+            filas.
+          </p>
+        </section>
+      }
       <section class="panel section-gap">
         <div class="panel-header">
           <div>
@@ -170,8 +318,70 @@ import { AuthSessionService } from '../core/auth-session.service';
       </section>
     }
   `,
+  styles: `
+    .queue-chart {
+      display: block;
+      width: 100%;
+      height: 160px;
+      margin: 16px 0;
+    }
+    .heading-actions {
+      align-items: end;
+    }
+    .metric-grid {
+      margin-top: 24px;
+    }
+  `,
 })
 export class OperationsPage {
   readonly auth = inject(AuthSessionService);
   readonly ws = inject(WorkspaceService);
+  readonly samples = signal<
+    { at: string; ready: number; consumers: number; pending: number | null }[]
+  >([]);
+  readonly readyMessages = computed(() =>
+    this.ws.operations()?.broker.status === 'healthy'
+      ? this.ws.operations()!.broker.queues.reduce((sum, q) => sum + q.readyMessages, 0)
+      : null,
+  );
+  readonly consumers = computed(() =>
+    this.ws.operations()?.broker.status === 'healthy'
+      ? this.ws.operations()!.broker.queues.reduce((sum, q) => sum + q.consumers, 0)
+      : null,
+  );
+  readonly recentSamples = computed(() => this.samples().slice(-10).reverse());
+  readonly chartMax = computed(() => Math.max(1, ...this.samples().map((s) => s.ready)));
+  readonly chartPoints = computed(() => {
+    const samples = this.samples();
+    const start = Date.parse(samples[0]?.at ?? ''),
+      end = Date.parse(samples.at(-1)?.at ?? '');
+    return samples
+      .map(
+        (s) =>
+          `${((Date.parse(s.at) - start) * 600) / (end - start || 1)},${110 - (s.ready * 100) / this.chartMax()}`,
+      )
+      .join(' ');
+  });
+  constructor() {
+    let identity = '';
+    effect(() => {
+      const user = this.auth.profile();
+      const key = user ? user.subject + ':' + user.organization.id : '';
+      if (key !== identity || !this.auth.can('platform.manage')) {
+        this.samples.set([]);
+        identity = key;
+      }
+      const ops = this.ws.operations();
+      if (!this.auth.can('platform.manage') || !ops || ops.broker.status !== 'healthy') return;
+      const sample = {
+        at: ops.sampledAtUtc,
+        ready: this.readyMessages()!,
+        consumers: this.consumers()!,
+        pending: ops.database.pendingOutbox,
+      };
+      this.samples.update((all) =>
+        all.at(-1)?.at === sample.at ? all : [...all.slice(-59), sample],
+      );
+    });
+  }
 }

@@ -1,7 +1,7 @@
 import { Component, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
-import { RouterLink } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { WorkspaceService } from '../core/workspace.service';
 import { Icon } from '../design-system/icon';
 import { EmptyState } from '../design-system/ui';
@@ -23,7 +23,9 @@ import { AuthSessionService } from '../core/auth-session.service';
         <div class="panel-header">
           <div>
             <h2>Seus projetos</h2>
-            <p>Busca em todos os projetos autorizados · selecionar altera o contexto</p>
+            <p>
+              Abra um projeto para configurar alvos, fontes, acessos e consultar seus resultados.
+            </p>
           </div>
         </div>
         <div class="toolbar">
@@ -73,13 +75,13 @@ import { AuthSessionService } from '../core/auth-session.service';
                     >Criado em {{ project.createdAtUtc | date: 'dd/MM/yyyy · HH:mm' }}</small
                   >
                 </div>
-                <button
+                <a
                   class="button small"
+                  [routerLink]="['/projects', project.id]"
                   (click)="ws.selectProject(project.id)"
-                  [disabled]="ws.projectId() === project.id"
                 >
-                  {{ ws.projectId() === project.id ? 'Selecionado' : 'Selecionar' }}
-                </button>
+                  Abrir projeto
+                </a>
               </article>
             }
           </div>
@@ -240,6 +242,7 @@ import { AuthSessionService } from '../core/auth-session.service';
   `,
 })
 export class ProjectsPage {
+  private readonly router = inject(Router);
   readonly auth = inject(AuthSessionService);
   readonly ws = inject(WorkspaceService);
   readonly Math = Math;
@@ -282,6 +285,7 @@ export class ProjectsPage {
           this.ws.notice.set(
             'Projeto criado. Registre um escopo autorizado para iniciar a primeira auditoria.',
           );
+          void this.router.navigate(['/projects', project.id]);
         },
         error: (error) => {
           this.saving.set(false);

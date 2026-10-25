@@ -1,4 +1,4 @@
-import { Component, computed, DestroyRef, inject, signal } from '@angular/core';
+import { Component, computed, DestroyRef, effect, inject, input, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
@@ -20,6 +20,7 @@ import { ExecutionEvents } from './execution-events';
 import { OptionalPluginPicker } from '../design-system/optional-plugin-picker';
 
 @Component({
+  selector: 's-audits',
   imports: [
     CommonModule,
     ReactiveFormsModule,
@@ -30,14 +31,16 @@ import { OptionalPluginPicker } from '../design-system/optional-plugin-picker';
     OptionalPluginPicker,
   ],
   template: `
-    <div class="page-heading">
-      <div>
-        <p class="kicker">INVESTIGAÇÃO / EXECUÇÕES</p>
-        <h1>Central de auditorias</h1>
-        <p>Inicie verificações reais e acompanhe o histórico persistido da aplicação.</p>
+    @if (!embedded()) {
+      <div class="page-heading">
+        <div>
+          <p class="kicker">INVESTIGAÇÃO / EXECUÇÕES</p>
+          <h1>Central de auditorias</h1>
+          <p>Inicie verificações reais e acompanhe o histórico persistido da aplicação.</p>
+        </div>
+        <a class="button" routerLink="/plugins"><s-icon name="plugin" /> Ver controles</a>
       </div>
-      <a class="button" routerLink="/plugins"><s-icon name="plugin" /> Ver controles</a>
-    </div>
+    }
     @if (!ws.projectId()) {
       <section class="panel">
         <s-empty
@@ -113,7 +116,7 @@ import { OptionalPluginPicker } from '../design-system/optional-plugin-picker';
                 aria-label="Preencher URL com um escopo válido"
               >
                 <option value="">Selecione para preencher a URL</option>
-                @for (scope of ws.activeScopes(); track scope.id) {
+                @for (scope of httpScopes(); track scope.id) {
                   <option [value]="scope.targetBaseUri">
                     {{ scope.environment }} · {{ scope.targetBaseUri }}
                   </option>
@@ -155,14 +158,14 @@ import { OptionalPluginPicker } from '../design-system/optional-plugin-picker';
               : 'Verificações de cabeçalhos, CORS, erros e confiança em Host, sem carga. A ausência de evidência pode produzir resultado inconclusivo.'
           }}
         </p>
-        @if (!ws.activeScopes().length) {
+        @if (!httpScopes().length) {
           <p class="help">
             <a routerLink="/scopes">Registre um escopo válido</a> para permitir a execução. Alvos
             sem autorização são bloqueados e registrados.
           </p>
         }
       </section>
-      @if (ws.project(); as selectedProject) {
+      @if (!embedded() && ws.project(); as selectedProject) {
         @for (id of [selectedProject.id]; track id) {
           <s-audit-history />
         }
@@ -188,6 +191,7 @@ import { OptionalPluginPicker } from '../design-system/optional-plugin-picker';
   `,
 })
 export class AuditsPage {
+  readonly embedded = input(false);
   readonly auth = inject(AuthSessionService);
   readonly ws = inject(WorkspaceService);
   private readonly router = inject(Router);
@@ -212,6 +216,25 @@ export class AuditsPage {
         ).length ?? 0,
   );
   readonly profile = signal('simulated');
+  readonly httpScopes = computed(() =>
+    this.ws.activeScopes().filter((scope) => /^https?:\/\//i.test(scope.targetBaseUri)),
+  );
+  constructor() {
+    let project = '';
+    effect(() => {
+      const id = this.ws.projectId();
+      const scopes = this.httpScopes();
+      if (id !== project) {
+        project = id;
+        this.form.reset();
+        this.optionalPlugins.set([]);
+        this.profile.set('simulated');
+      }
+      if (!this.form.controls.targetUrl.value && scopes.length) {
+        this.form.controls.targetUrl.setValue(scopes[0].targetBaseUri);
+      }
+    });
+  }
   useScope(url: string): void {
     if (url) this.form.controls.targetUrl.setValue(url);
   }

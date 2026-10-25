@@ -3,19 +3,41 @@
   <button
     class="sidebar-backdrop"
     aria-label="Fechar navegação"
-    (click)="mobileOpen.set(false)"
+    (click)="closeMobileMenu()"
   ></button>
 }
 <aside
   id="main-navigation"
   class="sidebar"
   [class.is-open]="mobileOpen()"
-  (keydown.escape)="mobileOpen.set(false)"
+  [class.is-collapsed]="collapsed() && !mobileOpen()"
+  [cdkTrapFocus]="mobileOpen()"
+  [cdkTrapFocusAutoCapture]="mobileOpen()"
+  [attr.role]="mobileOpen() ? 'dialog' : null"
+  [attr.aria-modal]="mobileOpen() ? 'true' : null"
+  aria-label="Menu do Sentinel"
+  (keydown.escape)="closeMobileMenu()"
 >
-  <a class="brand" routerLink="/overview" aria-label="Sentinel — visão geral"
-    ><span class="brand-symbol"><s-icon name="shield" /></span
-    ><span>sentinel<span class="brand-point">.</span><small>SECURITY WORKSPACE</small></span></a
+  <a
+    class="brand"
+    routerLink="/overview"
+    aria-label="Sentinel — visão geral"
+    (click)="closeMobileMenu()"
+    ><img class="brand-symbol" src="/brand/harpy-symbol.svg" width="42" height="42" alt="" />
+    <span class="brand-name">SENTINEL<small>SEGURANÇA DE SOFTWARE</small></span></a
   >
+  <button
+    class="sidebar-toggle"
+    (click)="mobileOpen() ? closeMobileMenu() : toggleSidebar()"
+    [attr.aria-expanded]="mobileOpen() || !collapsed()"
+    aria-controls="main-navigation"
+    [attr.aria-label]="
+      mobileOpen() ? 'Fechar navegação' : collapsed() ? 'Expandir menu' : 'Recolher menu'
+    "
+    cdkFocusInitial
+  >
+    <s-icon name="menu" />
+  </button>
   <nav aria-label="Navegação principal">
     @for (item of nav; track item.path) {
       @if (item.group) {
@@ -25,24 +47,36 @@
         [routerLink]="item.path"
         routerLinkActive="active"
         ariaCurrentWhenActive="page"
-        (click)="mobileOpen.set(false)"
+        [attr.aria-label]="item.label"
+        [attr.title]="collapsed() ? item.label : null"
+        (click)="closeMobileMenu()"
         ><s-icon [name]="item.icon" /><span>{{ item.label }}</span>
         @if (item.path === '/findings' && ws.findings().length) {
-          <span class="nav-count">{{ ws.findings().length }}</span>
+          <span class="nav-count" title="Controles reprovados na página de execuções carregada">{{
+            ws.findings().length
+          }}</span>
         }
       </a>
     }
   </nav>
   <div class="sidebar-footer">
     <div class="local-indicator">
-      <span class="live-dot"></span> Ambiente local <span>DEV</span>
+      <span class="live-dot"></span>
+      {{ auth.profile()?.organization?.name || 'Workspace de segurança' }}
     </div>
-    <p>Observar. Investigar. Fortalecer.</p>
+    <a routerLink="/identity" class="user-link">{{
+      auth.profile()?.name || 'Identidade e acesso'
+    }}</a>
   </div>
 </aside>
-<div class="workspace">
+<div
+  class="workspace"
+  [class.sidebar-compact]="collapsed()"
+  [attr.inert]="mobileOpen() ? '' : null"
+>
   <header class="topbar">
     <button
+      #mobileMenuButton
       class="icon-button mobile-menu"
       aria-label="Abrir navegação"
       aria-controls="main-navigation"
@@ -52,22 +86,12 @@
       <s-icon name="menu" />
     </button>
     <div class="workspace-label">
-      Workspace <span>/</span> <strong>{{ ws.project()?.name || 'Selecione um projeto' }}</strong>
+      <span class="context-eyebrow">PROJETO EM FOCO</span>
+      <strong>{{ ws.project()?.name || 'Nenhum projeto selecionado' }}</strong>
     </div>
     <div class="topbar-actions">
-      <label class="project-switch"
-        ><span class="sr-only">Projeto ativo</span><s-icon name="folder" /><select
-          [value]="ws.projectId()"
-          (change)="ws.selectProject($any($event.target).value)"
-          [disabled]="ws.projectsLoading() || !ws.selectableProjects().length"
-        >
-          <option value="" [selected]="!ws.projectId()">Selecione um projeto</option>
-          @for (project of ws.selectableProjects(); track project.id) {
-            <option [value]="project.id" [selected]="project.id === ws.projectId()">
-              {{ project.name }}
-            </option>
-          }
-        </select></label
+      <a class="button small context-action" routerLink="/projects"
+        ><s-icon name="folder" /> Projetos</a
       >
       <a
         [routerLink]="auth.can('platform.manage') ? '/operations' : '/identity'"
@@ -103,6 +127,12 @@
     </div>
   </header>
   <main id="main-content" tabindex="-1">
+    @if (auth.profile() && breadcrumb()) {
+      <nav class="breadcrumb" aria-label="Caminho da página">
+        <a routerLink="/overview">Sentinel</a><span aria-hidden="true"> / </span
+        ><span>{{ breadcrumb() }}</span>
+      </nav>
+    }
     @if (ws.error() || ws.contextError()) {
       <div class="banner warning" role="alert">
         <s-icon name="alert" /><span>{{ ws.error() || ws.contextError() }}</span

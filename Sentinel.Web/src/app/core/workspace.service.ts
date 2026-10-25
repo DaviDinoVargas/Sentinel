@@ -35,8 +35,8 @@ export class WorkspaceService {
   readonly projectsError = signal('');
   readonly selectableProjects = computed(() => {
     const selected = this.project();
-    return selected && !this.projects().some((p) => p.id === selected.id)
-      ? [selected, ...this.projects()]
+    return selected
+      ? [selected, ...this.projects().filter((project) => project.id !== selected.id)]
       : this.projects();
   });
   readonly context = signal<ProjectContext | null>(null);
@@ -45,6 +45,9 @@ export class WorkspaceService {
   readonly score = signal<SecurityScore | null>(null);
   readonly catalog = signal<PluginCatalog | null>(null);
   readonly operations = signal<OperationsSnapshot | null>(null);
+  readonly operationsAutoRefresh = signal(true);
+  readonly operationsRefreshMs = signal(5000);
+  private operationsRequestedAt = 0;
   readonly error = signal('');
   readonly contextError = signal('');
   readonly notice = signal('');
@@ -150,7 +153,7 @@ export class WorkspaceService {
       .subscribe(() => {
         if (!this.auth.profile()) return;
         this.now.set(Date.now());
-        this.refreshGlobal();
+        this.refreshGlobal(false);
         if (this.projectId() && !this.loading()) this.refreshProject();
       });
   }
@@ -217,14 +220,20 @@ export class WorkspaceService {
   refreshProject(offset = this.history()?.offset ?? 0): void {
     if (this.projectId()) this.selection.next({ id: this.projectId(), offset });
   }
-  refreshGlobal(): void {
+  refreshGlobal(manual = true): void {
     if (this.refreshing()) return;
+    const sampleOperations =
+      this.auth.can('platform.manage') &&
+      (manual ||
+        (this.operationsAutoRefresh() &&
+          Date.now() - this.operationsRequestedAt >= this.operationsRefreshMs()));
+    if (sampleOperations) this.operationsRequestedAt = Date.now();
     this.refreshing.set(true);
     forkJoin({
       catalog: this.api.plugins().pipe(catchError(() => [null])),
-      operations: this.auth.can('platform.manage')
+      operations: sampleOperations
         ? this.api.operations().pipe(catchError(() => [null]))
-        : of(null),
+        : of(this.operations()),
     })
       .pipe(takeUntil(this.sessionChanged), takeUntilDestroyed(this.destroyRef))
       .subscribe((result) => {

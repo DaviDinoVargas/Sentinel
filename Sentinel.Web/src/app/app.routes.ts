@@ -2,6 +2,37 @@ import { Routes } from '@angular/router';
 
 export const routes: Routes = [
   {
+    path: 'run',
+    title: 'Rodar testes · Sentinel',
+    loadComponent: () => import('./pages/run').then((m) => m.RunPage),
+  },
+  {
+    path: 'projects/:id',
+    title: 'Área do projeto · Sentinel',
+    loadComponent: () => import('./pages/project-workspace').then((m) => m.ProjectWorkspacePage),
+    children: [
+      {
+        path: '',
+        pathMatch: 'full',
+        loadComponent: () => import('./pages/project-workspace').then((m) => m.ProjectSummaryPage),
+      },
+      { path: 'scopes', loadComponent: () => import('./pages/scopes').then((m) => m.ScopesPage) },
+      {
+        path: 'access',
+        loadComponent: () => import('./pages/target-access').then((m) => m.TargetAccessPage),
+      },
+      {
+        path: 'sources',
+        loadComponent: () => import('./pages/source-analysis').then((m) => m.SourceAnalysisPage),
+      },
+      { path: 'test-plan', loadComponent: () => import('./pages/run-plan').then((m) => m.RunPlan) },
+      {
+        path: 'results',
+        loadComponent: () => import('./pages/findings').then((m) => m.FindingsPage),
+      },
+    ],
+  },
+  {
     path: 'data-origins',
     title: 'Origem dos resultados · Sentinel',
     loadComponent: () => import('./pages/data-origins').then((m) => m.DataOriginsPage),

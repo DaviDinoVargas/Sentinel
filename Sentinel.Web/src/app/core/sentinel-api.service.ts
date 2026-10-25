@@ -22,6 +22,23 @@ export interface SentinelProject {
   description?: string | null;
   createdAtUtc: string;
 }
+export interface ProjectRunConfiguration {
+  httpUrl: string;
+  authenticatedUrl: string;
+  credentialProfileId: string | null;
+  sourceSnapshotId: string | null;
+  runHttp: boolean;
+  runActive: boolean;
+  runAuthenticated: boolean;
+  runSource: boolean;
+}
+export interface ProjectRunProfile {
+  projectId: string;
+  version: number;
+  configuration: ProjectRunConfiguration;
+  updatedAtUtc: string | null;
+  updatedBy: string | null;
+}
 export interface ProjectPage {
   items: SentinelProject[];
   totalCount: number;
@@ -435,6 +452,19 @@ export class SentinelApiService {
   }
   operations() {
     return this.http.get<OperationsSnapshot>(`${this.baseUrl}/operations`);
+  }
+  runProfile(projectId: string) {
+    return this.http.get<ProjectRunProfile>(`${this.baseUrl}/projects/${projectId}/run-profile`);
+  }
+  saveRunProfile(
+    projectId: string,
+    expectedVersion: number,
+    configuration: ProjectRunConfiguration,
+  ) {
+    return this.http.put<ProjectRunProfile>(`${this.baseUrl}/projects/${projectId}/run-profile`, {
+      expectedVersion,
+      configuration,
+    });
   }
   createProject(name: string, description: string, purpose = 'SoftwareUnderTest') {
     return this.http.post<SentinelProject>(`${this.baseUrl}/projects`, {

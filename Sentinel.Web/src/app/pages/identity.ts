@@ -123,7 +123,14 @@ import { Icon } from '../design-system/icon';
         </p>
       </section>
     } @else {
-      <section class="panel panel-pad">
+      <section class="panel panel-pad login-welcome">
+        <img
+          src="brand/harpy-symbol.svg"
+          width="112"
+          height="112"
+          alt="Símbolo da harpia brasileira do Sentinel"
+        />
+        <p class="login-wordmark">SENTINEL</p>
         <p class="kicker">ACESSO AO WORKSPACE</p>
         <h2>Entre para acompanhar seus projetos</h2>
         <p class="help">
@@ -135,13 +142,34 @@ import { Icon } from '../design-system/icon';
           (click)="auth.login()"
           [disabled]="!auth.configuration() || auth.busy()"
         >
-          <s-icon name="shield" /> Entrar com OIDC
+          <s-icon name="arrow" /> Entrar com OIDC
         </button>
         <p class="help">
           No ambiente local: Keycloak em localhost:18080. Senhas são informadas somente na tela do
           provedor.
         </p>
       </section>
+    }
+  `,
+  styles: `
+    .login-welcome {
+      max-width: 620px;
+      margin: 48px auto;
+      padding: 40px;
+    }
+    .login-wordmark {
+      font-weight: 600;
+      letter-spacing: 5px;
+      margin: 16px 0 28px;
+    }
+    .login-welcome .button {
+      margin: 12px 0 24px;
+    }
+    @media (max-width: 760px) {
+      .login-welcome {
+        margin: 16px auto;
+        padding: 24px;
+      }
     }
   `,
 })

@@ -4,6 +4,7 @@ import {
   effect,
   inject,
   signal,
+  input,
   viewChild,
   ElementRef,
 } from '@angular/core';
@@ -18,19 +19,22 @@ import { SourceApiService, SourceSnapshot, SourceSnapshotPage } from '../core/so
 import { Badge } from '../design-system/ui';
 import { Icon } from '../design-system/icon';
 @Component({
+  selector: 's-source-analysis',
   imports: [CommonModule, FormsModule, RouterLink, Badge, Icon],
   template: `
-    <div class="page-heading">
-      <div>
-        <p class="kicker">INVESTIGAÇÃO / FONTES</p>
-        <h1>Fontes e segredos</h1>
-        <p>
-          Importe uma revisão autorizada, acompanhe a análise e consulte evidências sem executar o
-          projeto.
-        </p>
+    @if (!embedded()) {
+      <div class="page-heading">
+        <div>
+          <p class="kicker">INVESTIGAÇÃO / FONTES</p>
+          <h1>Fontes e segredos</h1>
+          <p>
+            Importe uma revisão autorizada, acompanhe a análise e consulte evidências sem executar o
+            projeto.
+          </p>
+        </div>
+        <a class="button" routerLink="/findings"><s-icon name="search" />Consultar achados</a>
       </div>
-      <a class="button" routerLink="/findings"><s-icon name="search" />Consultar achados</a>
-    </div>
+    }
     <div class="banner">
       <s-icon name="shield" /><span
         >Análise do snapshot enviado: inventário e candidatos a segredos. Sem build, restore,
@@ -43,71 +47,86 @@ import { Icon } from '../design-system/icon';
       <a class="text-link" routerLink="/dependencies">Dependências, licenças declaradas e SBOM →</a>
       · <a class="text-link" routerLink="/api-surface">Contratos OpenAPI e superfície de APIs →</a>
     </p>
-    <section class="panel panel-pad section-gap">
-      <h2>Enviar snapshot ZIP</h2>
-      @if (auth.can('scopes.manage')) {
-        <form (ngSubmit)="upload()">
-          <div class="form-grid">
-            <label
-              >Identificador estável da fonte<input
-                name="source-key"
-                [(ngModel)]="key"
-                required
-                maxlength="80"
-                pattern="[a-z0-9][a-z0-9_-]{0,79}"
-                placeholder="principal"
-              /><span class="help"
-                >Reutilize para acompanhar a mesma fonte entre revisões.</span
-              ></label
-            ><label
-              >Revisão de origem<input
-                name="source-revision"
-                [(ngModel)]="revision"
-                required
-                maxlength="120"
-                placeholder="Commit ou rótulo da revisão"
-            /></label>
-            <label
-              >Arquivo ZIP<input
-                #picker
-                type="file"
-                accept=".zip,application/zip"
-                (change)="choose($event)"
-              /><span class="help"
-                >20 MiB compactados · até 5000 arquivos · 2 MiB por arquivo · 100 MiB expandidos.
-                Exclua .git e .local.</span
-              ></label
+    @if (!embedded()) {
+      <section class="panel panel-pad section-gap">
+        <h2>Enviar snapshot ZIP</h2>
+        @if (auth.can('scopes.manage')) {
+          <form (ngSubmit)="upload()">
+            <div class="form-grid">
+              <label
+                >Identificador estável da fonte<input
+                  name="source-key"
+                  [(ngModel)]="key"
+                  required
+                  maxlength="80"
+                  pattern="[a-z0-9][a-z0-9_-]{0,79}"
+                  placeholder="principal"
+                /><span class="help"
+                  >Reutilize para acompanhar a mesma fonte entre revisões.</span
+                ></label
+              ><label
+                >Revisão de origem<input
+                  name="source-revision"
+                  [(ngModel)]="revision"
+                  required
+                  maxlength="120"
+                  placeholder="Commit ou rótulo da revisão"
+              /></label>
+              <label
+                >Arquivo ZIP<input
+                  #picker
+                  type="file"
+                  accept=".zip,application/zip"
+                  (change)="choose($event)"
+                /><span class="help"
+                  >20 MiB compactados · até 5000 arquivos · 2 MiB por arquivo · 100 MiB expandidos.
+                  Exclua .git e .local.</span
+                ></label
+              >
+            </div>
+            <label class="check-label"
+              ><input type="checkbox" name="source-consent" [(ngModel)]="authorized" />Tenho
+              autorização para analisar os arquivos deste snapshot no projeto selecionado.</label
             >
-          </div>
-          <label class="check-label"
-            ><input type="checkbox" name="source-consent" [(ngModel)]="authorized" />Tenho
-            autorização para analisar os arquivos deste snapshot no projeto selecionado.</label
-          >
-          <div class="toolbar">
-            <button
-              class="button primary"
-              [disabled]="busy() || !file || !authorized || !ws.projectId() || !key || !revision"
-            >
-              {{ busy() ? 'Processando…' : 'Enviar e autorizar por 1 hora' }}</button
-            ><span class="help"
-              >Conteúdo cifrado no servidor; extração transitória para sandbox. Valores encontrados
-              não são armazenados no relatório.</span
-            >
-          </div>
-        </form>
-      } @else {
-        <p class="help">
-          Envio e revogação exigem permissão de escopos. Você pode consultar os snapshots
-          autorizados.
-        </p>
-      }
+            <div class="toolbar">
+              <button
+                class="button primary"
+                [disabled]="busy() || !file || !authorized || !ws.projectId() || !key || !revision"
+              >
+                {{ busy() ? 'Processando…' : 'Enviar e autorizar por 1 hora' }}</button
+              ><span class="help"
+                >Conteúdo cifrado no servidor; extração transitória para sandbox. Valores
+                encontrados não são armazenados no relatório.</span
+              >
+            </div>
+          </form>
+        } @else {
+          <p class="help">
+            Envio e revogação exigem permissão de escopos. Você pode consultar os snapshots
+            autorizados.
+          </p>
+        }
+        @if (error()) {
+          <p role="alert" class="help">{{ error() }}</p>
+        }
+        @if (notice()) {
+          <p role="status" class="help">{{ notice() }}</p>
+        }
+      </section>
+    } @else {
+      <p class="help section-gap">
+        Escolha um snapshot já enviado para iniciar a análise.
+        <a [routerLink]="['/projects', ws.projectId(), 'sources']"
+          >Enviar ou renovar arquivos do projeto</a
+        >.
+      </p>
       @if (error()) {
-        <p role="alert" class="help">{{ error() }}</p>
+        <p class="banner warning" role="alert">{{ error() }}</p>
       }
       @if (notice()) {
-        <p role="status" class="help">{{ notice() }}</p>
+        <p role="status">{{ notice() }}</p>
       }
-    </section>
+    }
     <section class="panel section-gap">
       <div class="panel-header">
         <div>
@@ -264,6 +283,7 @@ import { Icon } from '../design-system/icon';
   `,
 })
 export class SourceAnalysisPage {
+  readonly embedded = input(false);
   readonly ws = inject(WorkspaceService);
   readonly auth = inject(AuthSessionService);
   private readonly api = inject(SourceApiService);

@@ -1,4 +1,4 @@
-import { Component, computed, DestroyRef, effect, inject, signal } from '@angular/core';
+import { Component, computed, DestroyRef, effect, inject, input, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
@@ -18,6 +18,7 @@ import {
 } from './target-login-fields';
 
 @Component({
+  selector: 's-target-access',
   imports: [
     CommonModule,
     ReactiveFormsModule,
@@ -28,14 +29,16 @@ import {
     OptionalPluginPicker,
   ],
   template: `
-    <div class="page-heading">
-      <div>
-        <p class="kicker">WORKSPACE / ACESSOS DO ALVO</p>
-        <h1>Acessos do alvo</h1>
-        <p>Perfis sintéticos e cenários autenticados com expectativas explícitas.</p>
+    @if (!embedded()) {
+      <div class="page-heading">
+        <div>
+          <p class="kicker">WORKSPACE / ACESSOS DO ALVO</p>
+          <h1>Acessos do alvo</h1>
+          <p>Perfis sintéticos e cenários autenticados com expectativas explícitas.</p>
+        </div>
+        <button class="button" (click)="refresh.update(increment)">Atualizar perfis</button>
       </div>
-      <button class="button" (click)="refresh.update(increment)">Atualizar perfis</button>
-    </div>
+    }
     @if (!ws.projectId()) {
       <section class="panel">
         <s-empty
@@ -57,131 +60,184 @@ import {
       @if (notice()) {
         <p class="help" role="status">{{ notice() }}</p>
       }
-      <section class="panel panel-pad section-gap" aria-labelledby="credentials-title">
-        <div class="panel-header">
-          <div>
-            <h2 id="credentials-title">Perfis de credenciais</h2>
-            <p>Até 100 perfis · Bearer ou login JSON · laboratório em loopback</p>
+      @if (!embedded()) {
+        <section class="panel panel-pad section-gap" aria-labelledby="credentials-title">
+          <div class="panel-header">
+            <div>
+              <h2 id="credentials-title">Perfis de credenciais</h2>
+              <p>Até 100 perfis · Bearer ou login JSON · laboratório em loopback</p>
+            </div>
           </div>
-        </div>
-        @if (loading()) {
-          <p role="status">Consultando perfis…</p>
-        }
-        @if (profiles().length) {
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Perfil / identidade</th>
-                  <th>Validade</th>
-                  <th>Estado</th>
-                  <th>Ações</th>
-                </tr>
-              </thead>
-              <tbody>
-                @for (profile of profiles(); track profile.id) {
+          @if (loading()) {
+            <p role="status">Consultando perfis…</p>
+          }
+          @if (profiles().length) {
+            <div class="table-wrap">
+              <table>
+                <thead>
                   <tr>
-                    <td>
-                      <strong>{{ profile.name }}</strong
-                      ><span class="subline"
-                        >{{ profile.persona }} · {{ profile.tenantLabel }} · v{{
-                          profile.version
-                        }}</span
-                      >
-                      <span class="subline mono">Escopo {{ profile.scopeId.slice(0, 8) }}</span>
-                      <span class="subline">{{
-                        profile.credentialType === 'JsonLogin'
-                          ? 'Usuário/senha · POST JSON'
-                          : 'Bearer'
-                      }}</span>
-                      @if (profile.credentialType === 'JsonLogin') {
-                        <span class="subline"
-                          >Último login: {{ loginStatus(profile.lastLoginStatus) }} ·
-                          {{
-                            (profile.lastLoginAtUtc | date: 'dd/MM HH:mm:ss') || 'Não testado'
+                    <th>Perfil / identidade</th>
+                    <th>Validade</th>
+                    <th>Estado</th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (profile of profiles(); track profile.id) {
+                    <tr>
+                      <td>
+                        <strong>{{ profile.name }}</strong
+                        ><span class="subline"
+                          >{{ profile.persona }} · {{ profile.tenantLabel }} · v{{
+                            profile.version
                           }}</span
                         >
-                      }
-                      <span class="subline"
-                        >Referência protegida:
-                        {{
-                          (profile.baselineVerifiedAtUtc | date: 'HH:mm:ss') ||
-                            'Validar acesso próprio'
-                        }}</span
-                      >
-                    </td>
-                    <td>{{ profile.expiresAtUtc | date: 'dd/MM HH:mm' }}</td>
-                    <td>
-                      <s-badge
-                        [value]="available(profile) ? 'healthy' : 'unavailable'"
-                        [text]="availabilityLabel(profile)"
-                      />
-                    </td>
-                    <td>
-                      <button
-                        class="button small"
-                        [disabled]="!auth.can('scopes.manage') || !!profile.revokedAtUtc || busy()"
-                        (click)="selectRotation(profile)"
-                      >
-                        Rotacionar
-                      </button>
-                      <button
-                        class="button small"
-                        [disabled]="!auth.can('scopes.manage') || !!profile.revokedAtUtc || busy()"
-                        (click)="revoke(profile)"
-                      >
-                        Revogar
-                      </button>
-                    </td>
-                  </tr>
-                }
-              </tbody>
-            </table>
-          </div>
-        } @else if (!loading()) {
-          <p class="help">Nenhum perfil cadastrado neste projeto.</p>
-        }
-        @if (auth.can('scopes.manage')) {
-          <details class="section-gap">
-            <summary>Cadastrar perfil de acesso</summary>
-            <form class="form-stack section-gap" [formGroup]="credentialForm" (ngSubmit)="create()">
-              <label
-                >Tipo de acesso<select [value]="credentialType()" (change)="changeType($event)">
-                  <option value="Bearer">Token Bearer</option>
-                  <option value="JsonLogin">Usuário/senha e empresa</option>
-                </select></label
+                        <span class="subline mono">Escopo {{ profile.scopeId.slice(0, 8) }}</span>
+                        <span class="subline">{{
+                          profile.credentialType === 'JsonLogin'
+                            ? 'Usuário/senha · POST JSON'
+                            : 'Bearer'
+                        }}</span>
+                        @if (profile.credentialType === 'JsonLogin') {
+                          <span class="subline"
+                            >Último login: {{ loginStatus(profile.lastLoginStatus) }} ·
+                            {{
+                              (profile.lastLoginAtUtc | date: 'dd/MM HH:mm:ss') || 'Não testado'
+                            }}</span
+                          >
+                        }
+                        <span class="subline"
+                          >Referência protegida:
+                          {{
+                            (profile.baselineVerifiedAtUtc | date: 'HH:mm:ss') ||
+                              'Validar acesso próprio'
+                          }}</span
+                        >
+                      </td>
+                      <td>{{ profile.expiresAtUtc | date: 'dd/MM HH:mm' }}</td>
+                      <td>
+                        <s-badge
+                          [value]="available(profile) ? 'healthy' : 'unavailable'"
+                          [text]="availabilityLabel(profile)"
+                        />
+                      </td>
+                      <td>
+                        <button
+                          class="button small"
+                          [disabled]="
+                            !auth.can('scopes.manage') || !!profile.revokedAtUtc || busy()
+                          "
+                          (click)="selectRotation(profile)"
+                        >
+                          Rotacionar
+                        </button>
+                        <button
+                          class="button small"
+                          [disabled]="
+                            !auth.can('scopes.manage') || !!profile.revokedAtUtc || busy()
+                          "
+                          (click)="revoke(profile)"
+                        >
+                          Revogar
+                        </button>
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          } @else if (!loading()) {
+            <p class="help">Nenhum perfil cadastrado neste projeto.</p>
+          }
+          @if (auth.can('scopes.manage')) {
+            <details class="section-gap">
+              <summary>Cadastrar perfil de acesso</summary>
+              <form
+                class="form-stack section-gap"
+                [formGroup]="credentialForm"
+                (ngSubmit)="create()"
               >
-              <div class="form-grid">
                 <label
-                  >Nome do perfil<input
-                    formControlName="name"
-                    maxlength="100"
-                    placeholder="Empresa A — leitura"
-                /></label>
-                <label
-                  >Escopo autorizado<select formControlName="scopeId">
-                    <option value="">Selecione o laboratório</option>
-                    @for (scope of ws.activeScopes(); track scope.id) {
-                      @if (scope.environment === 'laboratorio') {
-                        <option [value]="scope.id">{{ scope.targetBaseUri }}</option>
-                      }
-                    }
+                  >Tipo de acesso<select [value]="credentialType()" (change)="changeType($event)">
+                    <option value="Bearer">Token Bearer</option>
+                    <option value="JsonLogin">Usuário/senha e empresa</option>
                   </select></label
-                ><label
-                  >Papel / persona<input
-                    formControlName="persona"
-                    maxlength="100"
-                    placeholder="Empresa ou operador sintético"
-                /></label>
-                <label
-                  >Empresa de teste<input
-                    formControlName="tenantLabel"
-                    maxlength="100"
-                    placeholder="Empresa A"
-                /></label>
-                @if (credentialType() === 'Bearer') {
+                >
+                <div class="form-grid">
                   <label
-                    >Token Bearer do alvo<input
+                    >Nome do perfil<input
+                      formControlName="name"
+                      maxlength="100"
+                      placeholder="Empresa A — leitura"
+                  /></label>
+                  <label
+                    >Escopo autorizado<select formControlName="scopeId">
+                      <option value="">Selecione o laboratório</option>
+                      @for (scope of ws.activeScopes(); track scope.id) {
+                        @if (scope.environment === 'laboratorio') {
+                          <option [value]="scope.id">{{ scope.targetBaseUri }}</option>
+                        }
+                      }
+                    </select></label
+                  ><label
+                    >Papel / persona<input
+                      formControlName="persona"
+                      maxlength="100"
+                      placeholder="Empresa ou operador sintético"
+                  /></label>
+                  <label
+                    >Empresa de teste<input
+                      formControlName="tenantLabel"
+                      maxlength="100"
+                      placeholder="Empresa A"
+                  /></label>
+                  @if (credentialType() === 'Bearer') {
+                    <label
+                      >Token Bearer do alvo<input
+                        type="password"
+                        autocomplete="off"
+                        formControlName="token"
+                        maxlength="16000"
+                    /></label>
+                  }
+                  <label
+                    >Expira em (horário local)<input
+                      type="datetime-local"
+                      formControlName="expires"
+                  /></label>
+                </div>
+                @if (credentialType() === 'JsonLogin') {
+                  <s-target-login-fields [form]="login" />
+                }
+                <p class="help">
+                  {{
+                    credentialType() === 'JsonLogin'
+                      ? 'Não é necessário informar um token Bearer: o gateway faz o login com os dados cadastrados.'
+                      : 'Informe a validade real do token.'
+                  }}
+                  A validade do perfil é de até 24 horas, dentro do escopo. Segredos são limpos do
+                  formulário após o envio.
+                </p>
+                <button
+                  class="button primary"
+                  [disabled]="
+                    busy() ||
+                    credentialForm.invalid ||
+                    (credentialType() === 'JsonLogin' && login.invalid)
+                  "
+                >
+                  Cadastrar perfil
+                </button>
+              </form>
+            </details>
+            @if (rotating(); as profile) {
+              <form class="form-stack section-gap" [formGroup]="rotationForm" (ngSubmit)="rotate()">
+                <h3>Rotacionar {{ profile.name }}</h3>
+                @if (profile.credentialType === 'JsonLogin') {
+                  <s-target-login-fields [form]="rotationLogin" />
+                } @else {
+                  <label
+                    >Novo token Bearer<input
                       type="password"
                       autocomplete="off"
                       formControlName="token"
@@ -189,73 +245,37 @@ import {
                   /></label>
                 }
                 <label
-                  >Expira em (horário local)<input type="datetime-local" formControlName="expires"
+                  >Nova expiração (horário local)<input
+                    type="datetime-local"
+                    formControlName="expires"
                 /></label>
-              </div>
-              @if (credentialType() === 'JsonLogin') {
-                <s-target-login-fields [form]="login" />
-              }
-              <p class="help">
-                Informe a validade real do token: máximo 24 horas, dentro do escopo. O Sentinel não
-                renova sessões do alvo automaticamente. O campo secreto é limpo após o envio.
-              </p>
-              <button
-                class="button primary"
-                [disabled]="
-                  busy() ||
-                  credentialForm.invalid ||
-                  (credentialType() === 'JsonLogin' && login.invalid)
-                "
-              >
-                Cadastrar perfil
-              </button>
-            </form>
-          </details>
-          @if (rotating(); as profile) {
-            <form class="form-stack section-gap" [formGroup]="rotationForm" (ngSubmit)="rotate()">
-              <h3>Rotacionar {{ profile.name }}</h3>
-              @if (profile.credentialType === 'JsonLogin') {
-                <s-target-login-fields [form]="rotationLogin" />
-              } @else {
-                <label
-                  >Novo token Bearer<input
-                    type="password"
-                    autocomplete="off"
-                    formControlName="token"
-                    maxlength="16000"
-                /></label>
-              }
-              <label
-                >Nova expiração (horário local)<input
-                  type="datetime-local"
-                  formControlName="expires"
-              /></label>
-              <p class="help">
-                Rotacionar invalida o uso da versão anterior em auditorias ainda em andamento.
-              </p>
-              <div class="actions">
-                <button class="button" type="button" (click)="closeRotation()">
-                  Fechar rotação</button
-                ><button
-                  class="button primary"
-                  [disabled]="
-                    busy() ||
-                    rotationForm.invalid ||
-                    (profile.credentialType === 'JsonLogin' && rotationLogin.invalid)
-                  "
-                >
-                  Salvar nova versão
-                </button>
-              </div>
-            </form>
+                <p class="help">
+                  Rotacionar invalida o uso da versão anterior em auditorias ainda em andamento.
+                </p>
+                <div class="actions">
+                  <button class="button" type="button" (click)="closeRotation()">
+                    Fechar rotação</button
+                  ><button
+                    class="button primary"
+                    [disabled]="
+                      busy() ||
+                      rotationForm.invalid ||
+                      (profile.credentialType === 'JsonLogin' && rotationLogin.invalid)
+                    "
+                  >
+                    Salvar nova versão
+                  </button>
+                </div>
+              </form>
+            }
+          } @else {
+            <p class="help">
+              Seu papel permite consultar os perfis. Cadastrar, rotacionar e revogar exige permissão
+              de escopo.
+            </p>
           }
-        } @else {
-          <p class="help">
-            Seu papel permite consultar os perfis. Cadastrar, rotacionar e revogar exige permissão
-            de escopo.
-          </p>
-        }
-      </section>
+        </section>
+      }
       <section class="panel panel-pad section-gap" aria-labelledby="scenario-title">
         <h2 id="scenario-title">Testar autenticação e acesso</h2>
         <p class="help">
@@ -264,6 +284,14 @@ import {
           Primeiro valide acesso permitido em recurso protegido. A referência vale por cinco minutos
           e é testada novamente, com e sem credencial, antes de cada cenário de negação.
         </p>
+        @if (!loading() && !activeProfiles().length) {
+          <p class="banner warning">
+            Nenhum perfil válido disponível.
+            <a [routerLink]="['/projects', ws.projectId(), 'access']"
+              >Cadastre ou renove o acesso do projeto</a
+            >.
+          </p>
+        }
         <form class="form-stack" [formGroup]="scenarioForm" (ngSubmit)="execute()">
           <div class="form-grid">
             <label
@@ -285,24 +313,35 @@ import {
               </select></label
             >
           </div>
-          <label
-            >Segunda identidade opcional (Bearer)
-            <select
-              formControlName="secondaryProfileId"
-              (change)="scenarioForm.controls.includeLoad.setValue(false); optionalPlugins.set([])"
-            >
-              <option value="">Sem segunda identidade</option>
-              @for (secondary of secondaryProfiles(); track secondary.id) {
-                <option [value]="secondary.id">
-                  {{ secondary.name }} · {{ secondary.persona }} · {{ secondary.tenantLabel }}
-                </option>
-              }
-            </select>
-          </label>
-          <p class="help">
-            Duas identidades exigem o mesmo escopo, acesso permitido e ausência de carga. A segunda
-            identidade aceita Bearer; login JSON secundário será ampliado.
-          </p>
+          <label class="check-field"
+            ><input
+              type="checkbox"
+              [checked]="compareIdentities()"
+              (change)="toggleComparison($any($event.target).checked)"
+            /><span>Comparar duas identidades (opcional, requer dois perfis)</span></label
+          >
+          @if (compareIdentities()) {
+            <label
+              >Segunda identidade opcional (Bearer)
+              <select
+                formControlName="secondaryProfileId"
+                (change)="
+                  scenarioForm.controls.includeLoad.setValue(false); optionalPlugins.set([])
+                "
+              >
+                <option value="">Sem segunda identidade</option>
+                @for (secondary of secondaryProfiles(); track secondary.id) {
+                  <option [value]="secondary.id">
+                    {{ secondary.name }} · {{ secondary.persona }} · {{ secondary.tenantLabel }}
+                  </option>
+                }
+              </select>
+            </label>
+            <p class="help">
+              Duas identidades exigem o mesmo escopo, acesso permitido e ausência de carga. A
+              segunda identidade aceita Bearer; login JSON secundário será ampliado.
+            </p>
+          }
           <label
             >URL exata do recurso<input
               type="url"
@@ -377,6 +416,14 @@ import {
   `,
 })
 export class TargetAccessPage {
+  readonly embedded = input(false);
+  readonly compareIdentities = signal(false);
+  toggleComparison(enabled: boolean): void {
+    this.compareIdentities.set(enabled);
+    this.scenarioForm.controls.secondaryProfileId.setValue('');
+    this.scenarioForm.controls.includeLoad.setValue(false);
+    this.optionalPlugins.set([]);
+  }
   readonly credentialType = signal('Bearer');
   readonly login = loginForm();
   readonly rotationLogin = loginForm();
@@ -490,6 +537,7 @@ export class TargetAccessPage {
         resetLogin(this.rotationLogin);
         this.rotationForm.reset({ expires: this.defaultExpiry() });
         this.scenarioForm.reset();
+        this.compareIdentities.set(false);
         this.optionalPlugins.set([]);
         this.rotating.set(null);
         this.error.set('');

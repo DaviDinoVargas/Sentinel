@@ -174,6 +174,13 @@ describe('Acessibilidade das telas', () => {
   it.each([
     'overview',
     'projects',
+    'projects/project',
+    'projects/project/scopes',
+    'projects/project/access',
+    'projects/project/sources',
+    'projects/project/test-plan',
+    'projects/project/results',
+    'run',
     'scopes',
     'audits',
     'findings',
@@ -185,6 +192,10 @@ describe('Acessibilidade das telas', () => {
     'coverage',
     'identity',
     'target-access',
+    'source-analysis',
+    'dependencies',
+    'api-surface',
+    'data-origins',
   ])('verifica semântica e nomes acessíveis em /%s nos dois temas', async (path) => {
     await TestBed.inject(Router).navigateByUrl(`/${path}`);
     fixture.detectChanges();

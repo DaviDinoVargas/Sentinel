@@ -3,47 +3,68 @@
 :root {
   --font-sans: 'Segoe UI', -apple-system, BlinkMacSystemFont, Arial, sans-serif;
   --font-mono: 'Cascadia Code', 'SFMono-Regular', Consolas, monospace;
-  --canvas: #f4f6f7;
+  --canvas: #f2f5f9;
   --surface: #ffffff;
-  --surface-soft: #f8fafb;
-  --ink: #1b303b;
-  --muted: #596d78;
-  --line: #dfe6e9;
-  --line-strong: #c4d1d7;
-  --accent: #137b68;
-  --accent-hover: #0a6757;
+  --surface-soft: #f7f9fc;
+  --ink: #19283d;
+  --muted: #53677d;
+  --line: #dce4ef;
+  --line-strong: #b8c8dc;
+  --accent: #315f9f;
+  --accent-hover: #264d85;
   --accent-ink: #ffffff;
-  --accent-soft: #e8f4ef;
-  --positive: #21745a;
-  --positive-bg: #e8f4ed;
-  --warning: #936015;
+  --accent-soft: #e7eff9;
+  --positive: #176344;
+  --positive-bg: #e6f3ed;
+  --warning: #825600;
   --warning-bg: #fff3dc;
-  --critical: #a73441;
+  --critical: #9e293f;
   --critical-bg: #fce9ec;
-  --neutral-bg: #edf1f3;
-  --focus: #0c8978;
+  --neutral-bg: #edf2f8;
+  --focus: #315f9f;
+  --sentinel-bg: var(--canvas);
+  --sentinel-surface: var(--surface);
+  --sentinel-surface-alt: var(--surface-soft);
+  --sentinel-border: var(--line);
+  --sentinel-blue: var(--accent);
+  --sentinel-blue-strong: var(--accent-hover);
+  --sentinel-text: var(--ink);
+  --sentinel-text-muted: var(--muted);
+  --sentinel-success: var(--positive);
+  --sentinel-warning: var(--warning);
+  --sentinel-danger: var(--critical);
+  --sentinel-info: var(--accent);
+  --surface-alt: var(--surface-soft);
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --radius-control: 6px;
+  --radius-panel: 10px;
   color-scheme: light;
 }
 :root[data-theme='dark'] {
-  --canvas: #101b23;
-  --surface: #172630;
-  --surface-soft: #1b2d37;
-  --ink: #e2edf1;
-  --muted: #9db1bd;
-  --line: #2c424e;
-  --line-strong: #4c6572;
-  --accent: #73d9bd;
-  --accent-hover: #8ee6cd;
-  --accent-ink: #102922;
-  --accent-soft: #203f3b;
-  --positive: #92dcba;
-  --positive-bg: #244337;
-  --warning: #edc178;
-  --warning-bg: #443925;
-  --critical: #f4a6b3;
-  --critical-bg: #492c34;
-  --neutral-bg: #263c48;
-  --focus: #83e9d2;
+  --canvas: #080d14;
+  --surface: #101a28;
+  --surface-soft: #152235;
+  --ink: #e8eef6;
+  --muted: #9baec3;
+  --line: #29394d;
+  --line-strong: #425975;
+  --accent: #76a9e8;
+  --accent-hover: #94bdf0;
+  --accent-ink: #080d14;
+  --accent-soft: #182f4e;
+  --positive: #43b581;
+  --positive-bg: #102c25;
+  --warning: #e6b65c;
+  --warning-bg: #302719;
+  --critical: #e16d78;
+  --critical-bg: #321c29;
+  --neutral-bg: #1b2c42;
+  --focus: #76a9e8;
   color-scheme: dark;
 }
 @theme inline {
@@ -411,6 +432,7 @@ textarea.ng-invalid.ng-touched {
   margin: 22px 0;
 }
 .table-wrap {
+  position: relative;
   overflow: auto;
 }
 table {
@@ -768,5 +790,143 @@ brn-tooltip-content {
     animation: none !important;
     transition: none !important;
     scroll-behavior: auto !important;
+  }
+}
+@media (max-width: 760px) {
+  body:has(.sidebar.is-open) {
+    overflow: hidden;
+  }
+}
+
+/* Sentinel Harpia: semantic aliases shared by every operational page. */
+
+body {
+  font-size: 14px;
+  line-height: 1.6;
+}
+h1 {
+  font-size: 30px;
+  letter-spacing: -0.8px;
+}
+h2 {
+  font-size: 17px;
+}
+h3 {
+  font-size: 14px;
+}
+small,
+.text-small {
+  font-size: 12px;
+}
+.kicker {
+  font: 600 10px/1.6 var(--font-sans);
+  letter-spacing: 1.5px;
+}
+.panel {
+  border-radius: var(--radius-panel);
+}
+.button,
+input,
+select,
+textarea {
+  border-radius: var(--radius-control);
+}
+label {
+  line-height: 1.6;
+}
+.help {
+  font-size: 12px;
+  line-height: 1.7;
+}
+.mono,
+code {
+  font-size: 12px;
+}
+.metric strong {
+  font-variant-numeric: tabular-nums;
+}
+th {
+  font-size: 10px;
+  letter-spacing: 1px;
+}
+td {
+  font-size: 12px;
+  vertical-align: top;
+}
+.table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+}
+.project-tabs {
+  display: flex;
+  gap: 4px;
+  overflow: auto;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 12px;
+  margin: 20px 0 28px;
+}
+.project-tabs a {
+  padding: 9px 14px;
+  white-space: nowrap;
+  color: var(--muted);
+  text-decoration: none;
+  border-radius: 6px;
+}
+.project-tabs a.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.workflow-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin: 24px 0;
+}
+.workflow-step {
+  display: block;
+  padding: 24px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  text-decoration: none;
+  color: var(--ink);
+}
+.workflow-step small {
+  display: block;
+  color: var(--muted);
+  margin-top: 8px;
+}
+.workflow-step strong {
+  display: block;
+  margin-top: 10px;
+}
+.step-number {
+  font: 600 11px var(--font-mono);
+  color: var(--accent);
+}
+.page-heading {
+  flex-wrap: wrap;
+}
+.heading-actions {
+  flex-wrap: wrap;
+}
+.panel-pad {
+  min-width: 0;
+}
+@media (max-width: 760px) {
+  .workflow-steps {
+    grid-template-columns: 1fr;
+  }
+  .form-grid {
+    grid-template-columns: 1fr !important;
+  }
+  .heading-actions {
+    width: 100%;
+  }
+  .heading-actions .button {
+    flex: 1;
+  }
+  h1 {
+    font-size: 26px;
   }
 }

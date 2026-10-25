@@ -49,16 +49,37 @@ describe('Central Sentinel', () => {
     expect(element.textContent).toContain('Fontes e segredos');
     expect(element.textContent).toContain('Infraestrutura e filas');
     expect(element.textContent).toContain('Evidências e relatórios');
-    expect(element.querySelector('select')?.disabled).toBe(true);
+    expect(element.querySelector('header select')).toBeNull();
+    expect(element.querySelector('nav a[href="/run"]')).not.toBeNull();
     fixture.destroy();
   });
   it('alterna tema e persiste apenas a preferência visual', () => {
     const fixture = render();
-    fixture.componentInstance.toggleTheme();
     expect(document.documentElement.dataset['theme']).toBe('dark');
-    expect(localStorage.getItem('sentinel.theme')).toBe('dark');
     fixture.componentInstance.toggleTheme();
     expect(document.documentElement.dataset['theme']).toBe('light');
+    expect(localStorage.getItem('sentinel.theme')).toBe('light');
+    fixture.componentInstance.toggleTheme();
+    expect(document.documentElement.dataset['theme']).toBe('dark');
+    fixture.destroy();
+  });
+  it('mantém links acessíveis no menu recolhido e isola o drawer aberto', () => {
+    const fixture = render(),
+      page = fixture.componentInstance,
+      element = fixture.nativeElement as HTMLElement;
+    page.toggleSidebar();
+    fixture.detectChanges();
+    expect(localStorage.getItem('sentinel.sidebar')).toBe('collapsed');
+    expect(element.querySelector('nav a[href="/run"]')?.getAttribute('aria-label')).toBe(
+      'Rodar testes',
+    );
+    page.mobileOpen.set(true);
+    fixture.detectChanges();
+    expect(element.querySelector('aside')?.getAttribute('aria-modal')).toBe('true');
+    expect(element.querySelector('.workspace')?.hasAttribute('inert')).toBe(true);
+    page.closeMobileMenu();
+    fixture.detectChanges();
+    expect(element.querySelector('.workspace')?.hasAttribute('inert')).toBe(false);
     fixture.destroy();
   });
 });

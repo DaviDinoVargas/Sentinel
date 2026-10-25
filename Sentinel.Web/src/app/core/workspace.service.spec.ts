@@ -35,6 +35,42 @@ describe('WorkspaceService', () => {
       .flush({ score: null, confidence: 'NotAssessed' });
   }
 
+  it('pausa a telemetria automática e mantém atualização manual disponível', () => {
+    ws.operationsAutoRefresh.set(false);
+    ws.refreshGlobal(false);
+    http.expectOne('/api/v1/plugins').flush({ plugins: [] });
+    http.expectNone('/api/v1/operations');
+    ws.refreshGlobal();
+    http.expectOne('/api/v1/plugins').flush({ plugins: [] });
+    http
+      .expectOne('/api/v1/operations')
+      .flush({
+        sampledAtUtc: '2026-10-25T12:00:00Z',
+        status: 'healthy',
+        broker: { queues: [] },
+        database: {},
+      });
+    expect(ws.operations()?.sampledAtUtc).toBe('2026-10-25T12:00:00Z');
+  });
+  it('respeita o intervalo escolhido sem criar amostras operacionais extras', () => {
+    const time = vi.spyOn(Date, 'now').mockReturnValue(10000);
+    try {
+      ws.operationsRefreshMs.set(15000);
+      ws.refreshGlobal();
+      http.expectOne('/api/v1/plugins').flush({ plugins: [] });
+      http.expectOne('/api/v1/operations').flush({ sampledAtUtc: '2026-10-25T12:00:00Z' });
+      time.mockReturnValue(20000);
+      ws.refreshGlobal(false);
+      http.expectOne('/api/v1/plugins').flush({ plugins: [] });
+      http.expectNone('/api/v1/operations');
+      time.mockReturnValue(25000);
+      ws.refreshGlobal(false);
+      http.expectOne('/api/v1/plugins').flush({ plugins: [] });
+      http.expectOne('/api/v1/operations').flush({ sampledAtUtc: '2026-10-25T12:00:15Z' });
+    } finally {
+      time.mockRestore();
+    }
+  });
   it('retoma um projeto persistido e recupera contexto, histórico e score pela API', () => {
     localStorage.setItem('sentinel.project', 'b');
     ws.refreshProjects();

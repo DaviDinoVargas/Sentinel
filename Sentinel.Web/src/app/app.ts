@@ -1,14 +1,34 @@
-import { Component, effect, inject, signal, untracked } from '@angular/core';
+import {
+  Component,
+  ElementRef,
+  computed,
+  effect,
+  inject,
+  signal,
+  untracked,
+  viewChild,
+} from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
+import { NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { WorkspaceService } from './core/workspace.service';
 import { Icon } from './design-system/icon';
 import { Tooltip } from './design-system/ui';
 import { AuthSessionService } from './core/auth-session.service';
 import { IdentityPage } from './pages/identity';
+import { A11yModule } from '@angular/cdk/a11y';
 @Component({
   selector: 'app-root',
-  imports: [CommonModule, RouterOutlet, RouterLink, RouterLinkActive, Icon, Tooltip, IdentityPage],
+  imports: [
+    CommonModule,
+    RouterOutlet,
+    RouterLink,
+    RouterLinkActive,
+    Icon,
+    Tooltip,
+    IdentityPage,
+    A11yModule,
+  ],
   templateUrl: './app.html',
   styleUrl: './app.css',
 })
@@ -16,13 +36,26 @@ export class App {
   readonly auth = inject(AuthSessionService);
   readonly ws = inject(WorkspaceService);
   readonly mobileOpen = signal(false);
-  readonly dark = signal(false);
+  readonly dark = signal(true);
+  readonly collapsed = signal(false);
+  private readonly router = inject(Router);
+  private readonly menuButton = viewChild<ElementRef<HTMLButtonElement>>('mobileMenuButton');
+  readonly currentPath = signal(this.router.url);
+  readonly breadcrumb = computed(() => {
+    const path = this.currentPath().split('?')[0];
+    if (path === '/overview' || path.startsWith('/projects/')) return '';
+    return (
+      this.nav.find((item) => path === item.path)?.label ??
+      (path.startsWith('/audits/') ? 'Detalhe da execução' : '')
+    );
+  });
   readonly nav = [
-    { path: '/overview', label: 'Visão geral', icon: 'grid', group: 'WORKSPACE' },
-    { path: '/projects', label: 'Projetos', icon: 'folder', group: '' },
+    { path: '/overview', label: 'Visão geral', icon: 'grid', group: 'VISÃO GERAL' },
+    { path: '/projects', label: 'Projetos', icon: 'folder', group: 'CONFIGURAR' },
     { path: '/scopes', label: 'Escopos e políticas', icon: 'scope', group: '' },
     { path: '/target-access', label: 'Acessos do alvo', icon: 'shield', group: '' },
-    { path: '/audits', label: 'Central de auditorias', icon: 'play', group: 'INVESTIGAÇÃO' },
+    { path: '/run', label: 'Rodar testes', icon: 'play', group: 'EXECUTAR' },
+    { path: '/audits', label: 'Execuções e histórico', icon: 'clock', group: '' },
     { path: '/findings', label: 'Resultados e achados', icon: 'search', group: '' },
     { path: '/source-analysis', label: 'Fontes e segredos', icon: 'document', group: '' },
     { path: '/dependencies', label: 'Dependências', icon: 'layers', group: '' },
@@ -37,8 +70,15 @@ export class App {
     { path: '/identity', label: 'Identidade e acesso', icon: 'shield', group: '' },
   ];
   constructor() {
+    this.router.events.pipe(takeUntilDestroyed()).subscribe((event) => {
+      if (event instanceof NavigationEnd) {
+        this.currentPath.set(event.urlAfterRedirects);
+        this.mobileOpen.set(false);
+      }
+    });
     try {
-      this.dark.set(localStorage.getItem('sentinel.theme') === 'dark');
+      this.dark.set(localStorage.getItem('sentinel.theme') !== 'light');
+      this.collapsed.set(localStorage.getItem('sentinel.sidebar') === 'collapsed');
     } catch {
       /* Preferência opcional. */
     }
@@ -56,6 +96,19 @@ export class App {
       });
     });
     void this.auth.start();
+  }
+  closeMobileMenu(): void {
+    if (!this.mobileOpen()) return;
+    this.mobileOpen.set(false);
+    requestAnimationFrame(() => this.menuButton()?.nativeElement.focus());
+  }
+  toggleSidebar(): void {
+    this.collapsed.update((value) => !value);
+    try {
+      localStorage.setItem('sentinel.sidebar', this.collapsed() ? 'collapsed' : 'expanded');
+    } catch {
+      /* Optional preference. */
+    }
   }
   toggleTheme(): void {
     this.dark.update((value) => !value);

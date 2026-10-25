@@ -63,7 +63,8 @@ import { EvidencePolicyPanel } from '../design-system/evidence-policy';
               <code class="break-code">{{ evidence.sha256 }}</code>
               <s-evidence-viewer [auditId]="evidence.auditId" [evidence]="evidence" />
               <p class="help url">
-                Alvo: {{ evidence.targetUri }} · Auditoria {{ evidence.auditId.slice(0, 8) }}
+                Localização avaliada: {{ evidence.targetUri }} · Execução
+                {{ evidence.auditId.slice(0, 8) }} · {{ ws.originLabel(evidence.dataOrigin) }}
               </p>
             </article>
           }
@@ -82,8 +83,10 @@ import { EvidencePolicyPanel } from '../design-system/evidence-policy';
     }
     <p class="help">
       Novos artefatos têm conteúdo cifrado e SHA-256 verificável. Registros legados preservam resumo
-      e hash histórico, com limitações explícitas. Armazenamento em MinIO/S3 e cadeia de custódia
-      ampliada estão pendentes.
+      e hash histórico, com limitações explícitas. O host suporta armazenamento local ou compatível
+      com S3 conforme a configuração. O conteúdo coletado representa o recorte e a localização
+      avaliados, sem comprovar cobertura completa do software. Cadeia de custódia ampliada permanece
+      no roadmap.
     </p>
   `,
   styles: `

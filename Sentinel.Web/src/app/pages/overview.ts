@@ -14,11 +14,11 @@ import { Badge, EmptyState } from '../design-system/ui';
         <h1>Visão geral</h1>
         <p>Acompanhe a segurança da sua aplicação, da execução à evidência.</p>
       </div>
-      <a class="button primary" routerLink="/audits"><s-icon name="plus" /> Nova auditoria</a>
+      <a class="button primary" routerLink="/run"><s-icon name="play" /> Rodar testes</a>
     </div>
     <section class="overview-banner">
       <div>
-        <span class="banner-label"><span class="live-dot"></span> SEU PONTO DE OBSERVAÇÃO</span>
+        <span class="banner-label">SENTINEL / VISÃO PARA AGIR</span>
         <h2>O que merece sua atenção.</h2>
         <p>
           {{
@@ -39,27 +39,23 @@ import { Badge, EmptyState } from '../design-system/ui';
         /></a>
       </div>
       <div class="radar" aria-hidden="true">
-        <svg viewBox="0 0 240 190">
-          <g fill="none" stroke="currentColor" stroke-width=".7">
-            <circle cx="120" cy="95" r="76" />
-            <circle cx="120" cy="95" r="52" />
-            <circle cx="120" cy="95" r="27" />
-            <path d="M20 95h200M120 2v186M51 26l138 138M51 164 189 26" />
-            <path d="M120 95 170 38A76 76 0 0 1 196 95Z" fill="currentColor" opacity=".15" />
-          </g>
-          <circle cx="157" cy="57" r="4" fill="#8ce2c7" />
-          <circle cx="66" cy="114" r="3" fill="#a8cabf" />
-          <circle cx="142" cy="119" r="3" fill="#8ce2c7" />
-          <path
-            d="m120 77-14 5v11c0 8 14 16 14 16s14-8 14-16V82l-14-5Z"
-            fill="#193a3b"
-            stroke="#8ce2c7"
-            stroke-width="1.5"
-          />
-          <path d="m114 93 4 4 9-10" fill="none" stroke="#8ce2c7" stroke-width="1.5" /></svg
-        ><span>ESCOPO → CONTROLE → EVIDÊNCIA</span>
+        <img src="brand/harpy-symbol.svg" width="154" height="154" alt="" /><span
+          >ESCOPO → CONTROLE → EVIDÊNCIA</span
+        >
       </div>
     </section>
+    <div class="workflow-steps">
+      <a class="workflow-step" routerLink="/projects"
+        ><span class="step-number">01 / CONFIGURAR</span><strong>Abra seu projeto</strong
+        ><small>Reúna alvos, arquivos e perfis de acesso.</small></a
+      ><a class="workflow-step" routerLink="/run"
+        ><span class="step-number">02 / EXECUTAR</span><strong>Escolha o que avaliar</strong
+        ><small>Confira requisitos e envie os testes autorizados.</small></a
+      ><a class="workflow-step" routerLink="/findings"
+        ><span class="step-number">03 / INVESTIGAR</span><strong>Analise as evidências</strong
+        ><small>Entenda o resultado, o alvo afetado e as lacunas.</small></a
+      >
+    </div>
     <section class="metric-grid" aria-label="Indicadores do projeto">
       <article class="metric">
         <div class="metric-top">Auditorias do projeto <s-icon name="play" /></div>
@@ -207,9 +203,9 @@ import { Badge, EmptyState } from '../design-system/ui';
       display: flex;
       align-items: center;
       justify-content: space-between;
-      background: #193337;
-      color: #e6f2ee;
-      border: 1px solid #294b4b;
+      background: var(--surface-soft);
+      color: var(--ink);
+      border: 1px solid var(--line);
       border-radius: 9px;
       padding: 29px 32px;
       margin-bottom: 24px;
@@ -223,7 +219,7 @@ import { Badge, EmptyState } from '../design-system/ui';
     .banner-label {
       font: 8px var(--font-mono);
       letter-spacing: 1.7px;
-      color: #a0c7bb;
+      color: var(--accent);
       display: flex;
       align-items: center;
       gap: 8px;
@@ -236,14 +232,14 @@ import { Badge, EmptyState } from '../design-system/ui';
     }
     .overview-banner p {
       font-size: 12px;
-      color: #b2cbc4;
+      color: var(--muted);
       max-width: 510px;
       line-height: 1.8;
       margin-bottom: 15px;
     }
     .overview-banner a {
       font-size: 10px;
-      color: #a8ebd2;
+      color: var(--accent);
       text-decoration: none;
       display: flex;
       align-items: center;
@@ -254,20 +250,20 @@ import { Badge, EmptyState } from '../design-system/ui';
       height: 14px;
     }
     .radar {
-      color: #649e8f;
+      color: var(--accent);
       width: 230px;
       flex-shrink: 0;
       margin: -18px -5px -14px 20px;
       text-align: center;
     }
-    .radar svg {
+    .radar img {
       width: 230px;
       height: 170px;
     }
     .radar span {
       font: 7px var(--font-mono);
       letter-spacing: 1.1px;
-      color: #9ebdb2;
+      color: var(--muted);
     }
     .score-unit {
       font-size: 12px;
@@ -305,7 +301,7 @@ import { Badge, EmptyState } from '../design-system/ui';
       .radar {
         width: 160px;
       }
-      .radar svg {
+      .radar img {
         width: 180px;
       }
       .radar span {
