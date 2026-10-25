@@ -60,7 +60,7 @@ public sealed class InjectionProbeCheck : IIsolatedCheck
                 var parameters = operation.PathParams.Select(p => ("route", ContractBodies.Name(p))).Concat(operation.QueryParams.Select(p => ("query", ContractBodies.Name(p)))).ToArray();
                 foreach (var (kind, name) in parameters)
                 {
-                    string Build(string value) => kind == "route" ? SubstituteRoute(operation.Path, resolution, name, value) : baseUri + "?" + Uri.EscapeDataString(name) + "=" + Uri.EscapeDataString(value);
+                    string Build(string value) => kind == "route" ? origin + SubstituteRoute(operation.Path, resolution, name, value) : baseUri + "?" + Uri.EscapeDataString(name) + "=" + Uri.EscapeDataString(value);
 
                     // SQLi erro
                     foreach (var (sqlClass, payload) in SqlErrorPayloads)
