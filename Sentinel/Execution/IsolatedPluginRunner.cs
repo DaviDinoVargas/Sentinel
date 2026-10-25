@@ -5,6 +5,9 @@ using Sentinel.Contracts;
 
 namespace Sentinel.Execution;
 
+// Host-only observation: never deserialized from plugin output.
+public sealed record PluginHostDiagnostic(string Code, int? ExitCode = null, string? StderrHint = null);
+
 // One container per plugin by default, with a bounded bidirectional pipe for the
 // worker's HTTP gateway. Process mode requires explicit development configuration.
 public sealed class IsolatedPluginRunner
@@ -32,15 +35,18 @@ public sealed class IsolatedPluginRunner
     public async Task<PluginExecutionResult> RunAsync(PluginManifest manifest, PluginExecutionRequest request, CancellationToken cancellationToken,
         Func<CancellationToken, Task<bool>>? permit = null,
         Func<HttpRelayRequest, CancellationToken, Task<HttpRelayResponse>>? relay = null, string? sourceDirectory = null,
-        Func<TcpProbeRequest, CancellationToken, Task<TcpProbeResponse>>? tcpRelay = null)
+        Func<TcpProbeRequest, CancellationToken, Task<TcpProbeResponse>>? tcpRelay = null,
+        Action<PluginHostDiagnostic>? diagnostic = null)
     {
+        void Report(string code, int? exit = null, string? hint = null) => diagnostic?.Invoke(new(code, exit, hint));
         var inputValidation = _validator.ValidateInput(request);
         if (!inputValidation.IsValid)
         {
             // Nunca deveria acontecer (o próprio host monta o envelope), mas o contrato
             // exige validar antes de entregar — capacidade/entrada não aprovada é
             // rejeitada em tempo de execução, não só no desenho (Plugins.md).
-            return ScriptError(request, $"Envelope de entrada reprovado no schema: {string.Join("; ", inputValidation.Errors)}");
+            Report("input-schema-invalid");
+            return ScriptError(request, "Envelope de entrada reprovado no schema; conteúdo não registrado.");
         }
 
         var timeout = TimeSpan.FromSeconds(Math.Clamp(manifest.Spec.Resources.TimeoutSeconds, 1, 1800));
@@ -54,9 +60,11 @@ public sealed class IsolatedPluginRunner
         var containerName = "sentinel-plugin-" + Guid.NewGuid().ToString("N");
         ProcessStartInfo startInfo;
         try { startInfo = _runtime.Start(_pluginHostDllPath, manifest, containerName, request.DeadlineUtc, sourceDirectory); }
-        catch (Exception exception) { return ScriptError(request, exception.Message); }
-        if (sourceDirectory is not null && (!_runtime.Container || !manifest.Spec.Capabilities.SourceRead || manifest.Spec.Capabilities.Network != "false" || request.SourceRoot != "/source" || request.UseHttpRelay)) return ScriptError(request, "Snapshot exige container sem rede/gateway e montagem autorizada.");
-        if (_runtime.Container && !request.UseHttpRelay && sourceDirectory is null) return ScriptError(request, "Sandbox exige gateway HTTP ou snapshot explicitamente autorizado.");
+        catch (Exception exception) { Report("runtime-configuration"); return ScriptError(request, $"Configuração de execução recusada: {exception.GetType().Name}."); }
+        if (sourceDirectory is not null && (!_runtime.Container || !manifest.Spec.Capabilities.SourceRead || manifest.Spec.Capabilities.Network != "false" || request.SourceRoot != "/source" || request.UseHttpRelay))
+        { Report("source-capability-denied"); return ScriptError(request, "Snapshot exige container sem rede/gateway e montagem autorizada."); }
+        if (_runtime.Container && !request.UseHttpRelay && sourceDirectory is null)
+        { Report("gateway-required"); return ScriptError(request, "Sandbox exige gateway HTTP ou snapshot explicitamente autorizado."); }
         startInfo.RedirectStandardInput = true;
         startInfo.RedirectStandardOutput = true;
         startInfo.RedirectStandardError = true;
@@ -70,6 +78,7 @@ public sealed class IsolatedPluginRunner
         var stdout = new StringBuilder();
         var stderr = new StringBuilder();
         var started = false;
+        string? relayFailure = null;
         using var relayCts = CancellationTokenSource.CreateLinkedTokenSource(linkedCts.Token);
         using var relaySlots = new SemaphoreSlim(2, 2);
         using var pipeWriter = new SemaphoreSlim(1, 1);
@@ -109,7 +118,8 @@ public sealed class IsolatedPluginRunner
             }
             catch (Exception exception)
             {
-                _logger.LogError(exception, "Falha no gateway do plugin {PluginId}; execução interrompida.", manifest.Metadata.Id);
+                Interlocked.Exchange(ref relayFailure, "http-relay-failed");
+                _logger.LogError("Falha no gateway do plugin {PluginId}: {Kind}; execução interrompida.", manifest.Metadata.Id, exception.GetType().Name);
                 linkedCts.Cancel();
             }
         }
@@ -141,7 +151,8 @@ public sealed class IsolatedPluginRunner
             }
             catch (Exception exception)
             {
-                _logger.LogError(exception, "Falha no probe TCP do plugin {PluginId}; execução interrompida.", manifest.Metadata.Id);
+                Interlocked.Exchange(ref relayFailure, "tcp-relay-failed");
+                _logger.LogError("Falha no probe TCP do plugin {PluginId}: {Kind}; execução interrompida.", manifest.Metadata.Id, exception.GetType().Name);
                 linkedCts.Cancel();
             }
         }
@@ -203,6 +214,7 @@ public sealed class IsolatedPluginRunner
                 ? $"O plugin {manifest.Metadata.Id} excedeu o timeout declarado no manifesto ({timeout.TotalSeconds:0}s)."
                 : $"A execução do plugin {manifest.Metadata.Id} foi cancelada.";
             _logger.LogWarning("{Reason}", reason);
+            Report(timeoutCts.IsCancellationRequested ? "plugin-deadline" : relayFailure ?? "execution-cancelled");
             return new(request.ContractVersion, timeoutCts.IsCancellationRequested ? PluginExecutionOutcome.TimedOut : PluginExecutionOutcome.Cancelled,
                 Array.Empty<PluginCheckResult>(), Array.Empty<PluginEvidenceRef>(), new[] { reason });
         }
@@ -210,8 +222,9 @@ public sealed class IsolatedPluginRunner
         {
             TryKill(process);
             if (started) await process.WaitForExitAsync();
-            _logger.LogError(exception, "Falha ao iniciar/comunicar com o processo isolado do plugin {PluginId}.", manifest.Metadata.Id);
-            return ScriptError(request, $"Falha ao executar o plugin em processo isolado: {exception.GetType().Name}: {exception.Message}");
+            Report("process-or-protocol-failed", started ? process.ExitCode : null);
+            _logger.LogError("Falha ao iniciar/comunicar com o processo isolado do plugin {PluginId}: {Kind}.", manifest.Metadata.Id, exception.GetType().Name);
+            return ScriptError(request, $"Falha ao executar o plugin em processo isolado: {exception.GetType().Name}. Conteúdo da exceção não registrado.");
         }
         finally
         {
@@ -223,20 +236,25 @@ public sealed class IsolatedPluginRunner
 
         if (stderr.Length > 0)
         {
-            _logger.LogInformation("stderr do plugin {PluginId}: {Stderr}", manifest.Metadata.Id, stderr.ToString());
+            _logger.LogInformation("stderr recebido do plugin {PluginId}: {Length} caracteres capturados; conteúdo não registrado.", manifest.Metadata.Id, stderr.Length);
         }
 
         var outputJson = stdout.ToString().Trim();
         if (string.IsNullOrWhiteSpace(outputJson))
         {
+            var controlCode = SandboxControlException.Classify(stderr.ToString());
+            // docker run multiplexes CLI and child stderr. A recognized pattern is
+            // an unverified hint, never proof that the daemon caused this failure.
+            Report("process-no-result", process.ExitCode, controlCode == "command-rejected" ? null : controlCode);
             return ScriptError(request, $"O plugin {manifest.Metadata.Id} encerrou (código {process.ExitCode}) sem escrever um resultado em stdout.");
         }
 
         var outputValidation = _validator.ValidateOutputJson(outputJson);
         if (!outputValidation.IsValid)
         {
-            _logger.LogError("Saída do plugin {PluginId} reprovada no schema: {Errors}", manifest.Metadata.Id, string.Join("; ", outputValidation.Errors));
-            return ScriptError(request, $"Saída do plugin {manifest.Metadata.Id} não corresponde ao schema de resultado: {string.Join("; ", outputValidation.Errors)}");
+            Report("result-schema-invalid", process.ExitCode);
+            _logger.LogError("Saída do plugin {PluginId} reprovada no schema; {Count} erros, conteúdo não registrado.", manifest.Metadata.Id, outputValidation.Errors.Count);
+            return ScriptError(request, $"Saída do plugin {manifest.Metadata.Id} não corresponde ao schema de resultado; conteúdo não registrado.");
         }
 
         try
@@ -246,7 +264,8 @@ public sealed class IsolatedPluginRunner
         }
         catch (JsonException exception)
         {
-            return ScriptError(request, $"Não foi possível desserializar a saída do plugin {manifest.Metadata.Id}: {exception.Message}");
+            Report("result-json-invalid", process.ExitCode);
+            return ScriptError(request, $"Não foi possível desserializar a saída do plugin {manifest.Metadata.Id}: {exception.GetType().Name}.");
         }
     }
 

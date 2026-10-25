@@ -33,12 +33,15 @@ import { ExecutionEvent, SentinelApiService } from '../core/sentinel-api.service
           <datalist id="execution-event-kinds">
             <option value="PluginStarted">Plugin iniciado</option>
             <option value="PluginCompleted">Checkpoint salvo</option>
+            <option value="PluginDiagnostic">Diagnóstico do processo do plugin</option>
             <option value="RequestGranted">Permissão de requisição</option>
             <option value="WriteGranted">Permissão de escrita</option>
             <option value="WriteTrail">Trilha de escrita</option>
             <option value="WriteResult">Resultado de escrita</option>
             <option value="Interrupted">Interrompida</option>
-            <option value="InventoryUnavailable">Inventário OpenAPI indisponível ou incompleto</option>
+            <option value="InventoryUnavailable">
+              Inventário OpenAPI indisponível ou incompleto
+            </option>
             <option value="CancelRequested">Cancelamento solicitado</option>
           </datalist>
           <label for="execution-event-plugin"
@@ -234,6 +237,7 @@ export class ExecutionEvents {
         {
           PluginStarted: 'Plugin iniciado',
           PluginCompleted: 'Checkpoint salvo',
+          PluginDiagnostic: 'Diagnóstico do processo do plugin',
           RequestGranted: 'Permissão de requisição',
           WriteGranted: 'Permissão de escrita',
           WriteTrail: 'Trilha de escrita',

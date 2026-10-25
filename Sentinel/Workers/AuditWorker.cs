@@ -137,7 +137,8 @@ public sealed class AuditWorker(
                         if (permit.RetryAfterMs == 0) return false;
                         await Task.Delay(Math.Min(permit.RetryAfterMs, 200), token);
                     }
-                }, source ? null : gatewaySession!.SendAsync, sourceWorkspace?.DirectoryPath, source ? null : gatewaySession!.ProbeTcpAsync);
+                }, source ? null : gatewaySession!.SendAsync, sourceWorkspace?.DirectoryPath, source ? null : gatewaySession!.ProbeTcpAsync,
+                    diagnostic => coordinator.Trail(lease, "PluginDiagnostic", $"{manifest.Metadata.Id} · Diagnóstico do host: {diagnostic.Code}; saída do processo: {diagnostic.ExitCode?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "não observada"}; indício no stderr (não confirmado): {diagnostic.StderrHint ?? "nenhum"}. Condição da execução, nenhuma vulnerabilidade do alvo inferida."));
                 childStopped = true;
                 executionCts.Token.ThrowIfCancellationRequested();
                 var controls = result.Checks.Select(check => new AuditControlResult(check.ControlId, check.State, Sentinel.Evidence.EvidenceSanitizer.Apply(check.Summary).Value,

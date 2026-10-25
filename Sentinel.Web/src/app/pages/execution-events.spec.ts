@@ -78,13 +78,50 @@ describe('Histórico completo de eventos', () => {
     const { fixture, page, http } = render();
     page.filters.controls.kind.setValue('InventoryUnavailable');
     page.refresh();
-    http.expectOne('/api/v1/audits/audit/execution/events?pageSize=100&kind=InventoryUnavailable').flush({
-      items: [{ id: 400, atUtc: '', kind: 'InventoryUnavailable', detail: 'sentinel.lab.injection-probe · missing-parts; catálogo parcial não foi fornecido.' }],
-      nextBeforeId: null,
-    });
+    http
+      .expectOne('/api/v1/audits/audit/execution/events?pageSize=100&kind=InventoryUnavailable')
+      .flush({
+        items: [
+          {
+            id: 400,
+            atUtc: '',
+            kind: 'InventoryUnavailable',
+            detail:
+              'sentinel.lab.injection-probe · missing-parts; catálogo parcial não foi fornecido.',
+          },
+        ],
+        nextBeforeId: null,
+      });
     fixture.detectChanges();
-    expect(fixture.nativeElement.textContent).toContain('Inventário OpenAPI indisponível ou incompleto');
+    expect(fixture.nativeElement.textContent).toContain(
+      'Inventário OpenAPI indisponível ou incompleto',
+    );
     expect(fixture.nativeElement.textContent).toContain('catálogo parcial não foi fornecido');
+    fixture.destroy();
+    http.verify();
+  });
+  it('consulta diagnóstico do host com indício não confirmado separado de achado do alvo', () => {
+    const { fixture, page, http } = render();
+    page.filters.controls.kind.setValue('PluginDiagnostic');
+    page.refresh();
+    http
+      .expectOne('/api/v1/audits/audit/execution/events?pageSize=100&kind=PluginDiagnostic')
+      .flush({
+        items: [
+          {
+            id: 401,
+            atUtc: '',
+            kind: 'PluginDiagnostic',
+            detail:
+              'sentinel.lab.injection-probe · process-no-result; saída: 125; indício no stderr (não confirmado): api-version-mismatch. Nenhuma vulnerabilidade do alvo inferida.',
+          },
+        ],
+        nextBeforeId: null,
+      });
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('Diagnóstico do processo do plugin');
+    expect(fixture.nativeElement.textContent).toContain('não confirmado');
+    expect(fixture.nativeElement.textContent).toContain('Nenhuma vulnerabilidade do alvo inferida');
     fixture.destroy();
     http.verify();
   });

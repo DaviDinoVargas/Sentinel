@@ -13,6 +13,19 @@ internal static class Program
         var mode = args.Single();
         var options = new JsonSerializerOptions(JsonSerializerDefaults.Web) { Converters = { new JsonStringEnumConverter() } };
         var request = JsonSerializer.Deserialize<PluginExecutionRequest>((await Console.In.ReadLineAsync())!, options)!;
+        if (mode.Contains("diagnostic", StringComparison.Ordinal))
+        {
+            await Console.Error.WriteLineAsync("synthetic-secret-never-persist A:/private/fixture.txt");
+            if (mode.EndsWith("diagnostic-exit", StringComparison.Ordinal))
+            {
+                await Console.Error.WriteLineAsync("client version 1.55 is too new. Maximum supported API version is 1.54");
+                Environment.ExitCode = 125; return;
+            }
+            if (mode.EndsWith("diagnostic-invalid", StringComparison.Ordinal))
+            {
+                await Console.Out.WriteLineAsync("{\"synthetic-secret-never-persist\":true}"); return;
+            }
+        }
         if (mode.EndsWith("malformed", StringComparison.Ordinal))
             await Console.Out.WriteLineAsync("{\"not-a-result\":true}");
         else if (!mode.EndsWith("silent", StringComparison.Ordinal))
