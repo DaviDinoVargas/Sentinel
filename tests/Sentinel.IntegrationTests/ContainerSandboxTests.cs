@@ -122,7 +122,7 @@ public sealed class ContainerSandboxTests
         var queued = (await response.Content.ReadFromJsonAsync<Audit>(Json))!;
         var completed = await Wait(client, queued.Id, audit => AuditStates.IsTerminal(audit.State));
         Assert.True(completed.State == AuditState.Completed, completed.PolicyReason);
-        Assert.Equal(8, completed.Controls.Count); Assert.Equal(49, factory.LabTarget.RequestsFor("/aplicacao/protegido"));
+        Assert.Equal(11, completed.Controls.Count); Assert.Equal(59, factory.LabTarget.RequestsFor("/aplicacao/protegido"));
         response = await client.PostAsJsonAsync($"/api/v1/projects/{project.Id}/audits", new RequestAuditRequest(url, "lab-active", true));
         queued = (await response.Content.ReadFromJsonAsync<Audit>(Json))!;
         await Wait(client, queued.Id, audit => audit.State == AuditState.Running);
@@ -148,14 +148,14 @@ public sealed class ContainerSandboxTests
         response = await client.PostAsJsonAsync($"/api/v1/projects/{project.Id}/audits", new RequestAuditRequest(url, "authenticated-lab", true, credential.Id, "allow", true));
         response.EnsureSuccessStatusCode(); var audit = (await response.Content.ReadFromJsonAsync<Audit>(Json))!;
         audit = await Wait(client, audit.Id, item => AuditStates.IsTerminal(item.State));
-        Assert.True(audit.State == AuditState.Completed, audit.PolicyReason); Assert.Equal(4, audit.Controls.Count);
+        Assert.True(audit.State == AuditState.Completed, audit.PolicyReason); Assert.Equal(5, audit.Controls.Count);
         Assert.Equal("Passed", Assert.Single(audit.Controls, item => item.ControlId == "LAB-ACCESS-01").State);
         Assert.Equal("Informational", Assert.Single(audit.Controls, item => item.ControlId == "LAB-DISC-01").State);
         Assert.DoesNotContain("sentinel-tenant-a", JsonSerializer.Serialize(audit, Json));
-        // 41 da carga limitada/baseline + 1 do próprio endpoint-discovery nesta mesma URL (sem links a seguir).
-        Assert.Equal(43, factory.LabTarget.RequestsFor("/authenticated/tenant-a"));
+        // 41 da carga limitada/baseline + 1 do próprio endpoint-discovery nesta mesma URL (sem links a seguir) + 1 do jwt-lifecycle.
+        Assert.Equal(44, factory.LabTarget.RequestsFor("/authenticated/tenant-a"));
         var execution = (await client.GetFromJsonAsync<ExecutionSnapshot>($"/api/v1/audits/{audit.Id}/execution", Json))!;
-        Assert.Equal(4, execution.Events.Count(item => item.Kind == "PluginStarted"));
+        Assert.Equal(5, execution.Events.Count(item => item.Kind == "PluginStarted"));
         Assert.All(execution.Events.Where(item => item.Kind == "PluginStarted"), item => Assert.Contains("container " + Image, item.Detail));
     }
 

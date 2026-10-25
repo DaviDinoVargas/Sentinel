@@ -19,6 +19,8 @@ public sealed class LabTargetServer : IDisposable
     public int MaxRefererLength => Volatile.Read(ref _maxRefererLength);
     // Liga um /.env real na RAIZ do host (WEB-CFG-05 na raiz); desligado por padrão para não afetar outros testes.
     public volatile bool ExposeRootSecrets;
+    // AUTH-BRUTE-01: tentativas de login contadas por caminho (cada teste usa um sufixo aleatório na URL).
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, int> _bruteAttempts = new();
 
     public Uri BaseUri { get; }
 
@@ -72,7 +74,17 @@ public sealed class LabTargetServer : IDisposable
             else if (password == "locked-fixture") context.Response.StatusCode = 423;
             else if (password != "synthetic-password") context.Response.StatusCode = 401;
             else if (context.Request.HttpMethod != "POST") context.Response.StatusCode = 405;
-            WriteBody(context, context.Response.StatusCode == 200 ? "{\"data\":{\"token\":\"sentinel-tenant-a\"}}" : "{\"error\":\"synthetic-password must never escape\"}"); return;
+            // AUTH-JWT-02: variantes de token JWT sintético emitido pelo alvo (identificadas pelo caminho do
+            // login), para exercitar cada regra do JwtLifecycleCheck isoladamente.
+            var jwtVariant = path.Contains("/jwt-safe/", StringComparison.Ordinal) ? "safe"
+                : path.Contains("/jwt-noiat/", StringComparison.Ordinal) ? "noiat"
+                : path.Contains("/jwt-unsigned/", StringComparison.Ordinal) ? "unsigned"
+                : path.Contains("/jwt-noexp/", StringComparison.Ordinal) ? "noexp"
+                : path.Contains("/jwt-longlived/", StringComparison.Ordinal) ? "longlived"
+                : path.Contains("/jwt-badexp/", StringComparison.Ordinal) ? "badexp"
+                : path.Contains("/jwt-noaudience/", StringComparison.Ordinal) ? "noaudience" : null;
+            var token = jwtVariant is not null && context.Response.StatusCode == 200 ? BuildJwt(jwtVariant) : "sentinel-tenant-a";
+            WriteBody(context, context.Response.StatusCode == 200 ? "{\"data\":{\"token\":\"" + token + "\"}}" : "{\"error\":\"synthetic-password must never escape\"}"); return;
         }
         if (path.Contains("/mass-", StringComparison.Ordinal))
         {
@@ -170,6 +182,92 @@ public sealed class LabTargetServer : IDisposable
             if (!visible && path.Contains("/idor-diferente/", StringComparison.Ordinal)) { WriteBody(context, $"{{\"id\":\"{id}\",\"view\":\"limited\"}}"); return; }
             context.Response.StatusCode = visible ? 200 : 404;
             WriteBody(context, visible ? $"{{\"id\":\"{id}\",\"owner\":\"{id[..1]}\"}}" : "{}"); return;
+        }
+        if (path.Contains("/inj-erro/", StringComparison.Ordinal) && path.EndsWith("/items", StringComparison.Ordinal))
+        {
+            // WEB-INJ-01 (erro): aspas simples/duplas ou comentário SQL em ?q= quebram a consulta sintética.
+            var q = Uri.UnescapeDataString(context.Request.Url?.Query ?? "");
+            if (q.Contains('\'') || q.Contains('"'))
+            {
+                context.Response.StatusCode = 500;
+                WriteBody(context, "{\"error\":\"SQL syntax error near '" + q.Replace("\"", "").Replace("'", "") + "' at line 1\"}"); return;
+            }
+            context.Response.ContentType = "application/json"; WriteBody(context, "[]"); return;
+        }
+        if (path.Contains("/inj-booleana/", StringComparison.Ordinal) && path.EndsWith("/items", StringComparison.Ordinal))
+        {
+            // WEB-INJ-01 (booleana): "OR '1'='1" devolve a lista inteira; qualquer outro valor (incl. a
+            // condição "AND '1'='2" e o valor sintético de linha de base) devolve lista vazia.
+            var q = Uri.UnescapeDataString(context.Request.Url?.Query ?? "");
+            context.Response.ContentType = "application/json";
+            WriteBody(context, q.Contains("OR '1'='1", StringComparison.Ordinal) ? "[{\"id\":1},{\"id\":2},{\"id\":3}]" : "[]"); return;
+        }
+        if (path.Contains("/inj-json/", StringComparison.Ordinal) && path.EndsWith("/search", StringComparison.Ordinal))
+        {
+            context.Response.ContentType = "application/json";
+            WriteBody(context, System.Text.Json.JsonSerializer.Serialize(new { result = Uri.UnescapeDataString(context.Request.Url?.Query ?? "") }, new System.Text.Json.JsonSerializerOptions { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping })); return;
+        }
+        if (path.Contains("/inj-truncated/", StringComparison.Ordinal))
+        {
+            context.Response.ContentType = "text/html";
+            WriteBody(context, new string('a', 70000)); return;
+        }
+        if (path.Contains("/inj-xss/", StringComparison.Ordinal) && path.EndsWith("/search", StringComparison.Ordinal))
+        {
+            // WEB-INJ-02: ?q= é refletido SEM escapar no corpo HTML.
+            var q = Uri.UnescapeDataString((context.Request.Url?.Query ?? "").TrimStart('?').Replace("q=", ""));
+            context.Response.ContentType = "text/html; charset=utf-8";
+            WriteBody(context, $"<html><body><p>Resultados para: {q}</p></body></html>"); return;
+        }
+        if (path.Contains("/inj-seguro/", StringComparison.Ordinal) && (path.EndsWith("/items", StringComparison.Ordinal) || path.EndsWith("/search", StringComparison.Ordinal)))
+        {
+            // Contraparte segura: consulta parametrizada de verdade (qualquer entrada devolve o mesmo vazio
+            // sem erro) e saída HTML-escapada (nunca reflete o '<' ou '>' do valor original).
+            if (path.EndsWith("/search", StringComparison.Ordinal))
+            {
+                var q = Uri.UnescapeDataString((context.Request.Url?.Query ?? "").TrimStart('?').Replace("q=", ""));
+                context.Response.ContentType = "text/html; charset=utf-8";
+                WriteBody(context, $"<html><body><p>Resultados para: {System.Net.WebUtility.HtmlEncode(q)}</p></body></html>"); return;
+            }
+            context.Response.ContentType = "application/json"; WriteBody(context, "[]"); return;
+        }
+        if (path.Contains("/auth-brute-", StringComparison.Ordinal) && path.EndsWith("/login", StringComparison.Ordinal))
+        {
+            // AUTH-BRUTE-01: auth-brute-seguro bloqueia (423 + Retry-After) a partir da 5ª tentativa seguida
+            // para o mesmo caminho; auth-brute-vulneravel nunca bloqueia (sempre 401 para senha errada).
+            if (context.Request.HttpMethod != "POST") { context.Response.StatusCode = 405; context.Response.Close(); return; }
+            using (var drain = new MemoryStream()) context.Request.InputStream.CopyTo(drain);
+            var attempt = _bruteAttempts.AddOrUpdate(path, 1, (_, count) => count + 1);
+            if (path.Contains("/auth-brute-throttled/", StringComparison.Ordinal))
+            { context.Response.StatusCode = 429; WriteBody(context, "{}"); return; }
+            if (path.Contains("/auth-brute-seguro/", StringComparison.Ordinal) && attempt >= 5)
+            {
+                context.Response.StatusCode = 423;
+                context.Response.Headers.Add("Retry-After", "60");
+                WriteBody(context, "{\"error\":\"account locked, try again later\"}"); return;
+            }
+            context.Response.StatusCode = 401; WriteBody(context, "{\"error\":\"invalid credentials\"}"); return;
+        }
+        if (path.Contains("/jwt-", StringComparison.Ordinal) && !path.EndsWith("/login", StringComparison.Ordinal))
+        {
+            // AUTH-JWT-01 (fora de authenticated/, perfil lab-active): jwt-vuln aceita QUALQUER Authorization
+            // com 2-3 segmentos separados por ponto, sem verificar assinatura; jwt-safe exige o segredo fixo do
+            // laboratório (simula verificação real: qualquer outra coisa — forjada ou não — é recusada).
+            // AUTH-JWT-02 (dentro de authenticated/, perfil authenticated-lab via login real): o gateway já fez
+            // o login; qualquer Bearer não vazio é aceito aqui — é o LAB-ACCESS-01 confirmando a sessão, não um
+            // teste de assinatura.
+            var header = context.Request.Headers["Authorization"] ?? "";
+            if (!header.StartsWith("Bearer ", StringComparison.Ordinal) || header.Length <= "Bearer ".Length) { context.Response.StatusCode = 401; context.Response.Close(); return; }
+            var presented = header["Bearer ".Length..];
+            if (path.Contains("/jwt-soft-denial", StringComparison.Ordinal))
+            { context.Response.ContentType = "application/json"; WriteBody(context, "{\"error\":\"Forbidden\",\"status\":403}"); return; }
+            if (path.Contains("/jwt-partial", StringComparison.Ordinal))
+            { context.Response.StatusCode = presented.StartsWith("eyJhbGciOiJub25l", StringComparison.Ordinal) ? 403 : 503; WriteBody(context, "{}"); return; }
+            var accepted = path.Contains("authenticated/", StringComparison.Ordinal) ? true
+                : path.Contains("/jwt-vuln", StringComparison.Ordinal) ? presented.Count(c => c == '.') is 1 or 2
+                : presented == "sentinel-lab-real-signature";
+            context.Response.StatusCode = accepted ? 200 : 403;
+            WriteBody(context, accepted ? "{\"ok\":true}" : "{}"); return;
         }
         if (path.Contains("authenticated/", StringComparison.Ordinal))
         {
@@ -494,6 +592,25 @@ public sealed class LabTargetServer : IDisposable
         // respostas, o que também dá um caso real reprovado para o WEB-CFG-09.
         context.Response.StatusCode = 200;
         context.Response.Close();
+    }
+
+    // AUTH-JWT-02: JWT sintético com as propriedades da variante pedida. A assinatura nunca é verificada
+    // pelo gateway (ele só decodifica header/payload), então qualquer valor de terceiro segmento serve.
+    private static string BuildJwt(string variant)
+    {
+        static string Encode(string value) => Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(value)).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        if (variant == "unsigned") return Encode("{\"alg\":\"none\",\"typ\":\"JWT\"}") + "." + Encode($"{{\"sub\":\"sentinel-lab\",\"iat\":{now},\"exp\":{now + 3600},\"aud\":\"sentinel-lab\",\"iss\":\"sentinel-lab-issuer\"}}") + ".";
+        var payload = variant switch
+        {
+            "noiat" => $"{{\"sub\":\"sentinel-lab\",\"exp\":{now + 3600},\"aud\":\"sentinel-lab\",\"iss\":\"sentinel-lab-issuer\"}}",
+            "noexp" => $"{{\"sub\":\"sentinel-lab\",\"iat\":{now},\"aud\":\"sentinel-lab\",\"iss\":\"sentinel-lab-issuer\"}}",
+            "longlived" => $"{{\"sub\":\"sentinel-lab\",\"iat\":{now},\"exp\":{now + 90 * 86400},\"aud\":\"sentinel-lab\",\"iss\":\"sentinel-lab-issuer\"}}",
+            "badexp" => $"{{\"sub\":\"sentinel-lab\",\"iat\":{now},\"exp\":{now - 60},\"aud\":\"sentinel-lab\",\"iss\":\"sentinel-lab-issuer\"}}",
+            "noaudience" => $"{{\"sub\":\"sentinel-lab\",\"iat\":{now},\"exp\":{now + 3600}}}",
+            _ => $"{{\"sub\":\"sentinel-lab\",\"iat\":{now},\"exp\":{now + 3600},\"aud\":\"sentinel-lab\",\"iss\":\"sentinel-lab-issuer\"}}",
+        };
+        return Encode("{\"alg\":\"HS256\",\"typ\":\"JWT\",\"kid\":\"lab-key-1\"}") + "." + Encode(payload) + "." + Encode("signature-content-irrelevant-never-verified");
     }
 
     private static void WriteBody(HttpListenerContext context, string body)

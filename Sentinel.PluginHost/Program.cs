@@ -51,6 +51,10 @@ public static class Program
         ["sentinel.lab.body-robustness"] = () => new BodyRobustnessCheck(),
         ["sentinel.lab.mass-assignment"] = () => new MassAssignmentCheck(),
         ["sentinel.lab.contract-fuzz"] = () => new ContractFuzzCheck(),
+        ["sentinel.lab.jwt-forgery"] = () => new JwtForgeryCheck(),
+        ["sentinel.lab.jwt-lifecycle"] = () => new JwtLifecycleCheck(),
+        ["sentinel.lab.auth-brute"] = () => new AuthBruteForceCheck(),
+        ["sentinel.lab.injection-probe"] = () => new InjectionProbeCheck(),
     };
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)

@@ -112,16 +112,16 @@ public sealed class JsonLoginTests : IDisposable
         var profile = (await (await client.PostAsJsonAsync($"/api/v1/projects/{project.Id}/target-credentials", Input(scope, login))).Content.ReadFromJsonAsync<TargetCredentialInfo>())!;
         var response = await client.PostAsJsonAsync($"/api/v1/projects/{project.Id}/audits", new RequestAuditRequest(uri + "/tenant-a", "authenticated-lab", true, profile.Id, "allow", true)); response.EnsureSuccessStatusCode();
         var audit = (await response.Content.ReadFromJsonAsync<Audit>(Json))!;
-        var deadline = DateTime.UtcNow.AddSeconds(45);
+        var deadline = DateTime.UtcNow.AddSeconds(60);
         while (!AuditStates.IsTerminal(audit.State) && DateTime.UtcNow < deadline)
         { await Task.Delay(100); audit = (await client.GetFromJsonAsync<Audit>($"/api/v1/audits/{audit.Id}", Json))!; }
-        Assert.Equal(AuditState.Completed, audit.State); Assert.Equal(4, audit.Controls.Count);
+        Assert.Equal(AuditState.Completed, audit.State); Assert.Equal(5, audit.Controls.Count);
         Assert.Equal("Passed", audit.Controls.Single(c => c.ControlId == "LAB-ACCESS-01").State);
         Assert.Equal("Informational", audit.Controls.Single(c => c.ControlId == "LAB-PERF-01").State);
         Assert.Equal("Informational", audit.Controls.Single(c => c.ControlId == "LAB-DISC-01").State);
-        // Quatro plugins autenticados preparam login agora (authenticated-access, bounded-http-load, endpoint-discovery e mass-assignment).
-        Assert.Equal(4, host.LabTarget.RequestsFor(new Uri(login.Configuration.Url).AbsolutePath));
+        // Cinco plugins autenticados preparam login agora (authenticated-access, bounded-http-load, endpoint-discovery, mass-assignment e jwt-lifecycle).
+        Assert.Equal(5, host.LabTarget.RequestsFor(new Uri(login.Configuration.Url).AbsolutePath));
         // 41 da carga limitada/baseline + 1 do próprio endpoint-discovery nesta mesma URL (sem links a seguir).
-        Assert.Equal(43, host.LabTarget.RequestsFor(new Uri(uri + "/tenant-a").AbsolutePath));
+        Assert.Equal(44, host.LabTarget.RequestsFor(new Uri(uri + "/tenant-a").AbsolutePath));
     }
 }

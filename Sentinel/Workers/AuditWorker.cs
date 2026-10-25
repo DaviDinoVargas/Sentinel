@@ -100,7 +100,7 @@ public sealed class AuditWorker(
                     stage = "sandbox";
                 }
                 string? openApiJson = null;
-                if (manifest.Metadata.Id is "sentinel.lab.api-anonymous-access" or "sentinel.lab.object-level-authz" or "sentinel.lab.function-level-authz" or "sentinel.lab.mass-assignment" or "sentinel.lab.contract-fuzz" or "sentinel.lab.fuzz-surface")
+                if (manifest.Metadata.Id is "sentinel.lab.api-anonymous-access" or "sentinel.lab.object-level-authz" or "sentinel.lab.function-level-authz" or "sentinel.lab.mass-assignment" or "sentinel.lab.contract-fuzz" or "sentinel.lab.fuzz-surface" or "sentinel.lab.injection-probe")
                 {
                     stage = "openapi-historico";
                     foreach (var candidate in store.GetAudits(payload.ProjectId).Where(item => item.State == AuditState.Completed).OrderByDescending(item => item.CreatedAtUtc).Take(20))

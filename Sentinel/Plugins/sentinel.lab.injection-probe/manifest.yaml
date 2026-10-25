@@ -1,0 +1,26 @@
+apiVersion: sentinel.dev/v1
+kind: PluginManifest
+metadata:
+  id: sentinel.lab.injection-probe
+  version: 1.0.0
+  name: SQL injection (erro/booleana) e XSS refletido em parâmetros do contrato (WEB-INJ-01, WEB-INJ-02, parcial)
+spec:
+  type: security-test
+  contractVersion: "1.0"
+  mode: active
+  controls: [WEB-INJ-01, WEB-INJ-02]
+  capabilities:
+    network: scoped-egress
+    sourceRead: false
+    artifactWrite: false
+    gateway:
+      arbitraryPaths: true
+      maxRequests: 180
+      bodyBytes: 65536
+  resources:
+    timeoutSeconds: 120
+    memoryMiB: 128
+  permissions: [target.http.lab-active]
+  execution:
+    isolation: container
+  riskClass: medium

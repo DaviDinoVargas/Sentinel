@@ -12,7 +12,7 @@ internal static class AuthzSupport
     private static readonly HttpRequestOptionsKey<string> Persona = new("sentinel.http.persona");
     private static readonly Regex DenyWords = new(@"forbidden|unauthori[sz]ed|access denied|permission|not allowed|insufficient|proibid|negad|sem permiss|não autoriz|nao autoriz", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
-    internal sealed record Reply(int Status, string Body, bool Truncated);
+    internal sealed record Reply(int Status, string Body, bool Truncated, string? ContentType = null);
 
     internal static async Task<Reply> SendAsync(HttpClient client, HttpMethod method, string uri, string persona, string? jsonBody, CancellationToken ct)
     {
@@ -21,7 +21,7 @@ internal static class AuthzSupport
         if (jsonBody is not null) message.Content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
         using var response = await client.SendAsync(message, HttpCompletionOption.ResponseHeadersRead, ct);
         var body = await ScopedHttp.ReadPrefixAsync(response, ct);
-        return new((int)response.StatusCode, body, ScopedHttp.BodyTruncated(response));
+        return new((int)response.StatusCode, body, ScopedHttp.BodyTruncated(response), response.Content.Headers.ContentType?.MediaType);
     }
 
     // Negação "mole": HTTP 2xx cujo corpo é um envelope de erro de autorização ({"error":"Forbidden"},

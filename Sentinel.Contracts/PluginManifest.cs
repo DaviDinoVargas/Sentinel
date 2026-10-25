@@ -119,6 +119,9 @@ public sealed class PluginManifestGateway
     // host, caminho e query), sem seguir redirecionamento, registrado na trilha da execução. Serve ao
     // TLS-01 (redirecionamento http→https). Nunca vale em auditoria autenticada.
     public bool PlainHttpCounterpart { get; set; }
+    // V50: metadados estruturais do JWT já usado pelo gateway em authenticated-lab (alg, presença de kid,
+    // nomes de claims, exp/iat/nbf numéricos) — nunca o token nem o valor das claims. Serve ao AUTH-JWT-02.
+    public bool TokenMetadata { get; set; }
 }
 
 // V39: limites do host para recursos de container e cabeçalhos de requisição que um manifesto

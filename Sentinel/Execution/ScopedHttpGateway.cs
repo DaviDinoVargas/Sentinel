@@ -231,6 +231,8 @@ public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine po
                 var limits = _manifest.Spec.Capabilities.Gateway;
                 foreach (var header in response.Headers.Concat(response.Content.Headers))
                 {
+                    // Reserved metadata must never be supplied or spoofed by the target.
+                    if (header.Key.StartsWith("X-Sentinel-", StringComparison.OrdinalIgnoreCase)) continue;
                     // Por padrão, plugins autenticados só recebem status/tempo: o alvo pode refletir a
                     // credencial em qualquer cabeçalho. Com gateway.authenticatedResponseHeaders no manifesto
                     // eles recebem os cabeçalhos, mas qualquer valor que contenha a credencial vira <redacted>.
@@ -272,6 +274,12 @@ public sealed class ScopedHttpGateway(ISentinelStore store, ScopePolicyEngine po
                     }
                     if (_asnResult is not null) headers["X-Sentinel-Asn-Info"] = [_asnResult];
                 }
+                // AUTH-JWT-02: metadados estruturais do token que o PRÓPRIO gateway acabou de usar (nunca um
+                // token fornecido pelo plugin); derivado da identidade desta requisição, sem cache cruzado
+                // entre personas ou após renovação. Nada disto depende da resposta
+                // do alvo, por isso vale independentemente de gateway.authenticatedResponseHeaders.
+                var jwtMetadata = limits.TokenMetadata && !call.Anonymous ? JwtMetadata.Describe(bearer) : null;
+                if (jwtMetadata is not null) headers["X-Sentinel-Jwt-Metadata"] = [jwtMetadata];
                 var buffer = new byte[Math.Min(limits.BodyBytes, GatewayLimits.MaxBodyBytes)]; var length = 0;
                 await using var body = await response.Content.ReadAsStreamAsync(cancellationToken);
                 while (length < buffer.Length)

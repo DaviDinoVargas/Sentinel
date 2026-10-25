@@ -1,0 +1,25 @@
+apiVersion: sentinel.dev/v1
+kind: PluginManifest
+metadata:
+  id: sentinel.lab.jwt-forgery
+  version: 1.0.0
+  name: Aceitação de token JWT forjado (AUTH-JWT-01)
+spec:
+  type: security-test
+  contractVersion: "1.0"
+  mode: active
+  controls: [AUTH-JWT-01]
+  capabilities:
+    network: scoped-egress
+    sourceRead: false
+    artifactWrite: false
+    gateway:
+      maxRequests: 20
+      bodyBytes: 4096
+  resources:
+    timeoutSeconds: 30
+    memoryMiB: 128
+  permissions: [target.http.lab-active]
+  execution:
+    isolation: container
+  riskClass: medium
