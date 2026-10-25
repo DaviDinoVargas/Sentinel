@@ -14,6 +14,11 @@ export function loginForm() {
     username: required(),
     password: required(),
     tenant: new FormControl('', { nonNullable: true }),
+    logoutEnabled: new FormControl(false, { nonNullable: true }),
+    logoutUrl: new FormControl('', { nonNullable: true }),
+    identityPath: new FormControl('', { nonNullable: true }),
+    expectedIdentity: new FormControl('', { nonNullable: true }),
+    logoutBodyFormat: new FormControl<'none' | 'empty-json'>('none', { nonNullable: true }),
   });
 }
 export function loginInput(form: ReturnType<typeof loginForm>): JsonLoginInput {
@@ -26,10 +31,20 @@ export function loginInput(form: ReturnType<typeof loginForm>): JsonLoginInput {
       passwordField: v.passwordField,
       tokenPath: v.tokenPath,
       tenantField: v.tenantField || null,
+      ...(v.logoutEnabled
+        ? {
+            logout: {
+              url: v.logoutUrl,
+              identityPath: v.identityPath,
+              bodyFormat: v.logoutBodyFormat,
+            },
+          }
+        : {}),
     },
     username: v.username,
     password: v.password,
     tenant: v.tenant || null,
+    ...(v.logoutEnabled ? { expectedIdentity: v.expectedIdentity } : {}),
   };
 }
 export function resetLogin(form: ReturnType<typeof loginForm>, c?: JsonLoginConfiguration | null) {
@@ -39,12 +54,17 @@ export function resetLogin(form: ReturnType<typeof loginForm>, c?: JsonLoginConf
     passwordField: c?.passwordField ?? 'password',
     tokenPath: c?.tokenPath ?? 'token',
     tenantField: c?.tenantField ?? '',
+    logoutEnabled: !!c?.logout,
+    logoutUrl: c?.logout?.url ?? '',
+    identityPath: c?.logout?.identityPath ?? '',
+    logoutBodyFormat: c?.logout?.bodyFormat ?? 'none',
   });
 }
 export function clearLoginSecrets(form: ReturnType<typeof loginForm>) {
   form.controls.username.reset();
   form.controls.password.reset();
   form.controls.tenant.reset();
+  form.controls.expectedIdentity.reset();
 }
 @Component({
   selector: 's-target-login-fields',
@@ -90,6 +110,47 @@ export function clearLoginSecrets(form: ReturnType<typeof loginForm>) {
           maxlength="200"
       /></label>
     </div>
+    <label class="check-field"
+      ><input type="checkbox" formControlName="logoutEnabled" />
+      <span
+        >Configurar teste de logout: o contrato deste alvo exige revogação imediata do Bearer</span
+      ></label
+    >
+    @if (form().controls.logoutEnabled.value) {
+      <div class="form-stack">
+        <label
+          >URL de logout (POST no mesmo escopo)<input
+            type="url"
+            formControlName="logoutUrl"
+            maxlength="2048"
+        /></label>
+        <label
+          >Corpo do logout<select formControlName="logoutBodyFormat">
+            <option value="none">Sem corpo</option>
+            <option value="empty-json">JSON vazio</option>
+          </select></label
+        >
+        <label
+          >Caminho JSON da identidade no recurso protegido<input
+            formControlName="identityPath"
+            maxlength="200"
+            placeholder="data.id"
+        /></label>
+        <label
+          >Valor esperado da identidade (privado)<input
+            formControlName="expectedIdentity"
+            autocomplete="off"
+            maxlength="512"
+        /></label>
+        <p class="help">
+          Use uma conta sintética. Na execução, informe a URL do recurso protegido e selecione o
+          plugin de logout. Serão feitas duas autenticações, até dois logouts e leituras de controle. O
+          token antigo é reapresentado; somente status 2xx não comprova identidade. O valor esperado
+          fica cifrado e precisa ser reenviado na rotação. Este contrato não cobre refresh nem
+          cookies.
+        </p>
+      </div>
+    }
     <p class="help">
       Use uma conta sintética já existente e autorizada. Cadastrar não cria usuário/empresa nem
       envia login ao alvo. Nenhum segredo cadastrado é exibido novamente.

@@ -242,12 +242,14 @@ export interface JsonLoginConfiguration {
   passwordField: string;
   tenantField: string | null;
   tokenPath: string;
+  logout?: { url: string; identityPath: string; bodyFormat: 'none' | 'empty-json' } | null;
 }
 export interface JsonLoginInput {
   configuration: JsonLoginConfiguration;
   username: string;
   password: string;
   tenant: string | null;
+  expectedIdentity?: string | null;
 }
 export interface SecurityScoreComponent {
   id: string;
@@ -305,6 +307,8 @@ export interface Plugin {
     openApiRead?: boolean;
     gateway?: {
       identity?: string;
+      logoutCheck?: boolean;
+      loginRequests?: number;
       headerCount: number;
       headerValueLength: number;
       headerBytes: number;

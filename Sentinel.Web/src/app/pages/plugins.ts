@@ -230,6 +230,19 @@ import { Icon } from '../design-system/icon';
                       </dd>
                       <dt>Cookies / sessão</dt>
                       <dd>
+                        Até {{ gateway.loginRequests ?? 1 }} autenticação(ões) por plugin,
+                        contabilizadas no orçamento global do alvo.
+                      </dd>
+                      @if (gateway.logoutCheck) {
+                        <dt>Verificação de logout no host</dt>
+                        <dd>
+                          Login JSON e identidade esperada privados · duas sessões · revogação
+                          imediata declarada pelo operador. O plugin recebe somente estados e
+                          comparações; tokens e corpos ficam no host.
+                        </dd>
+                      }
+                      <dt>Exposição de resposta</dt>
+                      <dd>
                         {{
                           gateway.cookieAttributes
                             ? 'Nome e atributos de cookies; valores sempre redigidos'
