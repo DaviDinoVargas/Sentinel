@@ -17,6 +17,7 @@ public sealed class SourceRecoveryTests : IDisposable
     private readonly ExecutionCoordinator _coordinator;
     private readonly IDbContextFactory<SentinelDbContext> _factory;
     private readonly List<Guid> _audits = [];
+    private readonly HashSet<Guid> _sourceProjects = [];
     public SourceRecoveryTests()
     {
         _client = _host.CreateClient();
@@ -27,6 +28,7 @@ public sealed class SourceRecoveryTests : IDisposable
     {
         var created = await _client.PostAsJsonAsync("/api/v1/projects", new CreateProjectRequest("Safe source recovery " + Guid.NewGuid().ToString("N"), "Synthetic snapshot fixture"));
         created.EnsureSuccessStatusCode(); var project = (await created.Content.ReadFromJsonAsync<SentinelProject>(Json))!;
+        _sourceProjects.Add(project.Id);
         using var zip = new ByteArrayContent(SourceSnapshotTests.Zip(("README.md", "Synthetic recovery fixture; no real target.")));
         zip.Headers.ContentType = new("application/zip");
         var uploaded = await _client.PostAsync($"/api/v1/projects/{project.Id}/source-snapshots?sourceKey=recovery&revision=r1", zip);
@@ -133,6 +135,9 @@ public sealed class SourceRecoveryTests : IDisposable
     public void Dispose()
     {
         foreach (var id in _audits) _coordinator.Cancel(id);
+        using (var db = _factory.CreateDbContext())
+            db.Set<Sentinel.Source.SourceSnapshotRow>().Where(row => _sourceProjects.Contains(row.ProjectId))
+                .ExecuteUpdate(set => set.SetProperty(row => row.ExpiresAtUtc, DateTimeOffset.UtcNow).SetProperty(row => row.PurgedAtUtc, DateTimeOffset.UtcNow));
         _client.Dispose(); _host.Dispose();
     }
 }
