@@ -54,7 +54,8 @@ public sealed class AuditWorker(
         var lease = coordinator.TryAcquire(payload.AuditId, _workerId);
         if (lease is null) return; // Reconciler republishes waiting work without hot requeue.
         using var executionCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
-        var monitor = MonitorAsync(lease, executionCts);
+        var monitor = LeaseHeartbeat.Start(() => coordinator.Heartbeat(lease), executionCts,
+            exception => logger.LogError(exception, "Heartbeat indisponível para {AuditId}; execução abortada.", lease.AuditId));
         var childStopped = true;
         var stage = "preparacao";
         try
@@ -220,24 +221,6 @@ public sealed class AuditWorker(
         }
         if (parts.Count == 0) return v1;
         return "{\"operations\":[" + string.Join(",", parts.Values.Select(array => array[1..^1]).Where(array => array.Length > 0)) + "]}";
-    }
-
-    private async Task MonitorAsync(ExecutionLease lease, CancellationTokenSource executionCts)
-    {
-        try
-        {
-            while (!executionCts.IsCancellationRequested)
-            {
-                await Task.Delay(500, executionCts.Token);
-                if (!coordinator.Heartbeat(lease)) { executionCts.Cancel(); return; }
-            }
-        }
-        catch (OperationCanceledException) when (executionCts.IsCancellationRequested) { }
-        catch (Exception exception)
-        {
-            logger.LogError(exception, "Heartbeat indisponível para {AuditId}; execução abortada.", lease.AuditId);
-            executionCts.Cancel();
-        }
     }
 
 }
