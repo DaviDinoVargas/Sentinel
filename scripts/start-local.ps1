@@ -67,6 +67,13 @@ if (-not $listener) {
             $env:Evidence__S3__SecretKey = $objectCredential.GetNetworkCredential().Password
         }
         $env:ASPNETCORE_ENVIRONMENT = 'Development'
+        $accessPolicyPath = Join-Path $logDirectory 'identity/target-access-policy.json'
+        if (Test-Path -LiteralPath $accessPolicyPath) {
+            $accessPolicy = Get-Content -LiteralPath $accessPolicyPath -Raw | ConvertFrom-Json
+            $loginLifetimeHours = [int]$accessPolicy.maximumJsonLoginLifetimeHours
+            if ($loginLifetimeHours -lt 1 -or $loginLifetimeHours -gt 8760) { throw 'Política local de validade de login JSON inválida.' }
+            $env:TargetCredentials__MaximumJsonLoginLifetimeHours = [string]$loginLifetimeHours
+        }
         $env:ASPNETCORE_URLS = 'http://localhost:5161'
         Set-Item -Path 'Env:Logging__LogLevel__Microsoft.EntityFrameworkCore' -Value 'Warning'
         $apiDll = Join-Path $repoRoot 'Sentinel\bin\Release\net8.0\Sentinel.dll'

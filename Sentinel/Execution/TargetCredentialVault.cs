@@ -12,7 +12,7 @@ public sealed record CreateTargetCredential(Guid ScopeId, string Name, string Pe
 public sealed record RotateTargetCredential(int ExpectedVersion, string Token, DateTimeOffset ExpiresAtUtc, JsonLoginInput? Login = null);
 public sealed record CredentialBinding(Guid Id, int Version, string Name, string Persona, string TenantLabel, string? BaselineUri = null, DateTimeOffset? BaselineVerifiedAtUtc = null, string CredentialType = "Bearer");
 
-public sealed class TargetCredentialVault(IDbContextFactory<SentinelDbContext> factory, IDataProtectionProvider protection, TimeProvider time)
+public sealed class TargetCredentialVault(IDbContextFactory<SentinelDbContext> factory, IDataProtectionProvider protection, TimeProvider time, IConfiguration? configuration = null)
 {
     internal Guid ScopeId(Guid projectId, Guid id)
     { using var db = factory.CreateDbContext(); return Find(db, projectId, id).ScopeId; }
@@ -31,7 +31,7 @@ public sealed class TargetCredentialVault(IDbContextFactory<SentinelDbContext> f
         var uri = new Uri(scope.TargetBaseUrl);
         if (!scope.Environment.Equals("laboratorio", StringComparison.OrdinalIgnoreCase) || !uri.IsLoopback || !string.IsNullOrEmpty(uri.UserInfo))
             throw new ArgumentException("Credenciais atuais exigem escopo de laboratório em loopback, sem usuário/senha na URL.");
-        ValidateExpiry(request.ExpiresAtUtc, scope.ExpiresAtUtc);
+        ValidateExpiry(request.ExpiresAtUtc, scope.ExpiresAtUtc, request.CredentialType);
         ValidateMaterial(request.CredentialType, request.Token, request.Login, scope);
         if (string.IsNullOrWhiteSpace(request.Name) || request.Name.Length > 100 || string.IsNullOrWhiteSpace(request.Persona) || request.Persona.Length > 100 ||
             string.IsNullOrWhiteSpace(request.TenantLabel) || request.TenantLabel.Length > 100)
@@ -52,7 +52,7 @@ public sealed class TargetCredentialVault(IDbContextFactory<SentinelDbContext> f
         using var db = factory.CreateDbContext(); var row = Find(db, projectId, id);
         if (row.Version != request.ExpectedVersion || row.RevokedAtUtc is not null) throw new DbUpdateConcurrencyException();
         var scope = db.Scopes.Single(scope => scope.Id == row.ScopeId && scope.ProjectId == projectId);
-        ValidateExpiry(request.ExpiresAtUtc, scope.ExpiresAtUtc);
+        ValidateExpiry(request.ExpiresAtUtc, scope.ExpiresAtUtc, row.CredentialType);
         ValidateMaterial(row.CredentialType, request.Token, request.Login, scope);
         row.ProtectedToken = Protector(row).Protect(row.CredentialType == "Bearer" ? request.Token : System.Text.Json.JsonSerializer.Serialize(request.Login));
         row.LoginConfigurationJson = request.Login is null ? null : System.Text.Json.JsonSerializer.Serialize(request.Login.Configuration);
@@ -115,10 +115,12 @@ public sealed class TargetCredentialVault(IDbContextFactory<SentinelDbContext> f
         else if (type != "Bearer" || login is not null || string.IsNullOrWhiteSpace(token) || token.Length > 16_000 || token.Any(char.IsWhiteSpace) || token.Any(char.IsControl))
             throw new ArgumentException("Informe um perfil Bearer válido ou login JSON explícito.");
     }
-    private void ValidateExpiry(DateTimeOffset expiry, DateTimeOffset scopeExpiry)
+    private void ValidateExpiry(DateTimeOffset expiry, DateTimeOffset scopeExpiry, string credentialType)
     {
         var now = time.GetUtcNow();
-        if (expiry <= now || expiry > now.AddHours(24) || expiry > scopeExpiry) throw new ArgumentException("Expiração deve estar no futuro, dentro de 24 horas e da validade do escopo.");
+        var maximumHours = credentialType == "JsonLogin" ? configuration?.GetValue<int?>("TargetCredentials:MaximumJsonLoginLifetimeHours") ?? 24 : 24;
+        if (maximumHours is < 1 or > 8760) throw new InvalidOperationException("Política de validade de login JSON inválida: use de 1 a 8760 horas.");
+        if (expiry <= now || expiry > now.AddHours(maximumHours) || expiry > scopeExpiry) throw new ArgumentException($"Expiração deve estar no futuro, dentro de {maximumHours} horas e da validade do escopo. A validade do perfil não estende tokens emitidos pelo alvo.");
     }
     internal void RecordLogin(Guid projectId, CredentialBinding binding, string status, Guid auditId)
     {
