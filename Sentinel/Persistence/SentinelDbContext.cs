@@ -31,6 +31,7 @@ public sealed class SentinelDbContext : DbContext
         Sentinel.Findings.FindingModel.Configure(modelBuilder, this);
         Sentinel.Source.SourceSnapshotRow.Configure(modelBuilder, this);
         Sentinel.Core.DataOriginEventRow.Configure(modelBuilder, this);
+        Sentinel.Core.ProjectRunProfileRow.Configure(modelBuilder, this);
         modelBuilder.Entity<AuditRow>().Property(r => r.DataOrigin).HasMaxLength(32).HasDefaultValue(Core.DataOrigins.Unknown);
         modelBuilder.Entity<AuditRow>().Property(r => r.OriginDeclaredBy).HasMaxLength(200);
         modelBuilder.Entity<ProjectRow>().Property(r => r.Purpose).HasMaxLength(32).HasDefaultValue(Core.ProjectPurposes.Software);

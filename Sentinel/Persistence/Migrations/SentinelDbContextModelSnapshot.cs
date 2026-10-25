@@ -72,6 +72,32 @@ namespace Sentinel.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Sentinel.Core.ProjectRunProfileRow", b =>
+                {
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ConfigurationJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UpdatedBy")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("integer");
+
+                    b.HasKey("ProjectId");
+
+                    b.ToTable("project_run_profiles", (string)null);
+                });
+
             modelBuilder.Entity("Sentinel.Findings.FindingEventRow", b =>
                 {
                     b.Property<long>("Id")
@@ -1001,6 +1027,17 @@ namespace Sentinel.Persistence.Migrations
                         .WithMany()
                         .HasForeignKey("SnapshotId")
                         .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Project");
+                });
+
+            modelBuilder.Entity("Sentinel.Core.ProjectRunProfileRow", b =>
+                {
+                    b.HasOne("Sentinel.Persistence.ProjectRow", "Project")
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
 
                     b.Navigation("Project");
                 });
