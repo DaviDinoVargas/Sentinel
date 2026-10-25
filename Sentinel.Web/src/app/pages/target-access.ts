@@ -351,11 +351,12 @@ import {
       <section class="panel panel-pad section-gap">
         <h2>Proteções e limitações</h2>
         <p class="help">
-          Até três GETs de referência/verificação, dentro do escopo do perfil. Resposta 401 não
-          comprova isolamento; resulta inconclusiva. Sem enumeração nem escrita de dados de negócio;
-          o POST de login pode criar uma sessão no alvo. Corpo e cabeçalhos da resposta autenticada
-          não são entregues ao plugin. O resultado por status não comprova o conteúdo nem toda a
-          autorização da aplicação.
+          A verificação básica de acesso usa até três GETs; opcionais seguem seus próprios
+          orçamentos no catálogo. Resposta 401 isolada não comprova isolamento. Login cria sessão; o
+          plugin opcional de logout pode encerrá-la e testa somente o contrato de revogação imediata
+          configurado. O gateway mantém os segredos no host e entrega dados conforme as capacidades
+          declaradas. Status 2xx sozinho não comprova identidade, conteúdo nem toda a autorização da
+          aplicação; a verificação de logout exige identidade JSON no host.
         </p>
         <p class="help">
           Token expirado, revogado ou rotacionado é recusado antes das novas permissões. Uma
@@ -365,8 +366,8 @@ import {
         <p class="help">
           Chaves locais protegidas por DPAPI no Windows; outros hosts exigem certificado
           configurado. Workers distribuídos precisam compartilhar o keyring e a proteção de chaves.
-          Login JSON é preparado pelo gateway antes do plugin, em até dez segundos. Refresh,
-          cookies, MFA e outros mecanismos ainda não têm adaptador.
+          Cada autenticação JSON tem prazo de até dez segundos, dentro do prazo e escopo da
+          execução. Refresh, cookies, MFA e outros mecanismos ainda não têm adaptador.
         </p>
         <a class="text-link" routerLink="/audits">Histórico e evidências das execuções</a> ·
         <a class="text-link" routerLink="/performance">Métricas no Performance Lab</a>
