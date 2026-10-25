@@ -180,6 +180,16 @@ public sealed class IsolatedPluginRunner
                 {
                     if (stdout.Length + line.Length > outputLimit) throw new InvalidOperationException($"Saída do plugin excedeu o limite declarado no manifesto ({outputLimit} caracteres).");
                     stdout.AppendLine(line);
+                    // A schema-valid result is the terminal frame. Do not wait for
+                    // EOF from a peer that keeps its input pump open, and never
+                    // dispatch frames emitted after its terminal result.
+                    if (line.TrimEnd().EndsWith('}') && _validator.ValidateOutputJson(stdout.ToString()).IsValid)
+                    {
+                        linkedCts.Token.ThrowIfCancellationRequested();
+                        relayCts.Cancel();
+                        TryKill(process);
+                        break;
+                    }
                 }
             }
 

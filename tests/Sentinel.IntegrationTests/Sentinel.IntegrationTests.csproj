@@ -23,6 +23,11 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\Sentinel\Sentinel.csproj" />
+    <ProjectReference Include="..\Sentinel.ProtocolFixture\Sentinel.ProtocolFixture.csproj" />
   </ItemGroup>
+
+  <Target Name="CopyProtocolFixtureRuntime" AfterTargets="Build">
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\..\Sentinel.ProtocolFixture\bin\$(Configuration)\net8.0\Sentinel.ProtocolFixture.runtimeconfig.json;$(MSBuildProjectDirectory)\..\Sentinel.ProtocolFixture\bin\$(Configuration)\net8.0\Sentinel.ProtocolFixture.deps.json" DestinationFolder="$(TargetDir)" />
+  </Target>
 
 </Project>
