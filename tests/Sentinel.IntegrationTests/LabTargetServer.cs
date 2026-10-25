@@ -1,5 +1,9 @@
 using System.Net;
 using System.Net.Sockets;
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
+using System.Security.Cryptography;
+using Microsoft.IdentityModel.Tokens;
 
 namespace Sentinel.IntegrationTests;
 
@@ -11,6 +15,7 @@ public sealed class LabTargetServer : IDisposable
     private readonly HttpListener _listener;
     private readonly CancellationTokenSource _cancellation = new();
     private readonly Task _acceptLoop;
+    private readonly byte[] _jwtReferenceKey = RandomNumberGenerator.GetBytes(32);
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string,int> _requests = new();
     public int RequestsFor(string path) => _requests.GetValueOrDefault(path);
     private int _maxRefererLength;
@@ -251,8 +256,8 @@ public sealed class LabTargetServer : IDisposable
         if (path.Contains("/jwt-", StringComparison.Ordinal) && !path.EndsWith("/login", StringComparison.Ordinal))
         {
             // AUTH-JWT-01 (fora de authenticated/, perfil lab-active): jwt-vuln aceita QUALQUER Authorization
-            // com 2-3 segmentos separados por ponto, sem verificar assinatura; jwt-safe exige o segredo fixo do
-            // laboratório (simula verificação real: qualquer outra coisa — forjada ou não — é recusada).
+            // com 2-3 segmentos separados por ponto, sem verificar assinatura; jwt-safe valida
+            // assinatura HS256, emissor, audiencia e prazo com chave aleatoria por instancia.
             // AUTH-JWT-02 (dentro de authenticated/, perfil authenticated-lab via login real): o gateway já fez
             // o login; qualquer Bearer não vazio é aceito aqui — é o LAB-ACCESS-01 confirmando a sessão, não um
             // teste de assinatura.
@@ -265,7 +270,7 @@ public sealed class LabTargetServer : IDisposable
             { context.Response.StatusCode = presented.StartsWith("eyJhbGciOiJub25l", StringComparison.Ordinal) ? 403 : 503; WriteBody(context, "{}"); return; }
             var accepted = path.Contains("authenticated/", StringComparison.Ordinal) ? true
                 : path.Contains("/jwt-vuln", StringComparison.Ordinal) ? presented.Count(c => c == '.') is 1 or 2
-                : presented == "sentinel-lab-real-signature";
+                : ValidateReferenceJwt(presented);
             context.Response.StatusCode = accepted ? 200 : 403;
             WriteBody(context, accepted ? "{\"ok\":true}" : "{}"); return;
         }
@@ -592,6 +597,31 @@ public sealed class LabTargetServer : IDisposable
         // respostas, o que também dá um caso real reprovado para o WEB-CFG-09.
         context.Response.StatusCode = 200;
         context.Response.Close();
+    }
+
+    internal string ReferenceJwt(bool wrongSignature = false, bool expired = false, string? issuer = null, string audience = "sentinel-reference")
+    {
+        var key = new SymmetricSecurityKey(wrongSignature ? RandomNumberGenerator.GetBytes(32) : _jwtReferenceKey);
+        var token = new JwtSecurityToken(issuer ?? BaseUri.AbsoluteUri, audience, [new Claim("sub", "synthetic-reference-user")],
+            DateTime.UtcNow.AddMinutes(-5), DateTime.UtcNow.AddMinutes(expired ? -1 : 5), new SigningCredentials(key, SecurityAlgorithms.HmacSha256));
+        return new JwtSecurityTokenHandler().WriteToken(token);
+    }
+
+    private bool ValidateReferenceJwt(string token)
+    {
+        try
+        {
+            new JwtSecurityTokenHandler().ValidateToken(token, new TokenValidationParameters
+            {
+                ValidateIssuerSigningKey = true, IssuerSigningKey = new SymmetricSecurityKey(_jwtReferenceKey),
+                RequireSignedTokens = true, ValidAlgorithms = [SecurityAlgorithms.HmacSha256],
+                ValidateIssuer = true, ValidIssuer = BaseUri.AbsoluteUri,
+                ValidateAudience = true, ValidAudience = "sentinel-reference",
+                RequireExpirationTime = true, ValidateLifetime = true, ClockSkew = TimeSpan.Zero,
+            }, out _);
+            return true;
+        }
+        catch (Exception exception) when (exception is SecurityTokenException or ArgumentException) { return false; }
     }
 
     // AUTH-JWT-02: JWT sintético com as propriedades da variante pedida. A assinatura nunca é verificada

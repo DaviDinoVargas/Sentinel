@@ -7,8 +7,8 @@ using Sentinel.Execution;
 namespace Sentinel.IntegrationTests;
 
 // AUTH-JWT-01: alvo real de laboratório. jwt-vuln aceita qualquer Authorization com estrutura de JWT
-// (2 ou 3 segmentos), sem verificar assinatura; jwt-safe só aceita o segredo fixo do laboratório (nenhuma
-// das 7 técnicas forjadas bate com ele).
+// (2 ou 3 segmentos), sem verificar assinatura; jwt-safe valida assinatura, emissor, audiencia e prazo.
+// Um token legitimo e aceito antes de testar as nove sondagens forjadas.
 public sealed class JwtForgeryTests
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { Converters = { new JsonStringEnumConverter() } };
@@ -25,7 +25,7 @@ public sealed class JwtForgeryTests
     }
 
     [Fact]
-    public async Task Alvo_que_verifica_a_assinatura_recusa_todas_as_tecnicas_e_aprova()
+    public async Task Alvo_com_validacao_criptografica_recusa_todas_as_tecnicas_e_aprova()
     {
         var audit = await RunAsync("jwt-safe");
         var control = Assert.Single(audit.Controls, item => item.ControlId == "AUTH-JWT-01");
@@ -57,6 +57,13 @@ public sealed class JwtForgeryTests
         var project = (await projectResponse.Content.ReadFromJsonAsync<SentinelProject>(Json))!;
 
         var baseUrl = $"{host.LabTarget.BaseUri}aplicacao/";
+        if (variant == "jwt-safe")
+        {
+            using var referenceClient = new HttpClient();
+            referenceClient.DefaultRequestHeaders.Authorization = new("Bearer", host.LabTarget.ReferenceJwt());
+            using var reference = await referenceClient.GetAsync(baseUrl + variant);
+            Assert.Equal(System.Net.HttpStatusCode.OK, reference.StatusCode);
+        }
         (await client.PostAsJsonAsync($"/api/v1/projects/{project.Id}/scopes", new CreateScopeRequest(baseUrl, "laboratorio", DateTimeOffset.UtcNow.AddMinutes(10)))).EnsureSuccessStatusCode();
         var response = await client.PostAsJsonAsync($"/api/v1/projects/{project.Id}/audits", new RequestAuditRequest(baseUrl + variant, "lab-active", true));
         response.EnsureSuccessStatusCode();
