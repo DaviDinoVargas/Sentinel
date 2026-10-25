@@ -30,3 +30,11 @@ As capturas foram mantidas no armazenamento local de desenvolvimento, fora do Gi
 O plano reaproveita dados, mas não renova expirações/retenção. O prévio de disponibilidade não garante conclusão dos controles. As opções explícitas de plugins e os cenários avançados permanecem nas modalidades individuais; seu estado não é salvo pelo plano inicial. O envio de múltiplas auditorias é coordenado pela página, sem transação de lote ou retomada automática ao fechar a aba. O histórico de cada auditoria permanece no backend.
 
 AMQP passivo não fornece taxas de publicação/entrega ou mensagens sem confirmação; o painel não inventa esses indicadores. O redesign preserva os adaptadores, capacidades e restrições do host atual e não implementa os itens futuros do roadmap de segurança.
+
+## Ajuste de execução e validade — 25/10/2026
+
+Após o relato de dificuldade para iniciar e acompanhar testes, o fluxo foi reduzido a Todos os testes/Testes separados, com confirmação e botão de execução antes de configurações e histórico. O acompanhamento reutiliza dados persistidos com atualização do workspace, sem fabricar progresso ou reenviar auditorias ao reabrir. Contraprovas de fila→conclusão, página histórica, troca de projeto, leitura indisponível e execução geral sem alterar preferências foram incluídas.
+
+Validação deste ajuste: **143/143 frontend**, build de produção e **14/14 integração** no recorte de prazo de credenciais e plano. A primeira compilação Angular simultânea ao recorte backend encontrou falta de memória virtual; compilação sequencial com um worker, GOMAXPROCS2 e encerramento dos servidores de compilação do SDK passou. Esses ajustes se limitaram aos processos de build.
+
+Cinco contraprovas de prazo preservam o padrão24h, permitem48h quando o host autoriza72h, recusam80h, recusam prazo além do escopo e não ampliam Bearer. Release da API sem avisos/erros. Perfis de login da cópia da Locadora foram configurados por48h, com escopo72h; não houve alteração da expiração JWT do alvo. A lista de resultados real mostrou as execuções do proprietário das16h40 concluídas e nova bateria das17h02 em processamento. Não houve reexecução da baseline empresarial histórica.

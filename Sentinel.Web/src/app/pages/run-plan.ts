@@ -1,4 +1,14 @@
-import { Component, DestroyRef, computed, effect, inject, input, signal } from '@angular/core';
+import {
+  Component,
+  DestroyRef,
+  ElementRef,
+  computed,
+  effect,
+  inject,
+  input,
+  signal,
+  viewChild,
+} from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
@@ -14,6 +24,8 @@ import {
 import { SourceApiService, SourceSnapshot } from '../core/source-api.service';
 import { WorkspaceService } from '../core/workspace.service';
 import { AuthSessionService } from '../core/auth-session.service';
+import { RunActivity } from './run-activity';
+import { Badge } from '../design-system/ui';
 
 type RunKind = 'http' | 'active' | 'authenticated' | 'source';
 interface PlanStep {
@@ -30,6 +42,7 @@ interface Submission {
   state: string;
   detail: string;
   auditId?: string;
+  auditState?: Audit['state'];
 }
 export function targetInsideScope(target: string, scope: AuthorizedScope): boolean {
   try {
@@ -56,322 +69,98 @@ export function loopbackTarget(value: string): boolean {
 
 @Component({
   selector: 's-run-plan',
-  imports: [CommonModule, FormsModule, RouterLink],
+  imports: [CommonModule, FormsModule, RouterLink, RunActivity, Badge],
   template: `
     @if (!embedded()) {
       <div class="page-heading">
         <div>
           <p class="kicker">PROJETO / PREPARAÇÃO</p>
           <h1>Plano de testes</h1>
-          <p>Salve a configuração para reutilizar os dados deste projeto.</p>
+          <p>
+            Salve a configuração para reutilizar os dados deste projeto. Preparar testes abre a
+            configuração; iniciar exige a confirmação abaixo.
+          </p>
         </div>
       </div>
     }
-    <section class="panel panel-pad">
-      <div class="panel-header" style="padding:0 0 20px">
-        <div>
-          <h2>Plano reutilizável do projeto</h2>
-          <p>
-            Endereços e referências salvos no servidor. Senhas e tokens permanecem no cofre de
-            acessos.
-          </p>
-        </div>
-        <button class="button small" (click)="refresh()" [disabled]="busy() || saving()">
-          Recarregar dados
-        </button>
-      </div>
+    <section class="panel panel-pad start-tests" aria-labelledby="start-tests-title">
+      <h2 id="start-tests-title">Rodar todos os testes disponíveis</h2>
       @if (loading()) {
-        <p role="status">Consultando plano, perfis e snapshots…</p>
+        <p role="status">Carregando os dados salvos do projeto…</p>
       }
-      @if (error()) {
-        <p class="banner warning" role="alert">{{ error() }}</p>
+      @if (!loading() && !profile() && error()) {
+        <p class="banner warning" role="alert">
+          {{ error() }} <button class="button small" (click)="refresh()">Tentar novamente</button>
+        </p>
       }
-      @if (notice()) {
-        <p role="status" class="help">{{ notice() }}</p>
-      }
-      @if (profile(); as saved) {
-        <form (ngSubmit)="save()" class="form-stack">
-          <fieldset [disabled]="busy() || saving()">
-            <legend>Configuração das modalidades</legend>
-            <div class="form-grid">
-              <label
-                >URL HTTP/HTTPS para verificar<input
-                  type="url"
-                  name="httpUrl"
-                  maxlength="2048"
-                  [(ngModel)]="draft.httpUrl"
-                  (ngModelChange)="changed()"
-                  placeholder="https://sua-aplicacao.exemplo/api/"
-                /><span class="help"
-                  >Use um endereço dentro do escopo. Não inclua senhas, tokens ou outros segredos na
-                  URL.</span
-                ></label
-              >
-              <label
-                >Preencher com escopo salvo<select
-                  name="scope"
-                  (change)="useScope($any($event.target).value)"
-                >
-                  <option value="">Escolha um endereço cadastrado</option>
-                  @for (scope of httpScopes(); track scope.id) {
-                    <option [value]="scope.targetBaseUri">
-                      {{ scope.environment }} · {{ scope.targetBaseUri }} · {{ scopeState(scope) }}
-                    </option>
-                  }
-                </select></label
-              >
-              <label
-                >URL protegida para teste autenticado<input
-                  type="url"
-                  name="authenticatedUrl"
-                  maxlength="2048"
-                  [(ngModel)]="draft.authenticatedUrl"
-                  (ngModelChange)="changed()"
-                  placeholder="http://localhost:8080/api/recurso-proprio"
-                /><span class="help"
-                  >Recurso sintético próprio que deve permitir acesso. Não use a URL do login
-                  aqui.</span
-                ></label
-              >
-              <label
-                >Perfil de identidade salvo<select
-                  name="credential"
-                  [(ngModel)]="draft.credentialProfileId"
-                  (ngModelChange)="changed()"
-                >
-                  <option [ngValue]="null">Sem perfil</option>
-                  @for (credential of credentials(); track credential.id) {
-                    <option [value]="credential.id">
-                      {{ credential.name }} ·
-                      {{ credential.credentialType === 'JsonLogin' ? 'Usuário/senha' : 'Bearer' }}
-                    </option>
-                  }
-                </select></label
-              >
-              <label
-                >Snapshot salvo<select
-                  name="snapshot"
-                  [(ngModel)]="draft.sourceSnapshotId"
-                  (ngModelChange)="changed()"
-                >
-                  <option [ngValue]="null">Sem snapshot</option>
-                  @for (snapshot of snapshots(); track snapshot.id) {
-                    <option [value]="snapshot.id">
-                      {{ snapshot.sourceKey }} · {{ snapshot.revisionLabel }}
-                    </option>
-                  }</select
-                ><span class="help"
-                  >Últimos snapshots da consulta.
-                  <a [routerLink]="['/projects', ws.projectId(), 'sources']"
-                    >Consultar arquivos e outras revisões</a
-                  >.</span
-                ></label
-              >
-            </div>
-            <div class="plan-choices">
-              <label class="check-field"
-                ><input
-                  type="checkbox"
-                  name="runHttp"
-                  [(ngModel)]="draft.runHttp"
-                  (ngModelChange)="changed()"
-                />HTTP de baixo risco</label
-              >
-              <label class="check-field"
-                ><input
-                  type="checkbox"
-                  name="runActive"
-                  [(ngModel)]="draft.runActive"
-                  (ngModelChange)="changed()"
-                />Testes ativos de laboratório</label
-              >
-              <label class="check-field"
-                ><input
-                  type="checkbox"
-                  name="runAuthenticated"
-                  [(ngModel)]="draft.runAuthenticated"
-                  (ngModelChange)="changed()"
-                />Acesso autenticado próprio</label
-              >
-              <label class="check-field"
-                ><input
-                  type="checkbox"
-                  name="runSource"
-                  [(ngModel)]="draft.runSource"
-                  (ngModelChange)="changed()"
-                />Código, dependências e contratos</label
-              >
-            </div>
-          </fieldset>
-          <div class="heading-actions">
-            <button
-              class="button"
-              type="submit"
-              [disabled]="!auth.can('projects.manage') || saving() || busy() || loading()"
-            >
-              {{ saving() ? 'Salvando…' : 'Salvar plano no projeto' }}</button
-            ><span class="help"
-              >{{
-                dirty()
-                  ? 'Alterações ainda não salvas'
-                  : saved.version
-                    ? 'Plano salvo · versão ' + saved.version
-                    : 'Plano inicial ainda não salvo'
-              }}
-              @if (saved.updatedAtUtc) {
-                · {{ saved.updatedAtUtc | date: 'dd/MM HH:mm' }}
-              }
-            </span>
-          </div>
-          @if (!auth.can('projects.manage')) {
-            <p class="help">
-              Seu papel pode executar o plano autorizado, mas salvar alterações exige gerenciamento
-              de projetos.
-            </p>
+      @if (profile()) {
+        <p>
+          {{ allReadySteps().length }} modalidade(s) disponível(is) com os dados salvos do projeto.
+        </p>
+        <label class="check-field"
+          ><input
+            type="checkbox"
+            [checked]="confirmed()"
+            (change)="confirmed.set($any($event.target).checked)"
+            [disabled]="busy()"
+          /><span
+            >Confirmo autorização para executar testes neste projeto, incluindo sondas ativas e
+            carga autorizada.</span
+          ></label
+        >
+        <div class="heading-actions section-gap">
+          <button
+            class="button primary start-button"
+            (click)="execute(true)"
+            [disabled]="busy() || !confirmed() || !allReadySteps().length"
+          >
+            {{
+              busy()
+                ? 'Enviando testes…'
+                : 'Rodar todos os testes disponíveis (' + allReadySteps().length + ')'
+            }}
+          </button>
+          @if (busy()) {
+            <button class="button" (click)="stopRequested.set(true)">
+              Interromper próximos envios
+            </button>
           }
-        </form>
+        </div>
+        @if (!confirmed() && !busy()) {
+          <p class="help section-gap">Marque a autorização acima para habilitar o botão.</p>
+        }
+        @if (!allReadySteps().length) {
+          <p class="banner warning">
+            Faltam dados ou autorizações válidas. Consulte as pendências em Configurações do projeto
+            abaixo.
+          </p>
+        }
+        <p class="help section-gap">
+          Executa as modalidades disponíveis do host. Plugins opcionais que exigem contratos
+          adicionais são escolhidos em Testes separados. Cada modalidade gera uma execução com
+          resultado próprio.
+        </p>
       }
     </section>
-    @if (profile()) {
-      <section class="panel section-gap">
-        <div class="panel-header">
-          <div>
-            <h2>Prontidão das modalidades</h2>
-            <p>
-              Verificação prévia dos dados conhecidos. A API revalida escopos, políticas, recursos e
-              permissões em cada envio.
-            </p>
-          </div>
-        </div>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Modalidade</th>
-                <th>Alvo / localização</th>
-                <th>Situação</th>
-              </tr>
-            </thead>
-            <tbody>
-              @for (step of steps(); track step.kind) {
-                <tr>
-                  <td>
-                    <strong>{{ step.name }}</strong
-                    ><span class="subline">{{
-                      step.selected ? 'Incluída no plano' : 'Fora da seleção'
-                    }}</span>
-                  </td>
-                  <td class="url">{{ step.target || 'Não configurado' }}</td>
-                  <td>{{ step.reason || 'Dados disponíveis para envio' }}</td>
-                </tr>
-              }
-            </tbody>
-          </table>
-        </div>
-        <div class="panel-pad">
-          <label class="check-field"
-            ><input
-              type="checkbox"
-              [checked]="confirmed()"
-              (change)="confirmed.set($any($event.target).checked)"
-              [disabled]="busy()"
-            /><span
-              >Autorizo enviar as modalidades selecionadas e disponíveis. Testes ativos podem criar
-              sessões e enviar sondas/carga dentro dos limites do host e do escopo.</span
-            ></label
-          >
-          <div class="heading-actions section-gap">
-            <button
-              class="button primary"
-              (click)="execute()"
-              [disabled]="busy() || loading() || !confirmed() || !readySteps().length"
-            >
-              {{
-                busy()
-                  ? 'Enviando auditorias…'
-                  : 'Enviar ' + readySteps().length + ' modalidade(s) disponível(is)'
-              }}
-            </button>
-            @if (busy()) {
-              <button class="button" (click)="stopRequested.set(true)">
-                Interromper próximos envios
-              </button>
-            }
-          </div>
-          <p class="help section-gap">
-            Cada modalidade gera uma auditoria independente, sujeita ao orçamento global do alvo. A
-            lista não representa cobertura integral do software. Plugins opcionais que exigem
-            contratos adicionais ou escrita ficam nas modalidades avançadas abaixo; não são ativados
-            por este botão.
-          </p>
-          @if (dirty()) {
-            <p class="help">
-              A execução usa os valores atuais do formulário. Salve o plano para reutilizá-los
-              depois.
-            </p>
-          }
-        </div>
-      </section>
-      <section class="panel section-gap">
-        <div class="panel-header">
-          <div>
-            <h2>Controles incluídos e requisitos adicionais</h2>
-            <p>
-              Catálogo real do host · plugins com ativação explícita exigem configuração na
-              modalidade avançada
-            </p>
-          </div>
-        </div>
-        <details class="panel-pad">
-          <summary>
-            Consultar {{ ws.catalog()?.plugins?.length ?? 0 }} plugins do catálogo e seus requisitos
-          </summary>
-          <label class="section-gap"
-            >Filtrar plugins por nome ou identificador<input
-              type="search"
-              [value]="pluginSearch()"
-              (input)="pluginSearch.set($any($event.target).value)"
-          /></label>
-          <div class="table-wrap section-gap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Plugin</th>
-                  <th>Controles</th>
-                  <th>Disponibilidade neste plano</th>
-                </tr>
-              </thead>
-              <tbody>
-                @for (plugin of filteredPlugins(); track plugin.id) {
-                  <tr>
-                    <td>
-                      {{ plugin.name }}<span class="subline mono">{{ plugin.id }}</span>
-                    </td>
-                    <td>{{ plugin.controls.length }}</td>
-                    <td>
-                      {{
-                        plugin.isFixture
-                          ? ws.dataOrigin() === 'SyntheticCorpus'
-                            ? 'Fixture exclusiva da validação interna; pode acompanhar HTTP de baixo risco'
-                            : 'Fixture de validação interna; fora deste plano'
-                          : plugin.activation === 'explicit'
-                            ? 'Opcional: configure e autorize na modalidade avançada'
-                            : pluginReason(plugin.eligibleProfiles ?? [])
-                      }}
-                    </td>
-                  </tr>
-                }
-              </tbody>
-            </table>
-          </div>
-        </details>
-      </section>
-    }
     @if (submissions().length) {
-      <section class="panel section-gap" aria-labelledby="submission-title">
+      <section
+        #submissionPanel
+        class="panel section-gap"
+        aria-labelledby="submission-title"
+        tabindex="-1"
+      >
         <div class="panel-header">
           <div>
             <h2 id="submission-title">Resultado dos envios</h2>
+            <p role="status">
+              {{
+                busy()
+                  ? 'Enviando as modalidades selecionadas…'
+                  : 'Envios finalizados: ' +
+                    registeredCount() +
+                    ' auditoria(s) registrada(s). Acompanhe o processamento abaixo.'
+              }}
+            </p>
             <p>
               Enviado não significa concluído. Abra a execução para acompanhar os plugins, achados e
               evidências.
@@ -392,7 +181,16 @@ export function loopbackTarget(value: string): boolean {
               @for (item of submissions(); track item.kind) {
                 <tr>
                   <td>{{ item.name }}</td>
-                  <td>{{ item.state }}</td>
+                  <td>
+                    {{ item.state }}
+                    @if (currentState(item); as state) {
+                      <span class="subline"
+                        ><s-badge
+                          [value]="state"
+                          [text]="state === 'Failed' ? 'Falha na execução' : ''"
+                      /></span>
+                    }
+                  </td>
                   <td>{{ item.detail }}</td>
                   <td>
                     @if (item.auditId) {
@@ -408,8 +206,284 @@ export function loopbackTarget(value: string): boolean {
         </div>
       </section>
     }
+
+    <s-run-activity />
+    <details class="section-gap configuration-details" [open]="!embedded()">
+      <summary>Configurações do projeto e pendências dos testes</summary>
+      <section class="panel panel-pad">
+        <div class="panel-header" style="padding:0 0 20px">
+          <div>
+            <h2>Plano reutilizável do projeto</h2>
+            <p>
+              Endereços e referências salvos no servidor. Senhas e tokens permanecem no cofre de
+              acessos.
+            </p>
+          </div>
+          <button class="button small" (click)="refresh()" [disabled]="busy() || saving()">
+            Recarregar dados
+          </button>
+        </div>
+        @if (loading()) {
+          <p role="status">Consultando plano, perfis e snapshots…</p>
+        }
+        @if (error()) {
+          <p class="banner warning" role="alert">{{ error() }}</p>
+        }
+        @if (notice()) {
+          <p role="status" class="help">{{ notice() }}</p>
+        }
+        @if (profile(); as saved) {
+          <form (ngSubmit)="save()" class="form-stack">
+            <fieldset [disabled]="busy() || saving()">
+              <legend>Configuração das modalidades</legend>
+              <div class="form-grid">
+                <label
+                  >URL HTTP/HTTPS para verificar<input
+                    type="url"
+                    name="httpUrl"
+                    maxlength="2048"
+                    [(ngModel)]="draft.httpUrl"
+                    (ngModelChange)="changed()"
+                    placeholder="https://sua-aplicacao.exemplo/api/"
+                  /><span class="help"
+                    >Use um endereço dentro do escopo. Não inclua senhas, tokens ou outros segredos
+                    na URL.</span
+                  ></label
+                >
+                <label
+                  >Preencher com escopo salvo<select
+                    name="scope"
+                    (change)="useScope($any($event.target).value)"
+                  >
+                    <option value="">Escolha um endereço cadastrado</option>
+                    @for (scope of httpScopes(); track scope.id) {
+                      <option [value]="scope.targetBaseUri">
+                        {{ scope.environment }} · {{ scope.targetBaseUri }} ·
+                        {{ scopeState(scope) }}
+                      </option>
+                    }
+                  </select></label
+                >
+                <label
+                  >URL protegida para teste autenticado<input
+                    type="url"
+                    name="authenticatedUrl"
+                    maxlength="2048"
+                    [(ngModel)]="draft.authenticatedUrl"
+                    (ngModelChange)="changed()"
+                    placeholder="http://localhost:8080/api/recurso-proprio"
+                  /><span class="help"
+                    >Recurso sintético próprio que deve permitir acesso. Não use a URL do login
+                    aqui.</span
+                  ></label
+                >
+                <label
+                  >Perfil de identidade salvo<select
+                    name="credential"
+                    [(ngModel)]="draft.credentialProfileId"
+                    (ngModelChange)="changed()"
+                  >
+                    <option [ngValue]="null">Sem perfil</option>
+                    @for (credential of credentials(); track credential.id) {
+                      <option [value]="credential.id">
+                        {{ credential.name }} ·
+                        {{ credential.credentialType === 'JsonLogin' ? 'Usuário/senha' : 'Bearer' }}
+                      </option>
+                    }
+                  </select></label
+                >
+                <label
+                  >Snapshot salvo<select
+                    name="snapshot"
+                    [(ngModel)]="draft.sourceSnapshotId"
+                    (ngModelChange)="changed()"
+                  >
+                    <option [ngValue]="null">Sem snapshot</option>
+                    @for (snapshot of snapshots(); track snapshot.id) {
+                      <option [value]="snapshot.id">
+                        {{ snapshot.sourceKey }} · {{ snapshot.revisionLabel }}
+                      </option>
+                    }</select
+                  ><span class="help"
+                    >Últimos snapshots da consulta.
+                    <a [routerLink]="['/projects', ws.projectId(), 'sources']"
+                      >Consultar arquivos e outras revisões</a
+                    >.</span
+                  ></label
+                >
+              </div>
+              <div class="plan-choices">
+                <label class="check-field"
+                  ><input
+                    type="checkbox"
+                    name="runHttp"
+                    [(ngModel)]="draft.runHttp"
+                    (ngModelChange)="changed()"
+                  />HTTP de baixo risco</label
+                >
+                <label class="check-field"
+                  ><input
+                    type="checkbox"
+                    name="runActive"
+                    [(ngModel)]="draft.runActive"
+                    (ngModelChange)="changed()"
+                  />Testes ativos de laboratório</label
+                >
+                <label class="check-field"
+                  ><input
+                    type="checkbox"
+                    name="runAuthenticated"
+                    [(ngModel)]="draft.runAuthenticated"
+                    (ngModelChange)="changed()"
+                  />Acesso autenticado próprio</label
+                >
+                <label class="check-field"
+                  ><input
+                    type="checkbox"
+                    name="runSource"
+                    [(ngModel)]="draft.runSource"
+                    (ngModelChange)="changed()"
+                  />Código, dependências e contratos</label
+                >
+              </div>
+            </fieldset>
+            <div class="heading-actions">
+              <button
+                class="button"
+                type="submit"
+                [disabled]="!auth.can('projects.manage') || saving() || busy() || loading()"
+              >
+                {{ saving() ? 'Salvando…' : 'Salvar plano no projeto' }}</button
+              ><span class="help"
+                >{{
+                  dirty()
+                    ? 'Alterações ainda não salvas'
+                    : saved.version
+                      ? 'Plano salvo · versão ' + saved.version
+                      : 'Plano inicial ainda não salvo'
+                }}
+                @if (saved.updatedAtUtc) {
+                  · {{ saved.updatedAtUtc | date: 'dd/MM HH:mm' }}
+                }
+              </span>
+            </div>
+            @if (!auth.can('projects.manage')) {
+              <p class="help">
+                Seu papel pode executar o plano autorizado, mas salvar alterações exige
+                gerenciamento de projetos.
+              </p>
+            }
+          </form>
+        }
+      </section>
+      @if (profile()) {
+        <section class="panel section-gap">
+          <div class="panel-header">
+            <div>
+              <h2>Prontidão das modalidades</h2>
+              <p>
+                Verificação prévia dos dados conhecidos. A API revalida escopos, políticas, recursos
+                e permissões em cada envio.
+              </p>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Modalidade</th>
+                  <th>Alvo / localização</th>
+                  <th>Situação</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (step of steps(); track step.kind) {
+                  <tr>
+                    <td>
+                      <strong>{{ step.name }}</strong
+                      ><span class="subline">{{
+                        step.selected ? 'Incluída no plano' : 'Fora da seleção'
+                      }}</span>
+                    </td>
+                    <td class="url">{{ step.target || 'Não configurado' }}</td>
+                    <td>{{ step.reason || 'Dados disponíveis para envio' }}</td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        </section>
+        <section class="panel section-gap">
+          <div class="panel-header">
+            <div>
+              <h2>Controles incluídos e requisitos adicionais</h2>
+              <p>
+                Catálogo real do host · plugins com ativação explícita exigem configuração na
+                modalidade avançada
+              </p>
+            </div>
+          </div>
+          <details class="panel-pad">
+            <summary>
+              Consultar {{ ws.catalog()?.plugins?.length ?? 0 }} plugins do catálogo e seus
+              requisitos
+            </summary>
+            <label class="section-gap"
+              >Filtrar plugins por nome ou identificador<input
+                type="search"
+                [value]="pluginSearch()"
+                (input)="pluginSearch.set($any($event.target).value)"
+            /></label>
+            <div class="table-wrap section-gap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Plugin</th>
+                    <th>Controles</th>
+                    <th>Disponibilidade neste plano</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (plugin of filteredPlugins(); track plugin.id) {
+                    <tr>
+                      <td>
+                        {{ plugin.name }}<span class="subline mono">{{ plugin.id }}</span>
+                      </td>
+                      <td>{{ plugin.controls.length }}</td>
+                      <td>
+                        {{
+                          plugin.isFixture
+                            ? ws.dataOrigin() === 'SyntheticCorpus'
+                              ? 'Fixture exclusiva da validação interna; pode acompanhar HTTP de baixo risco'
+                              : 'Fixture de validação interna; fora deste plano'
+                            : plugin.activation === 'explicit'
+                              ? 'Opcional: configure e autorize na modalidade avançada'
+                              : pluginReason(plugin.eligibleProfiles ?? [])
+                        }}
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          </details>
+        </section>
+      }
+    </details>
   `,
   styles: `
+    .start-button {
+      min-height: 48px;
+      white-space: normal;
+      max-width: 100%;
+    }
+    .configuration-details > summary {
+      padding: 16px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      font-weight: 600;
+    }
     fieldset {
       border: 0;
       padding: 0;
@@ -440,6 +514,13 @@ export function loopbackTarget(value: string): boolean {
   `,
 })
 export class RunPlan {
+  private readonly submissionPanel = viewChild<ElementRef<HTMLElement>>('submissionPanel');
+  readonly registeredCount = computed(
+    () => this.submissions().filter((item) => !!item.auditId).length,
+  );
+  currentState(item: Submission): Audit['state'] | undefined {
+    return this.ws.audits().find((audit) => audit.id === item.auditId)?.state ?? item.auditState;
+  }
   readonly embedded = input(false);
   readonly ws = inject(WorkspaceService);
   readonly auth = inject(AuthSessionService);
@@ -572,6 +653,7 @@ export class RunPlan {
     ] satisfies PlanStep[];
   });
   readonly readySteps = computed(() => this.steps().filter((s) => s.selected && !s.reason));
+  readonly allReadySteps = computed(() => this.steps().filter((s) => !s.reason));
   constructor() {
     effect((cleanup) => {
       const id = this.ws.projectId(),
@@ -682,12 +764,17 @@ export class RunPlan {
         ? 'Elegível ao envio da modalidade; requisitos internos serão avaliados pelo controle'
         : steps.map((s) => s.reason).join(' · ');
   }
-  execute() {
-    if (this.busy() || !this.confirmed() || !this.readySteps().length) return;
+  execute(allAvailable = false) {
+    if (
+      this.busy() ||
+      !this.confirmed() ||
+      !(allAvailable ? this.allReadySteps() : this.readySteps()).length
+    )
+      return;
     const id = this.ws.projectId(),
       origin = this.ws.dataOrigin(),
       config = { ...this.draft },
-      selected = this.steps().filter((s) => s.selected);
+      selected = allAvailable ? this.steps() : this.steps().filter((s) => s.selected);
     this.busy.set(true);
     this.stopRequested.set(false);
     this.confirmed.set(false);
@@ -699,6 +786,11 @@ export class RunPlan {
         detail: s.reason,
       })),
     );
+    requestAnimationFrame(() => {
+      const panel = this.submissionPanel()?.nativeElement;
+      panel?.focus({ preventScroll: true });
+      panel?.scrollIntoView?.({ block: 'start', behavior: 'instant' });
+    });
     from(selected.filter((s) => !s.reason))
       .pipe(
         concatMap((step) => {
@@ -767,7 +859,14 @@ export class RunPlan {
     this.submissions.update((all) =>
       all.map((s) =>
         s.kind === step.kind
-          ? { kind: s.kind, name: s.name, state, detail, auditId: audit?.id }
+          ? {
+              kind: s.kind,
+              name: s.name,
+              state,
+              detail,
+              auditId: audit?.id,
+              auditState: audit?.state,
+            }
           : s,
       ),
     );

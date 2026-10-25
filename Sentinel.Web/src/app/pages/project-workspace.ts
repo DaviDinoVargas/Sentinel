@@ -28,7 +28,7 @@ import { WorkspaceService } from '../core/workspace.service';
             }}
           </p>
         </div>
-        <a class="button primary" routerLink="/run">Rodar testes</a>
+        <a class="button primary" routerLink="/run">Preparar testes</a>
       </header>
       <nav class="project-tabs" aria-label="Seções do projeto">
         <a

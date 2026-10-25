@@ -14,7 +14,7 @@ import { Badge, EmptyState } from '../design-system/ui';
         <h1>Visão geral</h1>
         <p>Acompanhe a segurança da sua aplicação, da execução à evidência.</p>
       </div>
-      <a class="button primary" routerLink="/run"><s-icon name="play" /> Rodar testes</a>
+      <a class="button primary" routerLink="/run"><s-icon name="play" /> Preparar testes</a>
     </div>
     <section class="overview-banner">
       <div>

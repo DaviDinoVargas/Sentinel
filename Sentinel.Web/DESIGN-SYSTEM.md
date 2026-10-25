@@ -34,3 +34,11 @@ O envio consolidado acontece no navegador, sem transação de lote ou retomada a
 Backend: `scripts/test-local.ps1 -Filter ProjectRunProfileTests`, usando apenas o banco de testes. Revisão de navegador deve incluir salvar/reabrir plano, troca de contexto, login sem Bearer manual, menu recolhido, drawer móvel, tema claro e telemetria pausada.
 
 Resultados e limites da verificação desta entrega: [V51-VALIDATION.md](V51-VALIDATION.md).
+
+## Execução direta e acompanhamento
+
+Rodar testes começa com seleção do projeto e duas opções: **Todos os testes** e **Testes separados**. O modo geral mostra imediatamente a confirmação e **Rodar todos os testes disponíveis**; considera todas as modalidades disponíveis, sem mudar as escolhas persistidas no plano. As configurações detalhadas ficam recolhidas nessa tela. O modo separado oferece HTTP/ativo, acesso autenticado e código/dependências, com os formulários reais existentes.
+
+O acompanhamento vem abaixo dos controles, recuperado do servidor, e permanece disponível ao reabrir a página. Exibe as últimas oito execuções, horário, estado, controles/evidências e link para o detalhe. A contagem de atividade se refere à lista exibida. A resposta de envio também ganha foco, resumo acessível e estado atualizado pelo histórico. Navegar para preparar não inicia tráfego; o clique de execução continua exigindo autorização explícita. Concluída não significa que todos os controles foram aprovados.
+
+O prazo do cadastro JsonLogin é governado por `TargetCredentials:MaximumJsonLoginLifetimeHours`, padrão24h, sempre dentro do escopo. O startup local aceita a política privada em `.local/identity/target-access-policy.json` (`maximumJsonLoginLifetimeHours`). O ambiente de laboratório usa teto72h para permitir perfis48h. O host não altera a validade dos tokens do software avaliado, e Bearer mantém seu teto anterior.

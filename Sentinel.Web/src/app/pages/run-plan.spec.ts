@@ -119,6 +119,26 @@ describe('Plano persistido e envio consolidado', () => {
     ]);
     expect(page.submissions()[1].auditId).toBe('audit-blocked');
     expect(page.busy()).toBe(false);
+    expect(page.registeredCount()).toBe(2);
+    expect(page.currentState(page.submissions()[0])).toBe('Queued');
+    ws.history.set({
+      items: [
+        {
+          id: 'audit-http',
+          projectId: 'a',
+          state: 'Completed',
+          targetUri: config.httpUrl,
+          correlationId: 'c',
+          createdAtUtc: '',
+          controls: [],
+          evidence: [],
+        },
+      ],
+      totalCount: 1,
+      offset: 0,
+      limit: 25,
+    });
+    expect(page.currentState(page.submissions()[0])).toBe('Completed');
     expect(refresh).toHaveBeenCalled();
   });
   it('interrompe próximos envios sem cancelar uma auditoria já aceita', () => {
@@ -133,6 +153,21 @@ describe('Plano persistido e envio consolidado', () => {
     http.expectNone('/api/v1/projects/a/audits');
     expect(page.submissions()[1].state).toBe('Não enviado');
     expect(page.submissions()[0].auditId).toBe('audit');
+  });
+  it('o botão de rodar todos usa as modalidades disponíveis e preserva o plano salvo', () => {
+    load();
+    const page = fixture.componentInstance;
+    vi.spyOn(ws, 'refreshProject').mockImplementation(() => {});
+    page.draft.runActive = false;
+    page.changed();
+    page.confirmed.set(true);
+    page.execute(true);
+    http.expectOne('/api/v1/projects/a/audits').flush({ id: 'all-http', state: 'Queued' });
+    const active = http.expectOne('/api/v1/projects/a/audits');
+    expect(active.request.body.action).toBe('lab-active');
+    active.flush({ id: 'all-active', state: 'Queued' });
+    expect(page.draft.runActive).toBe(false);
+    expect(page.registeredCount()).toBe(2);
   });
   it('trocar projeto cancela consultas e remove resultados do contexto anterior', () => {
     const previous = http.expectOne('/api/v1/projects/a/run-profile');

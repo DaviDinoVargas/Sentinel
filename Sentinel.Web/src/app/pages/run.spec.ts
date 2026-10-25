@@ -28,7 +28,7 @@ describe('Contexto da preparação de execução', () => {
     fixture.detectChanges();
     await fixture.whenStable();
     expect(selector.value).toBe('b');
-    expect(fixture.nativeElement.textContent).toContain('Abrir Selecionado');
+    expect(fixture.nativeElement.textContent).toContain('Configurar projeto');
     fixture.destroy();
   });
 });

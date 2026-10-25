@@ -6,22 +6,28 @@ import { AuditsPage } from './audits';
 import { TargetAccessPage } from './target-access';
 import { SourceAnalysisPage } from './source-analysis';
 import { RunPlan } from './run-plan';
+import { RunActivity } from './run-activity';
 
 @Component({
-  imports: [FormsModule, RouterLink, AuditsPage, TargetAccessPage, SourceAnalysisPage, RunPlan],
+  imports: [
+    FormsModule,
+    RouterLink,
+    AuditsPage,
+    TargetAccessPage,
+    SourceAnalysisPage,
+    RunPlan,
+    RunActivity,
+  ],
   template: `
     <div class="page-heading">
       <div>
-        <p class="kicker">EXECUTAR / PREPARAÇÃO</p>
+        <p class="kicker">EXECUÇÕES</p>
         <h1>Rodar testes</h1>
-        <p>
-          Escolha o projeto e a modalidade. Os formulários abaixo enviam auditorias reais para a
-          fila de execução.
-        </p>
+        <p>Execute todos os testes disponíveis ou escolha uma modalidade.</p>
       </div>
-      <a class="button" routerLink="/audits">Histórico de execuções</a>
+      <a class="button" routerLink="/audits">Histórico completo</a>
     </div>
-    <section class="panel panel-pad">
+    <section class="panel panel-pad project-selector">
       <label
         >Projeto para esta execução<select
           [ngModel]="ws.projectId()"
@@ -35,131 +41,108 @@ import { RunPlan } from './run-plan';
           }
         </select></label
       >
-      <p class="help">
-        A lista usa a consulta de projetos autorizados.
-        <a routerLink="/projects">Buscar outros projetos ou cadastrar</a>.
-      </p>
       @if (ws.project(); as project) {
-        <div class="status-line">
-          <span>Configuração persistida</span
-          ><a class="text-link" [routerLink]="['/projects', project.id]"
-            >Abrir {{ project.name }}</a
-          >
-        </div>
-        <p class="help">
-          {{ ws.activeScopes().length }} escopo(s) válido(s). {{ ws.originLabel(ws.dataOrigin()) }}.
-          Perfis e arquivos são consultados diretamente no projeto; nenhum segredo é armazenado
-          nesta tela.
-        </p>
-        <div class="run-options" role="group" aria-label="Modalidade de teste">
-          <button
-            class="run-option"
-            [class.selected]="mode() === 'plan'"
-            [attr.aria-pressed]="mode() === 'plan'"
-            (click)="mode.set('plan')"
-          >
-            <strong>Plano salvo do projeto</strong
-            ><span
-              >Reutilize dados, envie as modalidades disponíveis e veja o motivo das não
-              enviadas.</span
-            >
-          </button>
-          <button
-            class="run-option"
-            [class.selected]="mode() === 'http'"
-            [attr.aria-pressed]="mode() === 'http'"
-            (click)="mode.set('http')"
-          >
-            <strong>HTTP e testes ativos</strong
-            ><span
-              >URLs salvas nos escopos, controles HTTP, plugins opcionais e carga autorizada.</span
-            >
-          </button>
-          <button
-            class="run-option"
-            [class.selected]="mode() === 'authenticated'"
-            [attr.aria-pressed]="mode() === 'authenticated'"
-            (click)="mode.set('authenticated')"
-          >
-            <strong>Acesso autenticado</strong
-            ><span
-              >Usuários, empresas, sessão e isolamento. Requer perfil válido e laboratório
-              autorizado.</span
-            >
-          </button>
-          <button
-            class="run-option"
-            [class.selected]="mode() === 'source'"
-            [attr.aria-pressed]="mode() === 'source'"
-            (click)="mode.set('source')"
-          >
-            <strong>Código e dependências</strong
-            ><span
-              >Reutilize um snapshot ZIP válido. Inclui segredos, dependências e contratos
-              suportados.</span
-            >
-          </button>
-        </div>
-        @if (!ws.activeScopes().length && mode() !== 'source') {
-          <p class="banner warning" role="status">
-            Falta um escopo válido para enviar tráfego.
-            <a [routerLink]="['/projects', project.id, 'scopes']">Configurar autorização</a>
-          </p>
-        }
+        <a class="text-link" [routerLink]="['/projects', project.id]">Configurar projeto</a>
       }
+      <a class="text-link" routerLink="/projects">Buscar outro projeto</a>
     </section>
     @if (ws.project()) {
-      <div class="section-gap">
-        @switch (mode()) {
-          @case ('plan') {
-            <s-run-plan [embedded]="true" />
-          }
-          @case ('http') {
-            <s-audits [embedded]="true" />
-          }
-          @case ('authenticated') {
-            <s-target-access [embedded]="true" />
-          }
-          @case ('source') {
-            <s-source-analysis [embedded]="true" />
-          }
-        }
+      <div class="execution-tabs" role="group" aria-label="Forma de execução">
+        <button
+          class="button"
+          [class.primary]="mode() === 'plan'"
+          [attr.aria-pressed]="mode() === 'plan'"
+          (click)="mode.set('plan')"
+        >
+          Todos os testes
+        </button>
+        <button
+          class="button"
+          [class.primary]="mode() !== 'plan'"
+          [attr.aria-pressed]="mode() !== 'plan'"
+          (click)="mode.set('http')"
+        >
+          Testes separados
+        </button>
       </div>
+      @if (mode() === 'plan') {
+        <s-run-plan [embedded]="true" />
+      } @else {
+        <section class="panel panel-pad section-gap">
+          <h2>Escolha qual teste rodar</h2>
+          <div class="execution-tabs" role="group" aria-label="Modalidade individual">
+            <button
+              class="button"
+              [class.primary]="mode() === 'http'"
+              [attr.aria-pressed]="mode() === 'http'"
+              (click)="mode.set('http')"
+            >
+              HTTP e testes ativos
+            </button>
+            <button
+              class="button"
+              [class.primary]="mode() === 'authenticated'"
+              [attr.aria-pressed]="mode() === 'authenticated'"
+              (click)="mode.set('authenticated')"
+            >
+              Acesso autenticado
+            </button>
+            <button
+              class="button"
+              [class.primary]="mode() === 'source'"
+              [attr.aria-pressed]="mode() === 'source'"
+              (click)="mode.set('source')"
+            >
+              Código e dependências
+            </button>
+          </div>
+        </section>
+        <div class="section-gap">
+          @switch (mode()) {
+            @case ('http') {
+              <s-audits [embedded]="true" />
+            }
+            @case ('authenticated') {
+              <s-target-access [embedded]="true" />
+            }
+            @case ('source') {
+              <s-source-analysis [embedded]="true" />
+            }
+          }
+        </div>
+        <s-run-activity />
+      }
     }
   `,
   styles: `
-    .run-options {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
+    .project-selector {
+      display: flex;
+      align-items: end;
+      gap: 20px;
+      flex-wrap: wrap;
+    }
+    .project-selector label {
+      flex: 1;
+      min-width: 220px;
+    }
+    .execution-tabs {
+      display: flex;
       gap: 12px;
-      margin-top: 24px;
+      flex-wrap: wrap;
+      margin: 20px 0;
     }
-    .run-option {
-      text-align: left;
-      background: var(--surface-soft);
-      color: var(--ink);
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      padding: 18px;
-      cursor: pointer;
-      min-width: 0;
+    .execution-tabs .button {
+      min-height: 44px;
     }
-    .run-option.selected {
-      border-color: var(--accent);
-      background: var(--accent-soft);
-    }
-    .run-option span {
-      display: block;
-      font-size: 12px;
-      color: var(--muted);
-      margin-top: 8px;
-    }
-    .run-option strong {
-      font-size: 14px;
-    }
-    @media (max-width: 900px) {
-      .run-options {
-        grid-template-columns: 1fr;
+    @media (max-width: 760px) {
+      .project-selector {
+        gap: 12px;
+      }
+      .project-selector label {
+        flex-basis: 100%;
+      }
+      .execution-tabs .button {
+        flex: 1;
       }
     }
   `,

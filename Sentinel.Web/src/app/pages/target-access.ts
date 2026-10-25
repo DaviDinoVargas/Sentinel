@@ -215,8 +215,9 @@ import {
                       ? 'Não é necessário informar um token Bearer: o gateway faz o login com os dados cadastrados.'
                       : 'Informe a validade real do token.'
                   }}
-                  A validade do perfil é de até 24 horas, dentro do escopo. Segredos são limpos do
-                  formulário após o envio.
+                  A validade do perfil deve respeitar o escopo e a política do host. Tokens Bearer
+                  mantêm a validade emitida pelo alvo. Segredos são limpos do formulário após o
+                  envio.
                 </p>
                 <button
                   class="button primary"
