@@ -11,7 +11,6 @@ namespace Sentinel.PluginHost.Checks;
 public sealed class CspQualityCheck : IIsolatedCheck
 {
     private const string ControlId = "WEB-CFG-07";
-    private static readonly string[] WeakTokens = ["'unsafe-inline'", "'unsafe-eval'", "*"];
 
     public async Task<PluginExecutionResult> RunAsync(PluginExecutionRequest request, CancellationToken cancellationToken)
     {
@@ -33,8 +32,8 @@ public sealed class CspQualityCheck : IIsolatedCheck
         using (response)
         {
             if (ScopedHttp.IncompleteHeaders(request, response, ControlId) is { } partial) return partial;
-            var csp = response.Headers.TryGetValues("Content-Security-Policy", out var values) ? values.FirstOrDefault() : null;
-            if (csp is null)
+            var policies = response.Headers.TryGetValues("Content-Security-Policy", out var values) ? values.ToArray() : [];
+            if (policies.Length == 0)
             {
                 var summary = "Sem Content-Security-Policy nesta resposta para avaliar a qualidade das diretivas (WEB-CFG-01 já cobre a ausência do cabeçalho).";
                 return new PluginExecutionResult(request.ContractVersion, PluginExecutionOutcome.Inconclusive,
@@ -42,28 +41,23 @@ public sealed class CspQualityCheck : IIsolatedCheck
                     [new PluginEvidenceRef(summary, "no-csp")], []);
             }
 
-            var directives = csp.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
-                .Select(directive => directive.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))
-                .Where(tokens => tokens.Length > 0)
-                .GroupBy(tokens => tokens[0].ToLowerInvariant())
-                .ToDictionary(group => group.Key, group => group.First().Skip(1).ToArray());
-            string scriptDirectiveName; string[] scriptDirectiveTokens;
-            if (directives.TryGetValue("script-src", out var scriptTokens)) { scriptDirectiveName = "script-src"; scriptDirectiveTokens = scriptTokens; }
-            else if (directives.TryGetValue("default-src", out var defaultTokens)) { scriptDirectiveName = "default-src"; scriptDirectiveTokens = defaultTokens; }
-            else { scriptDirectiveName = "(ausente)"; scriptDirectiveTokens = []; }
-            var weakInScript = scriptDirectiveTokens.Where(token => WeakTokens.Contains(token)).ToArray();
-            var weakInStyle = directives.TryGetValue("style-src", out var styleTokens) ? styleTokens.Where(token => token is "'unsafe-inline'" or "*").ToArray() : [];
-
-            var failed = weakInScript.Length > 0;
-            var state = failed ? "Failed" : "Passed";
-            var severity = failed ? "High" : weakInStyle.Length > 0 ? "Medium" : "Info";
+            var analysis = CspPolicyAnalysis.Analyze(policies);
+            if (analysis.PolicyCount == 0)
+            {
+                const string empty = "Cabeçalho CSP vazio: nenhuma política efetiva disponível para avaliar.";
+                return new(request.ContractVersion, PluginExecutionOutcome.Inconclusive,
+                    [new PluginCheckResult(ControlId, "Inconclusive", empty, "NotAssessed", "Info")],
+                    [new PluginEvidenceRef(empty, "empty-csp")], []);
+            }
+            var failed = analysis.BroadPermissions.Length > 0;
             var summaryText = failed
-                ? $"Diretiva {scriptDirectiveName} do CSP permite {string.Join(", ", weakInScript)} — reduz substancialmente a proteção contra XSS."
-                : weakInStyle.Length > 0
-                    ? $"script-src/default-src sem diretivas fracas; style-src permite {string.Join(", ", weakInStyle)} (risco menor, não reprova)."
-                    : "Nenhuma diretiva fraca ('unsafe-inline', 'unsafe-eval', '*') encontrada em script-src/default-src.";
-            var evidence = JsonSerializer.Serialize(new { kind = "csp-quality-v1", csp, scriptDirective = scriptDirectiveName, weakInScript, weakInStyle });
-            var control = new PluginCheckResult(ControlId, state, summaryText, "Reproduced", severity);
+                ? $"Permissões amplas após combinar {analysis.PolicyCount} política(s) CSP3: {string.Join("; ", analysis.BroadPermissions)}. Sinal de configuração; execução XSS não foi comprovada."
+                : $"Nenhuma das permissões amplas avaliadas permanece após combinar {analysis.PolicyCount} política(s) CSP3. Resultado restrito aos cabeçalhos desta resposta; não comprova proteção integral contra XSS.";
+            // Never persist complete CSP values: nonces, URLs and custom tokens need not be disclosed.
+            var evidence = JsonSerializer.Serialize(new { kind = "csp-quality-v2", analysis.PolicyCount,
+                analysis.BroadPermissions, analysis.Limitation, browserExecutionConfirmed = false });
+            var control = new PluginCheckResult(ControlId, failed ? "Failed" : "Passed", summaryText,
+                "Reproduced", failed ? "High" : "Info");
             return new PluginExecutionResult(request.ContractVersion, PluginExecutionOutcome.Succeeded, [control], [new PluginEvidenceRef(evidence, evidence)], []);
         }
     }
