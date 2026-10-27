@@ -1,5 +1,15 @@
 # Sentinel
 
+## Segunda identidade por login JSON — V52
+
+A API de auditorias autenticadas aceita `secondaryCredentialProfileId` com perfil Bearer ou JsonLogin do mesmo projeto/escopo, diferente do primário, com expectativa de acesso permitido e sem carga. Plugins com capacidade `identity: dual` mantêm estado de login, token e diagnóstico separados por identidade. Cada login exige autorização e orçamento distribuído; IDOR/BFLA declaram duas autenticações por plugin. Falha não repete login nem usa o token da outra identidade. Revogação, rotação e expiração continuam revalidadas por requisição.
+
+O worker prepara somente as identidades JSON usadas pelo manifesto, com até dez segundos por identidade e sempre limitado pela validade do escopo; o prazo do plugin não aumenta. Tokens ficam no host e os eventos de login pertencem ao perfil correto. Não há renovação periódica de sessão nem suporte novo a cookies/MFA.
+
+Esta entrega é de backend. O seletor atual da interface ainda restringe a identidade secundária a Bearer; sua atualização está registrada para a etapa B, junto da nova revisão UI/UX solicitada pelo proprietário. As demais lacunas D1/D2 e a regressão empresarial completa permanecem abertas.
+
+Validação: regressão60/60; após o ajuste final do worker, recorte afetado8/8 (há casos repetidos entre baterias). Release sem avisos/erros. Cenários vulnerável e seguro exercitados com workers e containers reais; não substitui a baseline empresarial completa.
+
 ## Workspace Harpia e plano reutilizavel — V51
 
 Nova identidade vetorial local, temas escuro/claro e navegacao responsiva. **Projetos → Abrir projeto** centraliza alvos/escopos, usuarios/acessos, fontes, plano de testes e resultados. O projeto no cabecalho e somente um indicador; a selecao acontece em Projetos ou Rodar testes.
@@ -65,7 +75,7 @@ Validação: contraprovas de processo passaram de3/15 para15/15;5 casos de integ
 
 Auditorias e Acessos do alvo exibem verificações opcionais compatíveis com o perfil. O catálogo informa ativação e perfis elegíveis; a mesma política é aplicada na admissão da API e na seleção do worker. Plugins explícitos não executam automaticamente. A seleção não concede escopo, métodos, identidade ou permissões adicionais. O teto antigo de cinco plugins foi removido; o endpoint de criação aceita corpo de até 64 KiB, com orçamentos por manifesto e limite distribuído por alvo preservados.
 
-Acessos do alvo permite uma segunda identidade Bearer válida no mesmo escopo, diferente da principal, para cenário de acesso permitido e sem carga. Trocar identidade remove seleções e exige nova confirmação. Login JSON secundário e testes completos de logout/refresh continuam pendentes. Fonte mantém sua configuração por snapshot; não aceita adicionais pela criação de auditoria HTTP.
+Acessos do alvo permite uma segunda identidade Bearer válida no mesmo escopo, diferente da principal, para cenário de acesso permitido e sem carga. Trocar identidade remove seleções e exige nova confirmação. O suporte de backend a login JSON secundário foi acrescentado na V52; o seletor visual e a cobertura completa de sessão continuam pendentes. Fonte mantém sua configuração por snapshot; não aceita adicionais pela criação de auditoria HTTP.
 
 Validação desta entrega: 22 testes de política/admissão aprovados, um teste real com worker/container comprovando ausência de tráfego sem seleção e execução quando selecionado, e 19 testes de frontend. Uma fixture inicialmente recusada por origem sintética em projeto de software foi corrigida para projeto exclusivo de validação; as verificações negativas foram repetidas nesse contexto correto. Estes recortes não substituem a baseline completa nem resolvem as falhas de infraestrutura registradas abaixo.
 
