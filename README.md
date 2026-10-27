@@ -1,5 +1,15 @@
 # Sentinel
 
+## Referencia de query nas sondagens de injecao — V53
+
+O plugin `sentinel.lab.injection-probe` monta uma referencia por operacao com valores sinteticos escalares a partir dos tipos, formatos e enums exportados no contrato. Uma mutacao de query substitui somente seu parametro; uma mutacao de rota preserva a query de referencia. Isso permite avaliar endpoints que exigem varios parametros juntos, em vez de abandonar a operacao por uma referencia enviada sem os campos necessarios.
+
+A resposta de referencia ainda precisa ser completa e bem sucedida; amostra sintetica nao garante satisfazer regras de negocio. Nomes duplicados, contrato malformado e serializacao de arrays/objetos ainda nao suportada impedem sondar a operacao e geram motivo explicito. `unsupportedQueryBaselines` conta essas lacunas separadamente de `incompleteResponses`, sem trafego para resolver a rota nesse caso. Valores de entrada nao sao incluidos no novo metadado da evidencia.
+
+Os criterios de resultado permanecem restritos: erro SQL repetivel e correlacao booleana sao candidatos inferidos; reflexao HTML nao comprova execucao de XSS; ausencia de sinal nao prova ausencia de vulnerabilidades. SQLi temporal/POST, navegador e contratos de negocio configuraveis continuam pendentes em D3.
+
+Validação:24/24 na regressão de injeção;17/17 nos testes finais de processo/helpers e2/2cenários em containers na imagem definitiva. Baterias têm sobreposição. A baseline empresarial completa continua pendente; atualizar base offline expirada antes de revalidar CVEs.
+
 ## Segunda identidade por login JSON — V52
 
 A API de auditorias autenticadas aceita `secondaryCredentialProfileId` com perfil Bearer ou JsonLogin do mesmo projeto/escopo, diferente do primário, com expectativa de acesso permitido e sem carga. Plugins com capacidade `identity: dual` mantêm estado de login, token e diagnóstico separados por identidade. Cada login exige autorização e orçamento distribuído; IDOR/BFLA declaram duas autenticações por plugin. Falha não repete login nem usa o token da outra identidade. Revogação, rotação e expiração continuam revalidadas por requisição.
