@@ -1,5 +1,13 @@
 # Sentinel
 
+## Base offline de vulnerabilidades — atualizacao de 27/10/2026
+
+A base Trivy anterior tinha UpdatedAt2026-10-20T19:12:26Z e excedeu os sete dias permitidos em27/10. Nessa condicao, o scanner recusa avaliar CVEs e informa Inconclusive; a saude HTTP da API nao representa prontidao da base de vulnerabilidades.
+
+`infra/plugins/trivy.lock.json` fixa a nova base oficial por digest `sha256:f35669553b6f9e90ca39535f60280ad5e288de75df474ff7be5661a5ca4cf52c`, com UpdatedAt2026-10-27T19:17:44Z conferido na imagem. Scanner0.76.0, seu digest, o limite de sete dias e a verificacao SHA-256 permanecem iguais. A base e obtida no build; as auditorias continuam offline e nao atualizam dependencias nem executam configuracoes do alvo. Referencias: [base oficial](https://github.com/aquasecurity/trivy-db) e [configuracao de bases](https://trivy.dev/docs/dev/configuration/db/).
+
+Validacao focada6/6aprovada, incluindo scanner em container, CVE conhecida e proveniencia verificada. A regressao integrada completa ainda precisa encerrar. Esta atualizacao e pontual. Renovacao governada recorrente e sinalizacao antecipada de vencimento continuam pendentes na revisao de operabilidade/interface.
+
 ## Referencia de query nas sondagens de injecao — V53
 
 O plugin `sentinel.lab.injection-probe` monta uma referencia por operacao com valores sinteticos escalares a partir dos tipos, formatos e enums exportados no contrato. Uma mutacao de query substitui somente seu parametro; uma mutacao de rota preserva a query de referencia. Isso permite avaliar endpoints que exigem varios parametros juntos, em vez de abandonar a operacao por uma referencia enviada sem os campos necessarios.
@@ -8,7 +16,7 @@ A resposta de referencia ainda precisa ser completa e bem sucedida; amostra sint
 
 Os criterios de resultado permanecem restritos: erro SQL repetivel e correlacao booleana sao candidatos inferidos; reflexao HTML nao comprova execucao de XSS; ausencia de sinal nao prova ausencia de vulnerabilidades. SQLi temporal/POST, navegador e contratos de negocio configuraveis continuam pendentes em D3.
 
-Validação:24/24 na regressão de injeção;17/17 nos testes finais de processo/helpers e2/2cenários em containers na imagem definitiva. Baterias têm sobreposição. A baseline empresarial completa continua pendente; atualizar base offline expirada antes de revalidar CVEs.
+Validação:24/24 na regressão de injeção;17/17 nos testes finais de processo/helpers e2/2cenários em containers na imagem definitiva. Baterias têm sobreposição. A baseline empresarial completa continua pendente; a atualização da base offline está registrada na seção acima.
 
 ## Segunda identidade por login JSON — V52
 
