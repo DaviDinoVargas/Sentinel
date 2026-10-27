@@ -80,14 +80,17 @@ public sealed class AuditWorker(
                 if (!decision.IsAllowed) { coordinator.Finish(lease, AuditState.Blocked, decision.Reason); return; }
                 stage = "snapshot";
                 using var sourceWorkspace = source ? await sources.MaterializeAsync(payload.ProjectId, payload.ScopeId, payload.Source!, executionCts.Token) : null;
-                var loginPreparationSeconds = authenticated && payload.Credential?.CredentialType == "JsonLogin" ? 10 : 0;
+                var jsonLoginCount = authenticated ?
+                    (payload.Credential?.CredentialType == "JsonLogin" ? 1 : 0) +
+                    (manifest.Spec.Capabilities.Gateway.Identity == "dual" && payload.SecondaryCredential?.CredentialType == "JsonLogin" ? 1 : 0) : 0;
+                var loginPreparationSeconds = 10 * jsonLoginCount;
                 var timeout = now.AddSeconds(manifest.Spec.Resources.TimeoutSeconds + loginPreparationSeconds);
                 var deadline = timeout < decision.Scope!.ExpiresAtUtc ? timeout : decision.Scope.ExpiresAtUtc;
                 var allocation = PluginRuntime.AppliedResources(manifest.Spec.Resources);
                 var runtimeDetail = runtime.Container
                     ? $"container {runtime.Options.Image}; {allocation.MemoryMiB} MiB; CPU {allocation.Cpus.ToString(System.Globalization.CultureInfo.InvariantCulture)}; PIDs {allocation.Pids}; tmpfs {allocation.TmpfsMiB} MiB; rede none; {(source ? "snapshot somente leitura; sem gateway" : "HTTP via gateway")}"
                     : "processo de desenvolvimento; HTTP via gateway; sem sandbox de filesystem";
-                if (loginPreparationSeconds != 0) runtimeDetail += "; preparação de login JSON até 10s antes do plugin; prazo do plugin inalterado";
+                if (loginPreparationSeconds != 0) runtimeDetail += $"; preparação de {jsonLoginCount} login(s) JSON até {loginPreparationSeconds}s antes do plugin; prazo do plugin inalterado";
                 var replaySafety = source && runtime.Container && manifest.Spec.Capabilities.SourceRead && manifest.Spec.Capabilities.Network == "false"
                     ? PluginReplaySafety.ReadOnlySourceSandbox : PluginReplaySafety.Uncertain;
                 if (!coordinator.BeginPlugin(lease, manifest.Metadata.Id, deadline, runtimeDetail, replaySafety)) return;

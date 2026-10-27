@@ -93,11 +93,17 @@ public sealed partial class ScopedHttpGateway(ISentinelStore store, ScopePolicyE
         // Esses dois plugins só recebem metadados sintéticos (não o cabeçalho HTTP
         // original): nome do cookie + atributos, com o valor sempre trocado por
         // <redacted>. Nenhum outro plugin vê Set-Cookie, mesmo redigido.
-        private readonly SemaphoreSlim _loginLock = new(1, 1);
-        private bool _loginAttempted;
-        private string? _loginToken;
-        private string? _refreshToken;
-        private string _loginStatus = "NotTested";
+        private sealed class LoginState : IDisposable
+        {
+            public readonly SemaphoreSlim Lock = new(1, 1);
+            public bool Attempted;
+            public string? Token;
+            public string? RefreshToken;
+            public string Status = "NotTested";
+            public void Dispose() { Token = null; RefreshToken = null; Lock.Dispose(); }
+        }
+        private readonly LoginState _primaryLogin = new();
+        private readonly LoginState _secondaryLogin = new();
         private HashSet<string>? _allowedRequestHeaders;
         private HashSet<string> AllowedHeaders => _allowedRequestHeaders ??= new(_manifest.Spec.Capabilities.Gateway.RequestHeaders.Intersect(RuntimeLimits.AllowedRequestHeaders, StringComparer.OrdinalIgnoreCase), StringComparer.OrdinalIgnoreCase);
 
@@ -214,10 +220,10 @@ public sealed partial class ScopedHttpGateway(ISentinelStore store, ScopePolicyE
                         {
                             var material = _gateway._credentials!.Material(_request.ProjectId, _request.ScopeId, secondaryCall ? _secondary! : _credential);
                             bearer = material.Bearer;
-                            if (!secondaryCall && !call.Anonymous && material.Login is { } login)
+                            if (!call.Anonymous && material.Login is { } login)
                             {
-                                bearer = await LoginAsync(login, cancellationToken);
-                                if (bearer is null) return Denied(call.RequestId, "Login do alvo: " + _loginStatus + ". Nenhuma aprovação inferida.");
+                                bearer = await LoginAsync(login, cancellationToken, secondaryCall);
+                                if (bearer is null) return Denied(call.RequestId, "Login do alvo: " + (secondaryCall ? _secondaryLogin.Status : _primaryLogin.Status) + ". Nenhuma aprovação inferida.");
                             }
                         }
                         catch (Exception exception) when (exception is InvalidOperationException or KeyNotFoundException or System.Security.Cryptography.CryptographicException)
@@ -383,19 +389,29 @@ public sealed partial class ScopedHttpGateway(ISentinelStore store, ScopePolicyE
 
         public async Task PrepareAuthenticationAsync(CancellationToken cancellationToken)
         {
-            if (_credential?.CredentialType != "JsonLogin") return;
-            var material = _gateway._credentials!.Material(_request.ProjectId, _request.ScopeId, _credential);
-            if (material.Login is { } login) await LoginAsync(login, cancellationToken);
+            if (_credential?.CredentialType == "JsonLogin")
+            {
+                var material = _gateway._credentials!.Material(_request.ProjectId, _request.ScopeId, _credential);
+                if (material.Login is { } login) await LoginAsync(login, cancellationToken);
+            }
+            if (_manifest.Spec.Capabilities.Gateway.Identity == "dual" && _secondary?.CredentialType == "JsonLogin")
+            {
+                var material = _gateway._credentials!.Material(_request.ProjectId, _request.ScopeId, _secondary);
+                if (material.Login is { } login) await LoginAsync(login, cancellationToken, secondary: true);
+            }
         }
 
-        private async Task<string?> LoginAsync(JsonLoginInput login, CancellationToken cancellationToken)
+        private async Task<string?> LoginAsync(JsonLoginInput login, CancellationToken cancellationToken, bool secondary = false)
         {
-            await _loginLock.WaitAsync(cancellationToken);
+            var state = secondary ? _secondaryLogin : _primaryLogin;
+            var binding = secondary ? _secondary : _credential;
+            if (binding is null || secondary && _manifest.Spec.Capabilities.Gateway.Identity != "dual") return null;
+            await state.Lock.WaitAsync(cancellationToken);
             try
             {
-                if (_loginAttempted) return _loginToken;
-                _loginAttempted = true;
-                _loginStatus = "Unavailable";
+                if (state.Attempted) return state.Token;
+                state.Attempted = true;
+                state.Status = "Unavailable";
                 using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 var remaining = _request.DeadlineUtc - _gateway._time.GetUtcNow();
                 if (remaining <= TimeSpan.Zero) return null;
@@ -405,21 +421,21 @@ public sealed partial class ScopedHttpGateway(ISentinelStore store, ScopePolicyE
                 {
                     var uri = new Uri(login.Configuration.Url);
                     if (uri.Scheme != _target.Scheme || uri.IdnHost != _target.IdnHost || uri.Port != _target.Port)
-                    { _loginStatus = "OutsideScope"; return null; }
+                    { state.Status = "OutsideScope"; return null; }
                     while (true)
                     {
                         ct.ThrowIfCancellationRequested();
                         var scopes = _gateway._store.GetScopes(_request.ProjectId);
                         var scope = scopes.SingleOrDefault(s => s.Id == _request.ScopeId);
                         if (!_gateway._policy.Evaluate(scopes, uri, _request.Action, _gateway._time.GetUtcNow(), true, "POST", _request.ScopeId).IsAllowed)
-                        { _loginStatus = "OutsideScope"; return null; }
-                        if (scope is null) { _loginStatus = "OutsideScope"; return null; }
+                        { state.Status = "OutsideScope"; return null; }
+                        if (scope is null) { state.Status = "OutsideScope"; return null; }
                         TargetJsonLogin.Validate(login, scope, _gateway._time.GetUtcNow());
-                        _gateway._credentials!.Material(_request.ProjectId, _request.ScopeId, _credential!);
-                        var permit = _gateway._coordinator.Permit(_lease, login: true, loginAllowed: _credential is not null,
+                        _gateway._credentials!.Material(_request.ProjectId, _request.ScopeId, binding);
+                        var permit = _gateway._coordinator.Permit(_lease, login: true, loginAllowed: true,
                             loginBudget: _manifest.Spec.Capabilities.Gateway.LoginRequests);
                         if (permit.Allowed) break;
-                        if (permit.RetryAfterMs == 0) { _loginStatus = "CancelledOrBudgetDenied"; return null; }
+                        if (permit.RetryAfterMs == 0) { state.Status = "CancelledOrBudgetDenied"; return null; }
                         await Task.Delay(Math.Min(permit.RetryAfterMs, 200), ct);
                     }
                     var bytes = TargetJsonLogin.Body(login);
@@ -428,7 +444,7 @@ public sealed partial class ScopedHttpGateway(ISentinelStore store, ScopePolicyE
                         using var message = new HttpRequestMessage(HttpMethod.Post, uri) { Content = new ByteArrayContent(bytes) };
                         message.Content.Headers.ContentType = new("application/json");
                         using var response = await _client.SendAsync(message, HttpCompletionOption.ResponseHeadersRead, ct);
-                        _loginStatus = (int)response.StatusCode switch
+                        state.Status = (int)response.StatusCode switch
                         {
                             401 => "InvalidCredentials", 403 => "TenantOrAccessDenied", 423 => "AccountLocked", 429 => "RateLimited",
                             >= 300 and < 400 => "RedirectUnsupported", >= 500 => "Unavailable", _ => "UnsupportedResponse"
@@ -440,23 +456,23 @@ public sealed partial class ScopedHttpGateway(ISentinelStore store, ScopePolicyE
                         {
                             while (count < buffer.Length)
                             { var n = await stream.ReadAsync(buffer.AsMemory(count), ct); if (n == 0) break; count += n; }
-                            if (count == buffer.Length) { _loginStatus = "ResponseTooLarge"; return null; }
-                            _loginToken = TargetJsonLogin.Extract(buffer.AsMemory(0, count), login.Configuration.TokenPath);
-                            _refreshToken = login.Configuration.Refresh is { } refresh ? TargetJsonLogin.Extract(buffer.AsMemory(0, count), refresh.InitialTokenPath) : null;
-                            _loginStatus = _loginToken is null ? "TokenMissingOrUnsupported" : "Authenticated";
+                            if (count == buffer.Length) { state.Status = "ResponseTooLarge"; return null; }
+                            state.Token = TargetJsonLogin.Extract(buffer.AsMemory(0, count), login.Configuration.TokenPath);
+                            state.RefreshToken = login.Configuration.Refresh is { } refresh ? TargetJsonLogin.Extract(buffer.AsMemory(0, count), refresh.InitialTokenPath) : null;
+                            state.Status = state.Token is null ? "TokenMissingOrUnsupported" : "Authenticated";
                             // A rotation/revocation during login prevents using the returned token.
-                            _gateway._credentials!.Material(_request.ProjectId, _request.ScopeId, _credential!);
-                            return _loginToken;
+                            _gateway._credentials!.Material(_request.ProjectId, _request.ScopeId, binding);
+                            return state.Token;
                         }
                         finally { System.Security.Cryptography.CryptographicOperations.ZeroMemory(buffer); }
                     }
                     finally { System.Security.Cryptography.CryptographicOperations.ZeroMemory(bytes); }
                 }
                 catch (Exception e) when (e is HttpRequestException or IOException or OperationCanceledException or ArgumentException or InvalidOperationException or KeyNotFoundException or System.Text.Json.JsonException)
-                { _loginToken = null; _loginStatus = "UnavailableOrRevoked"; return null; }
-                finally { _gateway._credentials!.RecordLogin(_request.ProjectId, _credential!, _loginStatus, _lease.AuditId); }
+                { state.Token = null; state.Status = "UnavailableOrRevoked"; return null; }
+                finally { _gateway._credentials!.RecordLogin(_request.ProjectId, binding, state.Status, _lease.AuditId); }
             }
-            finally { _loginLock.Release(); }
+            finally { state.Lock.Release(); }
         }
 
         private async Task ValidateDns(CancellationToken cancellationToken)
@@ -530,6 +546,6 @@ public sealed partial class ScopedHttpGateway(ISentinelStore store, ScopePolicyE
         // Mantém o nome do cookie e todos os atributos (Secure/HttpOnly/SameSite/Path/
         // Expires/Max-Age/Domain); troca só o valor pelo marcador, nunca o segredo.
         public static HttpRelayResponse Denied(Guid id, string reason) => new("http-response", id, 0, [], "", 0, reason);
-        public void Dispose() { _loginToken = null; _refreshToken = null; _client.Dispose(); _concurrency.Dispose(); _dnsLock.Dispose(); _loginLock.Dispose(); }
+        public void Dispose() { _primaryLogin.Dispose(); _secondaryLogin.Dispose(); _client.Dispose(); _concurrency.Dispose(); _dnsLock.Dispose(); }
     }
 }

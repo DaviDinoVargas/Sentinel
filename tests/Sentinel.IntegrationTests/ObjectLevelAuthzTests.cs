@@ -28,6 +28,19 @@ public sealed class ObjectLevelAuthzTests
     private static string[] FailedRules(Audit audit) =>
         audit.Controls.Where(item => item.ControlId == "API-AUTHZ-02" && item.State == "Failed").Select(item => item.SourceRuleId!).ToArray();
 
+    [Theory]
+    [InlineData("idor-safe", "Passed", false)]
+    [InlineData("idor-vuln", "Failed", false)]
+    [InlineData("idor-safe", "Passed", true)]
+    public async Task Duas_identidades_JSON_detectam_vazamento_real_e_confirmam_isolamento(string scenario, string expected, bool primaryBearer)
+    {
+        var audit = await RunAsync(Spec(scenario), true, jsonLogin: true, primaryBearer: primaryBearer);
+        var controls = audit.Controls.Where(item => item.ControlId == "API-AUTHZ-02").ToArray();
+        Assert.NotEmpty(controls);
+        Assert.All(controls, item => Assert.Equal(expected, item.State));
+        if (expected == "Failed") Assert.Equal(2, controls.Length);
+    }
+
     [Fact]
     public async Task Objeto_da_identidade_A_lido_pela_B_reprova_nas_duas_direcoes()
     {
@@ -80,7 +93,7 @@ public sealed class ObjectLevelAuthzTests
         Assert.DoesNotContain((await RunAsync(Spec("idor-safe"), false)).Controls, item => item.ControlId == "API-AUTHZ-02");
     }
 
-    private static async Task<Audit> RunAsync(string openApi, bool withSecondary)
+    private static async Task<Audit> RunAsync(string openApi, bool withSecondary, bool jsonLogin = false, bool primaryBearer = false)
     {
         using var host = new SentinelApiFactory { PluginMode = "container", PluginImage = Image };
         using var client = host.CreateClient();
@@ -100,11 +113,13 @@ public sealed class ObjectLevelAuthzTests
         host.PurgeSnapshots(project.Id);
 
         var baseUrl = new Uri(host.LabTarget.BaseUri, "authenticated/").AbsoluteUri;
-        var scopeResponse = await client.PostAsJsonAsync($"/api/v1/projects/{project.Id}/scopes", new CreateScopeRequest(baseUrl, "laboratorio", DateTimeOffset.UtcNow.AddMinutes(10)));
+        var scopeResponse = await client.PostAsJsonAsync($"/api/v1/projects/{project.Id}/scopes", new CreateScopeRequest(baseUrl, "laboratorio", DateTimeOffset.UtcNow.AddMinutes(10),
+            jsonLogin ? ScopeRules.LegacyHttp with { Methods = ["GET", "POST"] } : null));
         scopeResponse.EnsureSuccessStatusCode();
         var scope = (await scopeResponse.Content.ReadFromJsonAsync<AuthorizedScope>(Json))!;
-        var a = await Credential(client, project.Id, scope.Id, "Identidade A", "sentinel-tenant-a");
-        var b = await Credential(client, project.Id, scope.Id, "Identidade B", "sentinel-tenant-b");
+        JsonLoginInput? Login(string tenant) => jsonLogin ? new(new(baseUrl + "dual-json/login", "email", "password", "data.token", "company"), "synthetic@example.invalid", "synthetic-password", tenant) : null;
+        var a = await Credential(client, project.Id, scope.Id, "Identidade A", "sentinel-tenant-a", primaryBearer ? null : Login("tenant-a"));
+        var b = await Credential(client, project.Id, scope.Id, "Identidade B", "sentinel-tenant-b", Login("tenant-b"));
 
         var response = await client.PostAsJsonAsync($"/api/v1/projects/{project.Id}/audits",
             new RequestAuditRequest(baseUrl + "tenant-a", "authenticated-lab", true, a.Id, "allow", false, DataOrigins.Unknown, withSecondary ? b.Id : null));
@@ -112,9 +127,9 @@ public sealed class ObjectLevelAuthzTests
         return await WaitAsync(client, (await response.Content.ReadFromJsonAsync<Audit>(Json))!);
     }
 
-    private static async Task<TargetCredentialInfo> Credential(HttpClient client, Guid project, Guid scope, string name, string token)
+    private static async Task<TargetCredentialInfo> Credential(HttpClient client, Guid project, Guid scope, string name, string token, JsonLoginInput? login = null)
     {
-        var response = await client.PostAsJsonAsync($"/api/v1/projects/{project}/target-credentials", new CreateTargetCredential(scope, name, "Empresa", name, token, DateTimeOffset.UtcNow.AddMinutes(5)));
+        var response = await client.PostAsJsonAsync($"/api/v1/projects/{project}/target-credentials", new CreateTargetCredential(scope, name, "Empresa", name, login is null ? token : "", DateTimeOffset.UtcNow.AddMinutes(5), login is null ? "Bearer" : "JsonLogin", login));
         response.EnsureSuccessStatusCode();
         return (await response.Content.ReadFromJsonAsync<TargetCredentialInfo>())!;
     }

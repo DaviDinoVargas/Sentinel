@@ -48,11 +48,11 @@ public sealed partial class ScopedHttpGateway
                 if (!denied && !accepted) return observation;
 
                 // A new independently authenticated session controls for target outage.
-                var oldToken = _loginToken;
-                _loginToken = null;
-                _loginAttempted = false;
+                var oldToken = _primaryLogin.Token;
+                _primaryLogin.Token = null;
+                _primaryLogin.Attempted = false;
                 if (await LoginAsync(login, ct) is null) return observation with { Code = "FreshControlUnavailable" };
-                if (string.Equals(oldToken, _loginToken, StringComparison.Ordinal)) return observation with { Code = "FreshControlNotIndependent" };
+                if (string.Equals(oldToken, _primaryLogin.Token, StringComparison.Ordinal)) return observation with { Code = "FreshControlNotIndependent" };
                 var control = await Get();
                 observation = observation with { Code = "FreshControlUnavailable", ControlStatus = control.Response.StatusCode, ControlIdentity = control.Identity };
                 if (control.Response.Error is not null || control.Response.StatusCode is < 200 or >= 300 || control.Identity != true) return observation;

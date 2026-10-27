@@ -66,14 +66,14 @@ public sealed partial class ScopedHttpGateway
                 async Task<bool> RefreshedIdentity(HostRefreshResult result, string stage)
                 {
                     if (result.Response.Error is not null || result.Response.StatusCode is < 200 or >= 300 || result.AccessToken is null) return false;
-                    _loginToken = result.AccessToken;
+                    _primaryLogin.Token = result.AccessToken;
                     return await Get(stage);
                 }
 
                 if (!await Get("anonymous", anonymous: true)) return observation with { Code = "AnonymousNotDenied" };
                 if (!await Get("baseline")) return observation with { Code = "IdentityNotVerified" };
                 observation = observation with { BaselineVerified = true };
-                var originalRefresh = _refreshToken;
+                var originalRefresh = _primaryLogin.RefreshToken;
                 if (originalRefresh is null) return observation with { Code = "InitialRefreshMissing" };
                 var initial = await Refresh(originalRefresh, "initial-refresh");
                 if (initial.RefreshToken is null || !await RefreshedIdentity(initial, "initial-identity"))
@@ -97,10 +97,10 @@ public sealed partial class ScopedHttpGateway
                     observation = observation with { FamilyDenied = family.Denied, FamilyAccepted = familyAccepted };
                     if (!family.Denied && !familyAccepted) return observation with { Code = "FamilyUncertain" };
                 }
-                _loginToken = null; _refreshToken = null; _loginAttempted = false;
-                if (await LoginAsync(login, ct) is null || _refreshToken is null) return observation with { Code = "FreshControlUnavailable" };
-                if (string.Equals(originalRefresh, _refreshToken, StringComparison.Ordinal)) return observation with { Code = "FreshControlNotIndependent" };
-                var control = await Refresh(_refreshToken, "fresh-control-refresh");
+                _primaryLogin.Token = null; _primaryLogin.RefreshToken = null; _primaryLogin.Attempted = false;
+                if (await LoginAsync(login, ct) is null || _primaryLogin.RefreshToken is null) return observation with { Code = "FreshControlUnavailable" };
+                if (string.Equals(originalRefresh, _primaryLogin.RefreshToken, StringComparison.Ordinal)) return observation with { Code = "FreshControlNotIndependent" };
+                var control = await Refresh(_primaryLogin.RefreshToken, "fresh-control-refresh");
                 if (!await RefreshedIdentity(control, "fresh-control-identity")) return observation with { Code = "FreshControlUnavailable" };
                 observation = observation with { Code = "Evaluated", FreshControlVerified = true };
                 if (login.Configuration.Logout is { } logout)

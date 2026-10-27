@@ -75,7 +75,8 @@ public sealed class LabTargetServer : IDisposable
             if (password == "redirect-fixture") { context.Response.StatusCode = 302; context.Response.RedirectLocation = new Uri(BaseUri, "login-must-not-follow").AbsoluteUri; context.Response.Close(); return; }
             if (password == "oversized-fixture") { WriteBody(context, "{\"data\":\"" + new string('x', 40000) + "\"}"); return; }
             if (password == "duplicate-fixture") { WriteBody(context, "{\"data\":{\"token\":\"first\",\"token\":\"second\"}}"); return; }
-            if (root.GetProperty("company").GetString() != "tenant-a") context.Response.StatusCode = 403;
+            var loginTenant = root.GetProperty("company").GetString();
+            if (loginTenant != "tenant-a" && !(path.Contains("/dual-json/", StringComparison.Ordinal) && loginTenant == "tenant-b")) context.Response.StatusCode = 403;
             else if (password == "locked-fixture") context.Response.StatusCode = 423;
             else if (password != "synthetic-password") context.Response.StatusCode = 401;
             else if (context.Request.HttpMethod != "POST") context.Response.StatusCode = 405;
@@ -88,7 +89,7 @@ public sealed class LabTargetServer : IDisposable
                 : path.Contains("/jwt-longlived/", StringComparison.Ordinal) ? "longlived"
                 : path.Contains("/jwt-badexp/", StringComparison.Ordinal) ? "badexp"
                 : path.Contains("/jwt-noaudience/", StringComparison.Ordinal) ? "noaudience" : null;
-            var token = jwtVariant is not null && context.Response.StatusCode == 200 ? BuildJwt(jwtVariant) : "sentinel-tenant-a";
+            var token = jwtVariant is not null && context.Response.StatusCode == 200 ? BuildJwt(jwtVariant) : loginTenant == "tenant-b" ? "sentinel-tenant-b" : "sentinel-tenant-a";
             WriteBody(context, context.Response.StatusCode == 200 ? "{\"data\":{\"token\":\"" + token + "\"}}" : "{\"error\":\"synthetic-password must never escape\"}"); return;
         }
         if (path.Contains("/mass-", StringComparison.Ordinal))

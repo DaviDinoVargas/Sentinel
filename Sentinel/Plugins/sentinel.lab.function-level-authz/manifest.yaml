@@ -2,7 +2,7 @@ apiVersion: sentinel.dev/v1
 kind: PluginManifest
 metadata:
   id: sentinel.lab.function-level-authz
-  version: 1.0.0
+  version: 1.0.1
   name: Autorização em nível de função com papel privilegiado e menor (API-AUTHZ-06)
 spec:
   type: security-test
@@ -16,6 +16,7 @@ spec:
     openApiRead: true
     gateway:
       identity: dual
+      loginRequests: 2
       arbitraryPaths: true
       methods: [GET, POST, PUT, PATCH]
       requestBodyBytes: 65536

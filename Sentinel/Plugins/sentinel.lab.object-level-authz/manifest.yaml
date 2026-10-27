@@ -2,7 +2,7 @@ apiVersion: sentinel.dev/v1
 kind: PluginManifest
 metadata:
   id: sentinel.lab.object-level-authz
-  version: 1.0.0
+  version: 1.0.1
   name: Autorização em nível de objeto com duas identidades (API-AUTHZ-02)
 spec:
   type: security-test
@@ -16,6 +16,7 @@ spec:
     openApiRead: true
     gateway:
       identity: dual
+      loginRequests: 2
       arbitraryPaths: true
       bodyBytes: 131072
       maxRequests: 120

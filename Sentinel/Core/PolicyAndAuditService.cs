@@ -182,7 +182,6 @@ public sealed class AuditService
                 if (request.ExpectedAccess != "allow" || request.IncludeAuthenticatedLoad || secondaryId == request.CredentialProfileId.Value)
                     throw new ArgumentException("Segunda identidade exige acesso permitido, sem carga, e um perfil diferente do primário.");
                 secondaryCredential = _credentials.Bind(projectId, decision.Scope!.Id, secondaryId, "allow");
-                if (secondaryCredential.CredentialType != "Bearer") throw new ArgumentException("Segunda identidade aceita somente perfil Bearer nesta versão.");
             }
         }
         else if (request.CredentialProfileId is not null || request.ExpectedAccess is not null || request.IncludeAuthenticatedLoad || request.SecondaryCredentialProfileId is not null)
