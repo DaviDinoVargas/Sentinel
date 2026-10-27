@@ -189,6 +189,16 @@ public sealed class LabTargetServer : IDisposable
             context.Response.StatusCode = visible ? 200 : 404;
             WriteBody(context, visible ? $"{{\"id\":\"{id}\",\"owner\":\"{id[..1]}\"}}" : "{}"); return;
         }
+        if (path.Contains("/inj-required-", StringComparison.Ordinal) && path.EndsWith("/items", StringComparison.Ordinal))
+        {
+            var query = context.Request.QueryString;
+            context.Response.ContentType = "application/json";
+            if (query["q"] is null || query["mode"] != "active" || query["page"] != "1")
+            { context.Response.StatusCode = 400; WriteBody(context, "{\"error\":\"required input missing or invalid\"}"); return; }
+            if (path.Contains("/inj-required-error/", StringComparison.Ordinal) && query["q"]!.Contains('\''))
+            { context.Response.StatusCode = 500; WriteBody(context, "{\"error\":\"syntax error at or near quote\"}"); return; }
+            WriteBody(context, "[]"); return;
+        }
         if (path.Contains("/inj-erro/", StringComparison.Ordinal) && path.EndsWith("/items", StringComparison.Ordinal))
         {
             // WEB-INJ-01 (erro): aspas simples/duplas ou comentário SQL em ?q= quebram a consulta sintética.

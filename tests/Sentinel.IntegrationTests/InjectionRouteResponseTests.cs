@@ -24,6 +24,7 @@ public sealed class InjectionRouteResponseTests
     [InlineData("unstable-control")]
     [InlineData("html-reflection")]
     [InlineData("budget-denied")]
+    [InlineData("unsupported-query")]
     public async Task Parametro_de_rota_usa_origem_absoluta_sem_ampliar_metodos_ou_autoridade(string oracle)
     {
         var plugins = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../Sentinel/Plugins"));
@@ -33,7 +34,9 @@ public sealed class InjectionRouteResponseTests
         ApiOperationDetail Operation(string path, ApiParameter[] parameters) => new("openapi.json", "3.0.3", "GET", path, "Unspecified", false,
             null, [], parameters, null, ["200"]);
         var inventory = JsonSerializer.Serialize(new { operations = new[] { Operation("/items", []),
-            Operation("/items/{id}", [new("id", "path", true, "string", null, null)]) } }, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+            Operation("/items/{id}", oracle == "unsupported-query"
+                ? [new("id", "path", true, "string", null, null), new("filter", "query", true, "object", null, null)]
+                : [new("id", "path", true, "string", null, null)]) } }, new JsonSerializerOptions(JsonSerializerDefaults.Web));
         var request = new PluginExecutionRequest("1.0", Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(),
             "route-injection-fixture", "http://127.0.0.1:1/", "lab-active", DateTimeOffset.UtcNow.AddSeconds(10), DateTimeOffset.UtcNow,
             UseHttpRelay: true, OpenApiInventoryJson: inventory);
@@ -75,6 +78,15 @@ public sealed class InjectionRouteResponseTests
         });
         Assert.NotEqual(PluginExecutionOutcome.Failed, result.Outcome);
         Assert.DoesNotContain(result.Checks, row => row.State == "ScriptError");
+        if (oracle == "unsupported-query")
+        {
+            Assert.Equal(0, calls);
+            Assert.All(result.Checks, row => Assert.Equal("Inconclusive", row.State));
+            using var evidence = JsonDocument.Parse(Assert.Single(result.Evidence).EvidenceSummary);
+            Assert.Equal(1, evidence.RootElement.GetProperty("unsupportedQueryBaselines").GetInt32());
+            Assert.Equal(0, evidence.RootElement.GetProperty("incompleteResponses").GetInt32());
+            return;
+        }
         if (oracle is "safe" or "budget-denied" or "provider-error" or "conversion-error" or "transient-error" or "unstable-control") Assert.All(result.Checks, row => Assert.Equal("Inconclusive", row.State));
         if (oracle is "sql-error" or "sqlite-syntax" or "sqlserver-syntax")
         {

@@ -45,21 +45,30 @@ public sealed class InjectionProbeCheck : IIsolatedCheck
         var resolver = new PathResolver(client, origin, catalog, mayCreate: false);
         var findings = new List<PluginCheckResult>();
         var rows = new List<object>();
-        int assessed = 0, probes = 0, incomplete = 0;
+        int assessed = 0, probes = 0, incomplete = 0, unsupportedQueryBaselines = 0;
         foreach (var operation in operations)
         {
             ct.ThrowIfCancellationRequested();
             try
             {
+                var query = InjectionQueryBaseline.Create(operation.QueryParams);
+                if (query is null)
+                {
+                    unsupportedQueryBaselines++;
+                    rows.Add(new { op = operation.Path, error = "query_baseline_unsupported_or_ambiguous" });
+                    continue;
+                }
                 var resolution = await resolver.ResolveAsync(new ContractBodies.Operation("GET", operation.Path, [], operation.PathParams), ct);
-                var baseUri = origin + resolution.Path;
+                var baseUri = query.Append(origin + resolution.Path);
                 var baseline = await GetAsync(client, baseUri, ct);
                 if (baseline.Status is < 200 or >= 300 || baseline.Truncated) { incomplete++; rows.Add(new { op = operation.Path, baseline = baseline.Status, truncated = baseline.Truncated }); continue; }
                 assessed++;
                 var parameters = operation.PathParams.Select(p => ("route", ContractBodies.Name(p))).Concat(operation.QueryParams.Select(p => ("query", ContractBodies.Name(p)))).ToArray();
                 foreach (var (kind, name) in parameters)
                 {
-                    string Build(string value) => kind == "route" ? origin + SubstituteRoute(operation.Path, resolution, name, value) : baseUri + "?" + Uri.EscapeDataString(name) + "=" + Uri.EscapeDataString(value);
+                    string Build(string value) => kind == "route"
+                        ? query.Append(origin + SubstituteRoute(operation.Path, resolution, name, value))
+                        : query.Append(origin + resolution.Path, name, value);
 
                     // SQLi erro
                     foreach (var (sqlClass, payload) in SqlErrorPayloads)
@@ -124,7 +133,7 @@ public sealed class InjectionProbeCheck : IIsolatedCheck
                     }
                     if (findings.Count >= MaxFindings) break;
                 }
-                rows.Add(new { op = operation.Path, baseline = baseline.Status, parameters = parameters.Select(p => p.Item2) });
+                rows.Add(new { op = operation.Path, baseline = baseline.Status, baselineInput = "contract-synthetic-scalars", parameters = parameters.Select(p => p.Item2) });
             }
             catch (Exception exception) when ((exception is HttpRequestException or TaskCanceledException) && !ct.IsCancellationRequested) { incomplete++; rows.Add(new { op = operation.Path, error = "transport_or_budget" }); break; }
             if (findings.Count >= MaxFindings) break;
@@ -132,12 +141,12 @@ public sealed class InjectionProbeCheck : IIsolatedCheck
 
         var evidence = System.Text.Json.JsonSerializer.Serialize(new
         {
-            kind = "injection-probe-v1", operations = rows, availableOperations = operations.Count, assessedOperations = assessed, probes, incompleteResponses = incomplete,
+            kind = "injection-probe-v1", operations = rows, availableOperations = operations.Count, assessedOperations = assessed, probes, incompleteResponses = incomplete, unsupportedQueryBaselines,
             limitation = "Operações GET do contrato até o orçamento de rede/tempo declarado no manifesto; corpos truncados/recusas e operações restantes não são aprovação. Erro de sintaxe SQL repetível com controle estável e correlação booleana são indícios inferidos, sem comprovar execução SQL; reflexão somente em respostas HTML é candidata a XSS, sem prova no navegador. Sem SQLi temporal, XSS armazenado/DOM, POST/corpo nem variantes de WAF/encoding. Ausência de sinal é Inconclusive.",
         });
         var controls = findings.Take(MaxFindings).ToList();
         foreach (var id in new[] { "WEB-INJ-01", "WEB-INJ-02" })
-            if (!controls.Any(c => c.ControlId == id)) controls.Add(new(id, "Inconclusive", $"{probes} sondagens em {assessed}/{operations.Count} operação(ões); {incomplete} resposta(s) incompleta(s). Nenhum sinal observado por este controle; ausência de sinal não comprova resistência.", "NotAssessed", "Info"));
+            if (!controls.Any(c => c.ControlId == id)) controls.Add(new(id, "Inconclusive", $"{probes} sondagens em {assessed}/{operations.Count} operação(ões); {incomplete} resposta(s) incompleta(s); {unsupportedQueryBaselines} referência(s) de query sem suporte ou ambígua(s). Nenhum sinal observado por este controle; ausência de sinal não comprova resistência.", "NotAssessed", "Info"));
         return new(request.ContractVersion, findings.Count == 0 ? PluginExecutionOutcome.Inconclusive : PluginExecutionOutcome.Succeeded, controls, [new PluginEvidenceRef(controls[0].Summary, evidence)], []);
     }
 

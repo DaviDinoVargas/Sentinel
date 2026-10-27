@@ -26,6 +26,35 @@ public sealed class InjectionProbeTests
         Assert.Contains("erro de sintaxe SQL repetível", findings[0].Summary);
     }
 
+    [Theory]
+    [InlineData("inj-required-error", true)]
+    [InlineData("inj-required-safe", false)]
+    public async Task Referencia_e_sondas_preservam_os_demais_parametros_obrigatorios(string scenario, bool signal)
+    {
+        var spec = """
+            {"openapi":"3.0.3","info":{"title":"required-query","version":"1"},"paths":{
+              "/aplicacao/__SCENARIO__/items":{"get":{"parameters":[
+                {"name":"q","in":"query","required":true,"schema":{"type":"string"}},
+                {"name":"mode","in":"query","required":true,"schema":{"type":"string","enum":["active"]}},
+                {"name":"page","in":"query","required":true,"schema":{"type":"integer"}}
+              ],"responses":{"200":{"description":"ok"}}}}
+            }}
+            """.Replace("__SCENARIO__", scenario, StringComparison.Ordinal);
+        var audit = await RunAsync(spec, scenario + "/items");
+        var sql = audit.Controls.Where(c => c.ControlId == "WEB-INJ-01").ToArray();
+        Assert.NotEmpty(sql);
+        if (signal)
+        {
+            Assert.Contains(sql, c => c.State == "Failed" && c.SourceRuleId!.EndsWith(":q", StringComparison.Ordinal));
+            Assert.All(sql.Where(c => c.State == "Failed"), c => Assert.Equal("Inferred", c.Confidence));
+        }
+        else
+        {
+            Assert.All(sql, c => Assert.Equal("Inconclusive", c.State));
+            Assert.Contains("1/1 operação", Assert.Single(sql).Summary);
+        }
+    }
+
     [Fact]
     public async Task Sqli_booleana_reprova_quando_or_e_and_devolvem_corpos_diferentes()
     {

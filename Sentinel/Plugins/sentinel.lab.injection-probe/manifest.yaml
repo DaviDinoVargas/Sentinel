@@ -2,7 +2,7 @@ apiVersion: sentinel.dev/v1
 kind: PluginManifest
 metadata:
   id: sentinel.lab.injection-probe
-  version: 1.0.0
+  version: 1.0.1
   name: SQL injection (erro/booleana) e XSS refletido em parâmetros do contrato (WEB-INJ-01, WEB-INJ-02, parcial)
 spec:
   type: security-test
