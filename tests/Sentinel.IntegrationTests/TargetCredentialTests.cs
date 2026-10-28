@@ -147,7 +147,14 @@ public sealed class TargetCredentialTests(SentinelApiFactory factory) : IClassFi
         Assert.True(coordinator.BeginPlugin(lease, manifest.Metadata.Id, request.DeadlineUtc));
         using var gateway = host.Services.GetRequiredService<ScopedHttpGateway>().Open(lease, request, manifest, coordinator.Payload(audit.Id)!.Credential);
         var result = await gateway.SendAsync(new("http-request", Guid.NewGuid(), "GET", request.TargetUri, []), CancellationToken.None);
-        Assert.Equal(200, result.StatusCode); Assert.Empty(result.Headers); Assert.Empty(result.BodyBase64);
+        Assert.Equal(200, result.StatusCode);
+        Assert.Equal(4, result.Headers.Count);
+        Assert.Equal("true", Assert.Single(result.Headers["X-Sentinel-Headers-Incomplete"]));
+        Assert.Equal("0", Assert.Single(result.Headers["X-Sentinel-Header-Values-Eligible"]));
+        Assert.Equal("0", Assert.Single(result.Headers["X-Sentinel-Header-Values-Delivered"]));
+        Assert.Equal("policy-restricted", Assert.Single(result.Headers["X-Sentinel-Header-Omissions"]));
+        Assert.Empty(result.BodyBase64);
+        Assert.DoesNotContain("sentinel-tenant-a", JsonSerializer.Serialize(result, Json));
         var rejected = await gateway.SendAsync(new("http-request", Guid.NewGuid(), "GET", request.TargetUri, new() { ["Authorization"] = ["Bearer replaced"] }), CancellationToken.None);
         Assert.Equal(0, rejected.StatusCode);
         coordinator.Finish(lease, AuditState.Completed); coordinator.ReleaseStoppedChild(lease);

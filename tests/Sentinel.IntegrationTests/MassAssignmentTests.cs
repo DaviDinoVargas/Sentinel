@@ -57,11 +57,26 @@ public sealed class MassAssignmentTests
     public async Task Credencial_refletida_pelo_alvo_em_cabecalho_e_corpo_chega_ao_plugin_so_redigida()
     {
         // /authenticated/tenant-a reflete a credencial no cabeçalho X-Reflected-Secret e no corpo. O plugin
-        // pede cabeçalhos de resposta autenticados (authenticatedResponseHeaders): recebe o cabeçalho, mas
-        // com a credencial redigida; a evidência persistida nunca pode conter o token.
+        // pede cabeçalhos autenticados, mas o gateway omite valores com credenciais.
+        // A evidência contém metadados da operação; não precisa reproduzir corpo ou cabeçalhos.
         var (audit, execution, evidence) = await RunAsync("reflect", allowPost: true, pathOverride: "/authenticated/tenant-a");
-        Assert.Contains("X-Reflected-Secret", evidence);
-        Assert.Contains("redacted", evidence); // o JSON escapa < e >, então o valor aparece como 003Credacted003E
+        using var envelope = JsonDocument.Parse(evidence);
+        Assert.Equal("sentinel-evidence-v1", envelope.RootElement.GetProperty("format").GetString());
+        Assert.Equal(audit.Id, envelope.RootElement.GetProperty("auditId").GetGuid());
+        Assert.Equal("sentinel.lab.mass-assignment", envelope.RootElement.GetProperty("sourcePluginId").GetString());
+        Assert.False(envelope.RootElement.GetProperty("truncated").GetBoolean());
+        using var document = JsonDocument.Parse(envelope.RootElement.GetProperty("details").GetString()!);
+        Assert.Equal("mass-assignment-v1", document.RootElement.GetProperty("kind").GetString());
+        var operation = Assert.Single(document.RootElement.GetProperty("operations").EnumerateArray());
+        Assert.Equal("POST /authenticated/tenant-a", operation.GetProperty("op").GetString());
+        Assert.Equal(200, operation.GetProperty("baseline").GetInt32());
+        Assert.Equal(200, operation.GetProperty("attack").GetInt32());
+        Assert.Equal("not-observable", operation.GetProperty("outcome").GetString());
+        Assert.False(operation.GetProperty("responseHeaders").TryGetProperty("X-Reflected-Secret", out _));
+        Assert.Equal("Inconclusive", Assert.Single(audit.Controls, item => item.ControlId == "API-AUTHZ-04").State);
+        Assert.Equal(2, execution.Events.Count(item => item.Kind == "WriteGranted" && item.Detail == "sentinel.lab.mass-assignment"));
+        Assert.Equal(2, execution.Events.Count(item => item.Kind == "WriteTrail" && item.Detail.StartsWith("sentinel.lab.mass-assignment POST /authenticated/tenant-a body=", StringComparison.Ordinal)));
+        Assert.DoesNotContain("X-Reflected-Secret", evidence);
         Assert.DoesNotContain("sentinel-tenant-a", evidence);
         Assert.DoesNotContain("sentinel-tenant-a", JsonSerializer.Serialize(new { audit, execution }, Json));
     }

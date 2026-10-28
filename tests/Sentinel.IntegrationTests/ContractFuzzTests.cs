@@ -38,7 +38,10 @@ public sealed class ContractFuzzTests
         }
         // Governança: 1 corpo válido + 8 mutações = 9 POSTs concedidos, cada um na trilha, sem corpos.
         Assert.Equal(9, execution.Events.Count(item => item.Kind == "WriteGranted" && item.Detail == "sentinel.lab.contract-fuzz"));
-        var trail = execution.Events.Where(item => item.Kind == "WriteTrail").Select(item => item.Detail).ToArray();
+        var allTrail = execution.Events.Where(item => item.Kind == "WriteTrail").Select(item => item.Detail).ToArray();
+        var grants = execution.Events.Where(item => item.Kind == "WriteGranted").Select(item => item.Detail).Order().ToArray();
+        Assert.Equal(grants, allTrail.Select(detail => detail.Split(' ', 2)[0]).Order().ToArray());
+        var trail = allTrail.Where(detail => detail.StartsWith("sentinel.lab.contract-fuzz ", StringComparison.Ordinal)).ToArray();
         Assert.Equal(9, trail.Length);
         Assert.All(trail, detail => Assert.StartsWith("sentinel.lab.contract-fuzz POST /aplicacao/fuzz-api-seguro/items body=", detail));
         Assert.DoesNotContain("sentinel-name", string.Join(" ", trail));
