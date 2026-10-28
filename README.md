@@ -1,12 +1,18 @@
 # Sentinel
 
+## Verificacoes de credenciais e trilhas de escrita — V55
+
+Corrigidas as tres assercoes incompatíveis com o comportamento atual encontradas na regressao V54. O teste do gateway exige exatamente os quatro metadados internos de cobertura, corpo vazio, ausencia da credencial e recusa de Authorization fornecido pelo plugin. O teste de mass assignment valida o envelope e a operacao real na evidencia, duas escritas autorizadas, omissao do cabecalho refletido e ausencia do segredo em evidencia, auditoria e eventos; resposta sem observacao permanece Inconclusive. O fuzz conta as nove escritas de seu proprio plugin e compara concessoes e trilhas por autoria em toda a auditoria.
+
+Validacao: build Release sem avisos/erros; 10/10 testes do exportador de cabecalhos. A bateria integrada focada terminou 13/15 em 20,9209 minutos: houve um timeout de inventario e um erro na nova leitura do envelope de evidencia. Apos corrigir essa leitura, os dois casos passaram em 3,1019 minutos, sem aumentar limites ou timeouts. O timeout nao se repetiu, mas sua causa nao foi comprovada. Os 15 casos tiveram aprovacao nas execucoes registradas; isso nao equivale a uma unica rodada 15/15 nem a nova regressao completa de 695 casos. Nenhuma regra do produto, imagem de plugins ou interface foi alterada neste recorte.
+
 ## Base offline de vulnerabilidades — atualizacao de 27/10/2026
 
 A base Trivy anterior tinha UpdatedAt2026-10-20T19:12:26Z e excedeu os sete dias permitidos em27/10. Nessa condicao, o scanner recusa avaliar CVEs e informa Inconclusive; a saude HTTP da API nao representa prontidao da base de vulnerabilidades.
 
 `infra/plugins/trivy.lock.json` fixa a nova base oficial por digest `sha256:f35669553b6f9e90ca39535f60280ad5e288de75df474ff7be5661a5ca4cf52c`, com UpdatedAt2026-10-27T19:17:44Z conferido na imagem. Scanner0.76.0, seu digest, o limite de sete dias e a verificacao SHA-256 permanecem iguais. A base e obtida no build; as auditorias continuam offline e nao atualizam dependencias nem executam configuracoes do alvo. Referencias: [base oficial](https://github.com/aquasecurity/trivy-db) e [configuracao de bases](https://trivy.dev/docs/dev/configuration/db/).
 
-Validacao focada6/6aprovada, incluindo scanner em container, CVE conhecida e proveniencia verificada. A regressao integrada completa ainda precisa encerrar. Esta atualizacao e pontual. Renovacao governada recorrente e sinalizacao antecipada de vencimento continuam pendentes na revisao de operabilidade/interface.
+Validacao focada6/6aprovada, incluindo scanner em container, CVE conhecida e proveniencia verificada. A regressao integrada V54 terminou com 692/695 aprovados e tres falhas de assercao (cabecalhos autenticados e autoria de trilhas de escrita), em 2,3027 horas. Esta atualizacao e pontual. Renovacao governada recorrente e sinalizacao antecipada de vencimento continuam pendentes na revisao de operabilidade/interface.
 
 ## Referencia de query nas sondagens de injecao — V53
 
