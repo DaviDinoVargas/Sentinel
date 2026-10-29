@@ -27,9 +27,31 @@ public sealed record PluginExecutionRequest(
     string? PriorSourceInventoryJson = null,
     string? OpenApiInventoryJson = null,
     LogoutObservation? LogoutObservation = null,
-    RefreshObservation? RefreshObservation = null);
+    RefreshObservation? RefreshObservation = null,
+    EnumerationObservation? EnumerationObservation = null);
 
 public sealed record SessionStepObservation(string Step, int Status, bool? IdentityMatched = null, bool? InvalidGrant = null);
+
+// AUTH-ENUM-01 (parcial): só estatísticas derivadas pelo host cruzam a fronteira do plugin —
+// status, contagens e igualdade/consistência booleana do campo de erro escalar. Nunca o valor do
+// campo, o identificador comparado, a senha sintética ou qualquer fingerprint de baixa entropia.
+public sealed record EnumerationStepObservation(string Phase, int Attempt, int Status, bool ErrorFieldPresent);
+public sealed record EnumerationObservation(
+    string Code,
+    bool UniformityExpected = false,
+    bool ReferenceVerified = false,
+    bool ControlVerified = false,
+    int KnownAttempts = 0,
+    int NonexistentAttempts = 0,
+    bool? StatusConsistentWithinKnown = null,
+    bool? StatusConsistentWithinNonexistent = null,
+    bool? ErrorFieldConsistentWithinKnown = null,
+    bool? ErrorFieldConsistentWithinNonexistent = null,
+    bool? StatusDiffersBetweenGroups = null,
+    bool? ErrorFieldDiffersBetweenGroups = null,
+    bool Stopped = false,
+    string? StopReason = null,
+    IReadOnlyList<EnumerationStepObservation>? Steps = null);
 public sealed record RefreshObservation(string Code, bool BaselineVerified = false, bool InitialRefreshVerified = false,
     bool? Rotated = null, bool? ReplayDenied = null, bool? ReplayAccepted = null, bool? FamilyDenied = null, bool? FamilyAccepted = null,
     bool FreshControlVerified = false, bool ExpectFamilyRevocation = true, IReadOnlyList<SessionStepObservation>? Steps = null);

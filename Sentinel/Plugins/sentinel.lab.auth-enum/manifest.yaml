@@ -1,0 +1,30 @@
+apiVersion: sentinel.dev/v1
+kind: PluginManifest
+metadata:
+  id: sentinel.lab.auth-enum
+  version: 1.0.0
+  name: "Enumeração por respostas de autenticação (AUTH-ENUM-01, parcial)"
+spec:
+  type: security-test
+  contractVersion: "1.0"
+  mode: active
+  activation: explicit
+  controls: [AUTH-ENUM-01-RESPONSE]
+  capabilities:
+    network: scoped-egress
+    sourceRead: false
+    artifactWrite: false
+    gateway:
+      identity: primary
+      enumerationCheck: true
+      loginRequests: 8
+      bodyBytes: 32768
+      maxRequests: 8
+      methods: [GET]
+  resources:
+    timeoutSeconds: 120
+    memoryMiB: 128
+  permissions: [target.http.authenticated-lab, target.auth.enumeration]
+  execution:
+    isolation: container
+  riskClass: medium

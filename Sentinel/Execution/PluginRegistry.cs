@@ -102,6 +102,14 @@ public sealed class PluginRegistry
             return "logoutCheck exige ativação explícita, modo ativo, identidade primária, POST, corpo, duas autenticações e permissão target.session.logout.";
         if (manifest.Spec.Permissions.Contains("target.session.logout", StringComparer.Ordinal) != gateway.LogoutCheck)
             return "logoutCheck e target.session.logout devem ser declarados juntos.";
+        if (gateway.EnumerationCheck && (gateway.RefreshCheck || gateway.LogoutCheck))
+            return "Cada workflow de autenticação exige manifesto próprio para evidências e orçamentos independentes.";
+        if (gateway.EnumerationCheck && (manifest.Spec.Activation != "explicit" || manifest.Spec.Mode != "active" || gateway.Identity != "primary" ||
+            gateway.LoginRequests < 8 || gateway.BodyBytes < 1 || gateway.MaxRequests < 4 ||
+            !manifest.Spec.Permissions.Contains("target.auth.enumeration", StringComparer.Ordinal)))
+            return "enumerationCheck exige seleção explícita, modo ativo, identidade primária, oito autenticações, leitura de corpo da identidade e permissão target.auth.enumeration.";
+        if (manifest.Spec.Permissions.Contains("target.auth.enumeration", StringComparer.Ordinal) != gateway.EnumerationCheck)
+            return "enumerationCheck e target.auth.enumeration devem ser declarados juntos.";
         var writes = gateway.Methods.Where(method => GatewayLimits.WriteMethods.Contains(method)).ToArray();
         if (writes.Length > 0)
         {

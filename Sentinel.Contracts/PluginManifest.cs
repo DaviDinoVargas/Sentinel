@@ -127,6 +127,11 @@ public sealed class PluginManifestGateway
     // Session workflows keep credentials and identity assertions inside the host.
     public bool LogoutCheck { get; set; }
     public bool RefreshCheck { get; set; }
+    // AUTH-ENUM-01 (parcial): o host executa autenticação de referência, pares de tentativas com
+    // senha sintética inválida para um identificador conhecido e outro declarado inexistente, e um
+    // controle final. Entrega só observações tipadas (status, contagens, igualdade booleana do campo
+    // de erro escalar) — nunca nomes, senhas, tokens, corpos ou fingerprints.
+    public bool EnumerationCheck { get; set; }
     public int LoginRequests { get; set; } = 1;
 }
 

@@ -56,6 +56,7 @@ public static class Program
         ["sentinel.lab.jwt-forgery"] = () => new JwtForgeryCheck(),
         ["sentinel.lab.jwt-lifecycle"] = () => new JwtLifecycleCheck(),
         ["sentinel.lab.auth-brute"] = () => new AuthBruteForceCheck(),
+        ["sentinel.lab.auth-enum"] = () => new AuthEnumerationCheck(),
         ["sentinel.lab.injection-probe"] = () => new InjectionProbeCheck(),
     };
 

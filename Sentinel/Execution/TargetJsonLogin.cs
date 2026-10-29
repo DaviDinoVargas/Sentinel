@@ -4,15 +4,21 @@ using Sentinel.Core;
 namespace Sentinel.Execution;
 
 public sealed record JsonLoginConfiguration(string Url, string UsernameField, string PasswordField, string TokenPath,
-    string? TenantField = null, string Method = "POST", TargetLogoutConfiguration? Logout = null, TargetRefreshConfiguration? Refresh = null);
+    string? TenantField = null, string Method = "POST", TargetLogoutConfiguration? Logout = null, TargetRefreshConfiguration? Refresh = null,
+    TargetEnumerationConfiguration? Enumeration = null);
 public sealed record TargetLogoutConfiguration(string Url, string IdentityPath, string BodyFormat = "none");
+// AUTH-ENUM-01 (parcial): caminhos não sensíveis para verificar a identidade de referência no recurso
+// protegido e para extrair o campo de erro escalar da falha de login, mais a expectativa de uniformidade
+// do contrato. O identificador comparado e a senha sintética ficam no JsonLoginInput cifrado, nunca aqui.
+public sealed record TargetEnumerationConfiguration(string IdentityPath, string ErrorPath, bool UniformityExpected = true);
 public sealed record TargetRefreshConfiguration(string Url, string InitialTokenPath, string IdentityPath,
     string InputField = "refresh_token", string AccessTokenPath = "access_token", string RotatedTokenPath = "refresh_token",
     string ContentType = "application/json", string ErrorPath = "error", string InvalidGrantValue = "invalid_grant",
     string? GrantTypeField = "grant_type", string GrantTypeValue = "refresh_token", string ClientIdField = "client_id",
     string ClientSecretField = "client_secret", bool RevokeFamilyOnReplay = true);
 public sealed record JsonLoginInput(JsonLoginConfiguration Configuration, string Username, string Password, string? Tenant = null,
-    string? ExpectedIdentity = null, string? RefreshClientId = null, string? RefreshClientSecret = null);
+    string? ExpectedIdentity = null, string? RefreshClientId = null, string? RefreshClientSecret = null,
+    string? ComparisonUsername = null, string? SyntheticPassword = null);
 internal sealed record CredentialMaterial(string Type, string? Bearer, JsonLoginInput? Login);
 
 public static class TargetJsonLogin
@@ -32,7 +38,7 @@ public static class TargetJsonLogin
                 input.ExpectedIdentity.Length > 512 || input.ExpectedIdentity.Any(char.IsControl))
                 throw new ArgumentException("Logout exige POST no mesmo escopo, formato none/empty-json, caminho JSON e identidade esperada privada. Configure somente quando o contrato exigir revogação imediata do Bearer.");
         }
-        else if (c.Refresh is null && !string.IsNullOrEmpty(input.ExpectedIdentity)) throw new ArgumentException("Identidade esperada exige contrato de sessão.");
+        else if (c.Refresh is null && c.Enumeration is null && !string.IsNullOrEmpty(input.ExpectedIdentity)) throw new ArgumentException("Identidade esperada exige contrato de sessão ou enumeração.");
         if (c.Refresh is { } refresh)
         {
             var paths = new[] { refresh.InitialTokenPath, refresh.IdentityPath, refresh.AccessTokenPath, refresh.RotatedTokenPath, refresh.ErrorPath };
@@ -55,6 +61,18 @@ public static class TargetJsonLogin
         }
         else if (!string.IsNullOrEmpty(input.RefreshClientId) || !string.IsNullOrEmpty(input.RefreshClientSecret))
             throw new ArgumentException("Credenciais de cliente exigem contrato de refresh.");
+        if (c.Enumeration is { } enumeration)
+        {
+            var enumPaths = new[] { enumeration.IdentityPath, enumeration.ErrorPath };
+            if (enumPaths.Any(path => string.IsNullOrWhiteSpace(path) || path.Length > 200 || path.Split('.').Length > 8 || path.Split('.').Any(part => !ValidField(part))) ||
+                string.IsNullOrWhiteSpace(input.ExpectedIdentity) || input.ExpectedIdentity.Length > 512 || input.ExpectedIdentity.Any(char.IsControl) ||
+                string.IsNullOrWhiteSpace(input.ComparisonUsername) || input.ComparisonUsername.Length > 320 || input.ComparisonUsername.Any(char.IsControl) ||
+                string.IsNullOrEmpty(input.SyntheticPassword) || input.SyntheticPassword.Length > 1024 || input.SyntheticPassword.Any(char.IsControl) ||
+                string.Equals(input.SyntheticPassword, input.Password, StringComparison.Ordinal))
+                throw new ArgumentException("Enumeração exige caminhos de identidade e campo de erro válidos, identidade esperada, identificador de comparação e senha sintética privados distintos da senha real. Configure só quando o contrato exigir respostas uniformes de autenticação.");
+        }
+        else if (!string.IsNullOrEmpty(input.ComparisonUsername) || !string.IsNullOrEmpty(input.SyntheticPassword))
+            throw new ArgumentException("Identificador de comparação e senha sintética exigem contrato de enumeração.");
         if (c.Method != "POST" || !Uri.TryCreate(c.Url, UriKind.Absolute, out var uri) || c.Url.Length > 2048 ||
             uri.Scheme is not ("http" or "https") || uri.UserInfo.Length != 0 || uri.Query.Length != 0 || uri.Fragment.Length != 0 ||
             !new ScopePolicyEngine().Evaluate([scope], uri, "authenticated-lab", now, true, "POST").IsAllowed)

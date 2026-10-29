@@ -59,6 +59,7 @@
                 "tokenMetadata": { "type": "boolean" },
                 "logoutCheck": { "type": "boolean" },
                 "refreshCheck": { "type": "boolean" },
+                "enumerationCheck": { "type": "boolean" },
                 "loginRequests": { "type": "integer", "minimum": 1, "maximum": 10 }
               }
             }

@@ -58,6 +58,27 @@
           }
         } }
       }
+    },
+    "enumerationObservation": {
+      "type": ["null", "object"], "required": ["code"], "additionalProperties": false,
+      "properties": {
+        "code": { "enum": ["NotConfigured", "ReferenceUnverified", "Stopped", "ControlUnavailable", "Evaluated", "ConfigurationOrCredentialUnavailable"] },
+        "uniformityExpected": { "type": "boolean" }, "referenceVerified": { "type": "boolean" }, "controlVerified": { "type": "boolean" },
+        "knownAttempts": { "type": "integer", "minimum": 0, "maximum": 3 }, "nonexistentAttempts": { "type": "integer", "minimum": 0, "maximum": 3 },
+        "statusConsistentWithinKnown": { "type": ["null", "boolean"] }, "statusConsistentWithinNonexistent": { "type": ["null", "boolean"] },
+        "errorFieldConsistentWithinKnown": { "type": ["null", "boolean"] }, "errorFieldConsistentWithinNonexistent": { "type": ["null", "boolean"] },
+        "statusDiffersBetweenGroups": { "type": ["null", "boolean"] }, "errorFieldDiffersBetweenGroups": { "type": ["null", "boolean"] },
+        "stopped": { "type": "boolean" }, "stopReason": { "type": ["null", "string"], "maxLength": 64 },
+        "steps": { "type": ["null", "array"], "maxItems": 16, "items": {
+          "type": "object", "required": ["phase", "attempt", "status", "errorFieldPresent"], "additionalProperties": false,
+          "properties": {
+            "phase": { "enum": ["reference", "known", "nonexistent", "control"] },
+            "attempt": { "type": "integer", "minimum": 0, "maximum": 3 },
+            "status": { "type": "integer", "minimum": 0, "maximum": 599 },
+            "errorFieldPresent": { "type": "boolean" }
+          }
+        } }
+      }
     }
   }
 }

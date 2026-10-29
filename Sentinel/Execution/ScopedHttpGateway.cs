@@ -151,7 +151,7 @@ public sealed partial class ScopedHttpGateway(ISentinelStore store, ScopePolicyE
             try { return Convert.TryFromBase64String(call.BodyBase64, buffer, out var written) && written <= limit; }
             finally
             {
-                if (gateway.LogoutCheck || gateway.RefreshCheck) System.Security.Cryptography.CryptographicOperations.ZeroMemory(buffer);
+                if (gateway.LogoutCheck || gateway.RefreshCheck || gateway.EnumerationCheck) System.Security.Cryptography.CryptographicOperations.ZeroMemory(buffer);
             }
         }
 
@@ -294,7 +294,7 @@ public sealed partial class ScopedHttpGateway(ISentinelStore store, ScopePolicyE
                     headers["X-Sentinel-Body-Truncated"] = [truncated ? "true" : "false"];
                     if (response.Content.Headers.ContentLength is { } declared) headers["X-Sentinel-Content-Length"] = [declared.ToString()];
                 }
-                if (limits.LogoutCheck || limits.RefreshCheck)
+                if (limits.LogoutCheck || limits.RefreshCheck || limits.EnumerationCheck)
                 {
                     try
                     {
@@ -302,7 +302,7 @@ public sealed partial class ScopedHttpGateway(ISentinelStore store, ScopePolicyE
                         observeBody?.Invoke(buffer.AsMemory(0, length), complete, response.Content.Headers.ContentType?.MediaType);
                     }
                     finally { System.Security.Cryptography.CryptographicOperations.ZeroMemory(buffer); }
-                    // Session responses and identity values never cross into the plugin.
+                    // Session and enumeration responses and identity values never cross into the plugin.
                     return new("http-response", call.RequestId, (int)response.StatusCode, headers, "", elapsed, null);
                 }
                 // Defesa em profundidade: se o alvo refletir a credencial no corpo, o plugin recebe <redacted>.
@@ -324,7 +324,7 @@ public sealed partial class ScopedHttpGateway(ISentinelStore store, ScopePolicyE
             }
             finally
             {
-                if (privateRequestBody is not null && (_manifest.Spec.Capabilities.Gateway.LogoutCheck || _manifest.Spec.Capabilities.Gateway.RefreshCheck))
+                if (privateRequestBody is not null && (_manifest.Spec.Capabilities.Gateway.LogoutCheck || _manifest.Spec.Capabilities.Gateway.RefreshCheck || _manifest.Spec.Capabilities.Gateway.EnumerationCheck))
                     System.Security.Cryptography.CryptographicOperations.ZeroMemory(privateRequestBody);
                 _concurrency.Release();
             }
