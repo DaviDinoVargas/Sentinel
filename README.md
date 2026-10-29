@@ -1,5 +1,13 @@
 # Sentinel
 
+## Enumeracao por respostas de autenticacao — V56
+
+O plugin opcional `sentinel.lab.auth-enum` (authenticated-lab, ativacao explicita) avalia o subcontrole de resposta do AUTH-ENUM-01: compara as respostas de falha de autenticacao entre a conta de referencia e um identificador declarado inexistente pelo operador, sob um contrato que exige uniformidade. O host executa o fluxo inteiro — autentica a referencia, confirma a identidade no recurso protegido, intercala tres pares de tentativas com uma senha sintetica invalida e faz um login de controle — e entrega ao plugin apenas uma observacao tipada. Nenhum nome, senha, token, corpo ou mensagem atravessa a fronteira; o identificador de comparacao e a senha sintetica ficam privados no cofre, e a senha sintetica precisa diferir da real.
+
+O fluxo cabe em oito concessoes de login (referencia, seis sondagens, controle) dentro do teto existente do coordenador, reusa escopo, orcamento e verificacao de revogacao do login normal e para em bloqueio, limite de taxa, revogacao, transporte indisponivel, redirecionamento ou aceitacao inesperada. Uma diferenca reproduzivel de status ou de campo de erro entre os grupos, com referencia e controle validos sob o contrato de uniformidade, e um candidato inferido de enumeracao, restrito ao subcontrole de resposta e aos identificadores avaliados; pares uniformes passam so esse subcontrole; o resto fica Inconclusive. Nao encerra o AUTH-ENUM-01 amplo nem afirma resistencia temporal, de reset ou de MFA.
+
+Validacao focada de 33 casos, exit 0, incluindo imagem de container real: respostas uniformes aprovam, diferencas de status ou de erro reprovam, e casos instaveis, bloqueados, aceitos inesperadamente, de referencia nao verificada, ambiguos e revogados ficam Inconclusive. Casos limpos fazem exatamente dois logins bem-sucedidos e seis sondagens. Os segredos nao aparecem no protocolo exportado, na listagem publica, no outbox persistido nem no token cifrado. Nao e a regressao completa de 695 casos; analise temporal continua pendente em projeto separado.
+
 ## Verificacoes de credenciais e trilhas de escrita — V55
 
 Corrigidas as tres assercoes incompatíveis com o comportamento atual encontradas na regressao V54. O teste do gateway exige exatamente os quatro metadados internos de cobertura, corpo vazio, ausencia da credencial e recusa de Authorization fornecido pelo plugin. O teste de mass assignment valida o envelope e a operacao real na evidencia, duas escritas autorizadas, omissao do cabecalho refletido e ausencia do segredo em evidencia, auditoria e eventos; resposta sem observacao permanece Inconclusive. O fuzz conta as nove escritas de seu proprio plugin e compara concessoes e trilhas por autoria em toda a auditoria.
